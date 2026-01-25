@@ -1,8 +1,0 @@
-"m_Local.m_audio.localSound",
-"m_offset",
-"m_ragAngles",
-"m_ragPos",
-"m_ragdollMaxs",
-"m_ragdollMins",
-"m_trackPoints",
-"m_vCPPositions",

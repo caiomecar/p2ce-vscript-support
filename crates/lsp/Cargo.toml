@@ -1,0 +1,12 @@
+[package]
+name = "tf2-vscript-lsp"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+sq-3-parser = { path = "../parser" }
+tokio = { version = "1", features = ["full"] }
+tower-lsp = "0.20"
+dashmap = "6.1.0"

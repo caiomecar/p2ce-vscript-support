@@ -1,0 +1,117 @@
+{
+  "name": "tf2-vscript-support",
+  "displayName": "TF2 VScript Support",
+  "description": "Provides basic support for Team Fortress 2 VScript - Squirrel language (.nut).",
+  "publisher": "ocet247",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ocet247/tf2-vscript-support"
+  },
+  "version": "2.3.3",
+  "engines": {
+    "vscode": "^1.96.1"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "scripts": {
+    "build-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node20",
+    "build": "npm run build-base -- --sourcemap",
+    "build-release": "npm run build-base -- --minify",
+    "watch": "npm run build-base -- --sourcemap --watch",
+    "lint": "eslint ./src",
+    "lint:fix": "npm run lint -- --fix"
+  },
+  "dependencies": {
+    "glob": "^11.0.0",
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@stylistic/eslint-plugin": "^2.9.0",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.19.27",
+    "@types/vscode": "^1.107.0",
+    "esbuild": "^0.25.5",
+    "eslint": "^9.13.0",
+    "mocha": "^10.3.0",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.0"
+  },
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "squirrel",
+        "aliases": [
+          "Squirrel",
+          "nut"
+        ],
+        "extensions": [
+          ".nut"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./nut_icon.png",
+          "dark": "./nut_icon.png"
+        }
+      },
+      {
+        "id": "squirrelDoc",
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "squirrel",
+        "scopeName": "source.squirrel",
+        "path": "./syntaxes/squirrel.tmLanguage.json"
+      },
+      {
+        "scopeName": "documentation.injection.squirrel",
+        "path": "./syntaxes/squirrelDoc.injection.tmLanguage.json",
+        "injectTo": [
+          "source.squirrel"
+        ]
+      },
+      {
+        "language": "squirrelDoc",
+        "scopeName": "source.squirrelDoc",
+        "path": "./syntaxes/squirrelDoc.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "TF2 VScript Support",
+      "properties": {
+        "squirrel.enableSignatureHelp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable signature help in Squirrel files"
+        },
+        "squirrel.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable diagnostics (linting, syntax errors)"
+        },
+        "squirrel.enableCompletions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code completions"
+        },
+        "squirrel.completionAutoParantheses": {
+          "type": "boolean",
+          "default": true,
+          "description": "If enabled, the method and some keyword completions will also include writing '()' after the method/keyword name and putting the cursor in the correct position."
+        },
+        "squirrel.enableHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable hover documentation"
+        }
+      }
+    }
+  }
+}

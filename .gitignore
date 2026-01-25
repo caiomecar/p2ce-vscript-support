@@ -1,6 +1,3 @@
-out
-node_modules
-tsconfig.tsbuildinfo
-.vscode/settings.json
-*.vsix
-.idea
+**/target
+**/node_modules
+**/out

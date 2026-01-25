@@ -7,11 +7,20 @@
       "request": "launch",
       "runtimeExecutable": "${execPath}",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}/editors/code"
       ],
-      "outFiles": ["${workspaceFolder}/**/*.js"],
+      "outFiles": [
+        "${workspaceFolder}/editors/code/out/**/*.js"
+      ],
       "autoAttachChildProcesses": true,
-      "preLaunchTask": "watch"
+      "preLaunchTask": "rust: cargo build",
+    },
+    {
+      "name": "Attach to Rust Server",
+      "type": "lldb",
+      "request": "attach",
+      "program": "${workspaceFolder}/target/debug/tf2-vscript-lsp",
+      "stopOnEntry": false
     }
   ]
 }

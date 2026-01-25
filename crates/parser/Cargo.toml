@@ -1,0 +1,11 @@
+[package]
+name = "sq-3-parser"
+description = "Squirrel 3 error resilient parser that produces rowan CST"
+version = "0.0.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+rowan = { workspace = true }
+phf = { version = "0.13.1", features = ["macros"] }
