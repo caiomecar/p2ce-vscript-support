@@ -449,6 +449,8 @@ impl Parser {
         }
     }
 
+    // function func[this](a, b, c = 2) { stmts }
+    //              ___________________
     fn parse_function_signature(&mut self) {
         let m = if self.at(SyntaxKind::OpenBracket) {
             let m = self.start();
@@ -499,6 +501,8 @@ impl Parser {
         self.finish(m, SyntaxKind::ParameterList);
     }
 
+    // abc(1, 2, 3) {a = 2}
+    //    _________________
     fn parse_call_arguments(&mut self) {
         if self.expect(SyntaxKind::OpenParenthesis) && !self.try_bump(SyntaxKind::CloseParenthesis)
         {
@@ -549,6 +553,8 @@ impl Parser {
         self.finish(m, SyntaxKind::PostCallInitialiser);
     }
 
+    // class a { </ a = 2, b = 3, d = "12321"/> }
+    //           ______________________________
     fn parse_attributes(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::LessThanSlash);
@@ -566,6 +572,14 @@ impl Parser {
         self.finish(m, SyntaxKind::Attributes);
     }
 
+    // class a {a = 2; d = 4; [12312] = 2; static function abc(){}})
+    //          __________________________________________________
+    // enum a { b, c, d = 2 }
+    //          ___________
+    // local a = { "12321": 1, b = 2 [12] = 5}
+    //             __________________________
+    // abc(1, 2, 3) {a = 2, b = 4, [14] = 2}
+    //               ______________________
     fn parse_member(&mut self, object_kind: MemberObject) -> Marker {
         let m = self.start();
 
@@ -714,6 +728,9 @@ impl Parser {
         }
         m
     }
+
+    // class a extends b { a = 3 ; d = 4; function abc(){} }
+    //         _____________________________________________
     fn parse_class_body(&mut self) {
         if self.at(SyntaxKind::ExtendsKeyword) {
             let m = self.start();
@@ -771,6 +788,7 @@ impl Parser {
     //     }
     // }
 
+    // 1, 2, 3, 4, [], {}, 6
     fn parse_comma_expression(&mut self) -> Marker {
         let m = self.start();
         self.parse_expression();
@@ -783,6 +801,10 @@ impl Parser {
         m
     }
 
+    // abc
+    // 1 + 2
+    // abc = 12 - 4112
+    // a ? b : c
     fn parse_expression(&mut self) -> Marker {
         let m = self.start();
         let lhs = self.parse_binary_expression(BinaryOperatorPrecedence::Lowest);
@@ -812,6 +834,8 @@ impl Parser {
         self.finish(m, SyntaxKind::Operator);
     }
 
+    // 1 + 2
+    // abc() * 12312 + 2 - 124
     fn parse_binary_expression(&mut self, precedence: BinaryOperatorPrecedence) -> Marker {
         let m = self.start();
         self.parse_prefix_expression();
@@ -837,7 +861,10 @@ impl Parser {
         m
     }
 
-    // "atom"
+    // -213
+    // ~512
+    // ++5123
+    // delete a
     fn parse_prefix_expression(&mut self) -> Marker {
         match self.token() {
             SyntaxKind::Minus | SyntaxKind::Tilde | SyntaxKind::Exclamation => {
@@ -919,6 +946,8 @@ impl Parser {
         m
     }
 
+    // abc().a[123]
+    // b++
     fn parse_postfix_expression(&mut self) -> Marker {
         let m = self.start();
 
@@ -938,6 +967,7 @@ impl Parser {
                     }
                     self.parse_postfix_update_expression(m);
                 }
+                // Recovery for the case where user has written :: to access a member
                 SyntaxKind::ColonColon if !self.can_parse_end_of_statement() => {
                     self.parse_member_access_expression(m)
                 }
@@ -982,12 +1012,16 @@ impl Parser {
         self.finish(m, SyntaxKind::ElementAccessExpression);
     }
 
+    // abc() { a = 12, b = 3 }
     fn parse_call_expression(&mut self, m: Marker) {
         assert_eq!(self.token(), SyntaxKind::OpenParenthesis);
         self.parse_call_arguments();
         self.finish(m, SyntaxKind::CallExpression);
     }
 
+    // 12321
+    // ::abc
+    // (function (){})
     fn parse_primary_expression(&mut self) -> Marker {
         match self.token() {
             SyntaxKind::NullKeyword
@@ -1088,6 +1122,7 @@ impl Parser {
         m
     }
 
+    // {a = 2, b = 3, d = 5, function abc(){}}
     fn parse_table_literal_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::OpenBrace);
@@ -1105,6 +1140,7 @@ impl Parser {
         m
     }
 
+    // (function() {return a + b})
     fn parse_function_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::FunctionKeyword);
@@ -1116,6 +1152,7 @@ impl Parser {
         m
     }
 
+    // @() a + b
     fn parse_lambda_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::At);
@@ -1127,6 +1164,7 @@ impl Parser {
         m
     }
 
+    // (class extends a {ads = null;})
     fn parse_class_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ClassKeyword);
@@ -1214,9 +1252,7 @@ impl Parser {
         self.finish(m, SyntaxKind::EmptyStatement);
     }
 
-    // {
-    //    statements
-    // }
+    // { local a = 2; b = 3; function abc(){} }
     fn parse_block_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::OpenBrace);
@@ -1227,7 +1263,11 @@ impl Parser {
         self.finish(m, SyntaxKind::BlockStatement);
     }
 
-    // if (cond) [body]; else [else body];
+    // 'else if' doesn't have a special case, it's handled as else branch
+    // of an if above with a single if statement so else if trees do not
+    // look like flat lists of conditions but they're rather
+    // skewed and have their depth incremented at every additional branch
+    // if (a) { return b } else { b = 3;}
     fn parse_if_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::IfKeyword);
@@ -1256,7 +1296,7 @@ impl Parser {
         self.finish(m, SyntaxKind::IfStatement);
     }
 
-    // while (cond) [body]
+    // while (a) { a++ }
     fn parse_while_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::WhileKeyword);
@@ -1269,7 +1309,7 @@ impl Parser {
         self.finish(m, SyntaxKind::WhileStatement);
     }
 
-    // do [body] while (cond)
+    // do { stuff } while (a--)
     fn parse_do_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::DoKeyword);
@@ -1283,7 +1323,7 @@ impl Parser {
         self.finish(m, SyntaxKind::DoWhileStatement);
     }
 
-    // for (init; cond; increment) [body]
+    // for (local function a(){}; a != null; i++) { break }
     fn parse_for_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ForKeyword);
@@ -1333,6 +1373,8 @@ impl Parser {
         self.finish(m, SyntaxKind::ForStatement);
     }
 
+    // foreach (v in array) { continue }
+    // foreach (k, v in table) { letsgo++ }
     fn parse_for_each_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ForEachKeyword);
@@ -1379,6 +1421,7 @@ impl Parser {
         self.finish(m, SyntaxKind::ForEachStatement);
     }
 
+    // switch (a) {case abc: wow++; break; default: return no }
     fn parse_switch_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::SwitchKeyword);
@@ -1426,12 +1469,15 @@ impl Parser {
         self.finish(m, SyntaxKind::SwitchStatement);
     }
 
+    // switch (a) {case abc: wow++; break; default: return no }
+    //                       _____________          _________
     fn parse_case_body(&mut self) {
         while !self.at_set(END_OF_CASE_CLAUSE) {
             self.parse_statement(/* parse_end*/ true);
         }
     }
 
+    // Used in places where we expect an identifier and optionally an '=' sign
     fn parse_variable_declaration(&mut self, is_init_allowed: bool, message: &str) {
         let m = self.start();
         self.parse_name(message, Some(VARIABLE_RECOVERY));
@@ -1451,6 +1497,8 @@ impl Parser {
         self.finish(m, SyntaxKind::VariableDeclaration);
     }
 
+    // local abc = 2, d
+    // local function func() {}
     fn parse_local_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::LocalKeyword);
@@ -1482,6 +1530,9 @@ impl Parser {
         self.finish(m, SyntaxKind::LocalVariableDeclaration);
     }
 
+    // const can only take literals as value since it needs to be known at
+    // compile time, this however isn't handled here
+    // const
     fn parse_const_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ConstKeyword);
@@ -1491,10 +1542,12 @@ impl Parser {
 
         self.finish(m, SyntaxKind::ConstStatement);
         // Here is the only place where statement itself parses end
-        // Why? Because it's a squirrel language
+        // Why? Because it's a squirrel lang
         self.parse_end_of_statement();
     }
 
+    // return
+    // return 12321 + 2
     fn parse_return_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ReturnKeyword);
@@ -1505,6 +1558,8 @@ impl Parser {
         self.finish(m, SyntaxKind::ReturnStatement);
     }
 
+    // yield
+    // yield gidagedi()
     fn parse_yield_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::YieldKeyword);
@@ -1515,18 +1570,21 @@ impl Parser {
         self.finish(m, SyntaxKind::YieldStatement);
     }
 
+    // continue
     fn parse_continue_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ContinueKeyword);
         self.finish(m, SyntaxKind::ContinueStatement);
     }
 
+    // break
     fn parse_break_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::BreakKeyword);
         self.finish(m, SyntaxKind::BreakStatement);
     }
 
+    // function abc() {local a= 2; return a}
     fn parse_function_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::FunctionKeyword);
@@ -1538,6 +1596,8 @@ impl Parser {
         self.finish(m, SyntaxKind::FunctionStatement);
     }
 
+    // function a::b::c() {}
+    //          _______
     fn parse_qualified_name(&mut self) -> Marker {
         let name = self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
         let m = match self.marker_kind(name) {
@@ -1566,6 +1626,7 @@ impl Parser {
         return m;
     }
 
+    // class a extends b { member = 2 function method() {} }
     fn parse_class_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ClassKeyword);
@@ -1580,6 +1641,8 @@ impl Parser {
         self.finish(m, SyntaxKind::ClassStatement);
     }
 
+    // enum can only accept literals as it's member values but it's not handled here
+    // enum a {a, b, c, d = 2}
     fn parse_enum_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::EnumKeyword);
@@ -1598,6 +1661,8 @@ impl Parser {
         self.finish(m, SyntaxKind::EnumStatement);
     }
 
+    // Not sure what this is used for, seems like an outdated error handling remnant
+    // try { blowup() } catch (e) { error(e) }
     fn parse_try_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::TryKeyword);
@@ -1605,11 +1670,15 @@ impl Parser {
 
         if self.at(SyntaxKind::CatchKeyword) {
             self.parse_catch_clause();
+        } else {
+            self.error_at_token(self.expected_but_got("'catch'"));
         }
 
         self.finish(m, SyntaxKind::TryStatement);
     }
 
+    // try { blowup() } catch (e) { error(e) }
+    //                  ______________________
     fn parse_catch_clause(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::CatchKeyword);
@@ -1620,6 +1689,7 @@ impl Parser {
         self.finish(m, SyntaxKind::CatchClause);
     }
 
+    // throw abc + "2132"
     fn parse_throw_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ThrowKeyword);
@@ -1627,6 +1697,7 @@ impl Parser {
         self.finish(m, SyntaxKind::ThrowStatement);
     }
 
+    // abc = 312 + 2
     fn parse_expression_statement(&mut self) {
         let m = self.start();
         self.parse_comma_expression();
