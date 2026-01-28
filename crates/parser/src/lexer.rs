@@ -563,15 +563,8 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some(esc) => {
-                    let start = self
-                        .pos
-                        .checked_sub(TextSize::new(1))
-                        .expect("We must have read at least 1 character before this point");
-
-                    let end = self
-                        .pos
-                        .checked_add(TextSize::new(1))
-                        .expect("Number of characters is overflowing");
+                    let start = self.pos - TextSize::new(1);
+                    let end = self.pos + TextSize::new(1);
 
                     self.error(
                         TextRange::new(start, end),
