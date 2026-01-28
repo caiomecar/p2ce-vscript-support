@@ -715,6 +715,12 @@ impl Parser {
         m
     }
     fn parse_class_body(&mut self) {
+        if self.at(SyntaxKind::ExtendsKeyword) {
+            let m = self.start();
+            self.bump();
+            self.parse_expression();
+            self.finish(m, SyntaxKind::Extends);
+        }
         self.expect(SyntaxKind::OpenBrace);
         self.parsing_members = true;
         while !self.at(SyntaxKind::CloseBrace) && !self.at(SyntaxKind::Eof) {

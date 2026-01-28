@@ -133,6 +133,7 @@ pub enum SyntaxKind {
     Attributes,
     PostCallInitialiser,
 
+    Extends,
     Members,
     Property,
     StringName,
