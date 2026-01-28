@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use sq_3_parser::{Parse, SyntaxError};
+use sq_3_parser::{Parse, SyntaxError, TextRange};
 use tower_lsp::jsonrpc;
 use tower_lsp::lsp_types::{
     Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -96,20 +96,14 @@ async fn main() {
 }
 
 fn syntax_errors_to_diagnostic(text: &str, errors: &[SyntaxError]) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for error in errors {
-        let range = error.range();
-        let start = byte_offset_to_position(text, range.start().into());
-        let end = byte_offset_to_position(text, range.end().into());
-
-        diagnostics.push(Diagnostic {
-            range: Range::new(start, end),
+    errors
+        .iter()
+        .map(|error| Diagnostic {
+            range: text_range_to_lsp_range(text, error.range()),
             message: error.message().to_string(),
             ..Default::default()
         })
-    }
-
-    diagnostics
+        .collect()
 }
 
 fn position_to_byte_offset(text: &str, pos: Position) -> usize {
@@ -153,6 +147,13 @@ fn byte_offset_to_position(text: &str, offset: usize) -> Position {
     }
 
     Position::new(line, col)
+}
+
+fn text_range_to_lsp_range(text: &str, text_range: TextRange) -> Range {
+    Range::new(
+        byte_offset_to_position(text, text_range.start().into()),
+        byte_offset_to_position(text, text_range.end().into()),
+    )
 }
 
 #[cfg(test)]

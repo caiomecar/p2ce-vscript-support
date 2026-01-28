@@ -384,6 +384,13 @@ impl<'a> Lexer<'a> {
 
                     SyntaxKind::Asterisk
                 }
+                // '*/' error recovery
+                Some('/') => {
+                    self.next();
+                    self.error_at_token("There's no comment to close with '*/'");
+
+                    SyntaxKind::Unknown
+                }
                 _ => SyntaxKind::Asterisk,
             },
             '%' => match self.next_and_peek() {
