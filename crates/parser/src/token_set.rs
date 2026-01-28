@@ -77,6 +77,41 @@ pub(crate) const ASSIGNMENT_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::LessThanMinus,
 ]);
 
+pub(crate) const BINARY_OPERATORS: TokenSet = TokenSet::new(&[
+    SyntaxKind::BarBar,
+    SyntaxKind::AmpersandAmpersand,
+    SyntaxKind::Bar,
+    SyntaxKind::Caret,
+    SyntaxKind::Ampersand,
+    SyntaxKind::EqualsEquals,
+    SyntaxKind::ExclamationEquals,
+    SyntaxKind::LessThanEqualsGreaterThan,
+    SyntaxKind::LessThan,
+    SyntaxKind::GreaterThan,
+    SyntaxKind::LessThanEquals,
+    SyntaxKind::GreaterThanEquals,
+    SyntaxKind::InstanceOfKeyword,
+    SyntaxKind::InKeyword,
+    SyntaxKind::LessThanLessThan,
+    SyntaxKind::GreaterThanGreaterThan,
+    SyntaxKind::GreaterThanGreaterThanGreaterThan,
+    SyntaxKind::Plus,
+    SyntaxKind::Minus,
+    SyntaxKind::Asterisk,
+    SyntaxKind::Slash,
+    SyntaxKind::Percent,
+]);
+
+pub(crate) const PREFIX_UNARY_OPERATORS: TokenSet = TokenSet::new(&[
+    SyntaxKind::Plus,
+    SyntaxKind::Minus,
+    SyntaxKind::Exclamation,
+    SyntaxKind::Tilde,
+]);
+
+pub(crate) const UPDATE_OPERATORS: TokenSet =
+    TokenSet::new(&[SyntaxKind::PlusPlus, SyntaxKind::MinusMinus]);
+
 pub(crate) const INIT_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::Equals,
     SyntaxKind::Colon,

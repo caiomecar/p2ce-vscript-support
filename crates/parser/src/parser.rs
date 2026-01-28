@@ -812,7 +812,7 @@ impl Parser {
             if !self.is_lhs_expression(lhs) {
                 self.error(self.marker_range(lhs), "The left-hand side of an assignment expression must be a variable or a property access.");
             }
-            self.parse_operator();
+            self.parse_operator(ASSIGNMENT_OPERATORS);
             self.parse_expression();
             self.finish(m, SyntaxKind::BinaryExpression);
         } else if self.at(SyntaxKind::Question) {
@@ -828,7 +828,8 @@ impl Parser {
         m
     }
 
-    fn parse_operator(&mut self) {
+    fn parse_operator(&mut self, expect_set: TokenSet) {
+        assert!(self.at_set(expect_set));
         let m = self.start();
         self.bump();
         self.finish(m, SyntaxKind::Operator);
@@ -849,7 +850,7 @@ impl Parser {
                 break;
             }
 
-            self.parse_operator();
+            self.parse_operator(BINARY_OPERATORS);
 
             self.parse_binary_expression(new_precedence);
 
@@ -886,7 +887,7 @@ impl Parser {
 
     fn parse_prefix_unary_expression(&mut self) -> Marker {
         let m = self.start();
-        self.parse_operator();
+        self.parse_operator(PREFIX_UNARY_OPERATORS);
         self.parse_prefix_expression();
         self.finish(m, SyntaxKind::PrefixUnaryExpression);
         m
@@ -894,7 +895,7 @@ impl Parser {
 
     fn parse_prefix_update_expression(&mut self) -> Marker {
         let m = self.start();
-        self.parse_operator();
+        self.parse_operator(UPDATE_OPERATORS);
         let operand = self.parse_prefix_expression();
         if !self.is_lhs_expression(operand) {
             self.error(self.marker_range(operand),"The operand of an increment or decrement operator must be a variable or a property access.");
@@ -983,7 +984,7 @@ impl Parser {
     }
 
     fn parse_postfix_update_expression(&mut self, m: Marker) {
-        self.parse_operator();
+        self.parse_operator(UPDATE_OPERATORS);
         self.finish(m, SyntaxKind::PostfixUpdateExpression);
     }
 
