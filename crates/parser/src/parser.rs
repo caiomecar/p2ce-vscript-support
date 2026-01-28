@@ -732,13 +732,20 @@ impl Parser {
     // class a extends b { a = 3 ; d = 4; function abc(){} }
     //         _____________________________________________
     fn parse_class_body(&mut self) {
-        if self.at(SyntaxKind::ExtendsKeyword) {
+        let message = if self.at(SyntaxKind::ExtendsKeyword) {
             let m = self.start();
             self.bump();
             self.parse_expression();
             self.finish(m, SyntaxKind::Extends);
+            "'{'"
+        } else {
+            "'extends' or '{'"
+        };
+
+        if !self.expect_with_message(SyntaxKind::OpenBrace, message) {
+            return;
         }
-        self.expect(SyntaxKind::OpenBrace);
+
         self.parsing_members = true;
         while !self.at(SyntaxKind::CloseBrace) && !self.at(SyntaxKind::Eof) {
             self.parse_member(MemberObject::Class);
