@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{SyntaxError, SyntaxKind, lexer::Token, token_set::*};
+use crate::{QualifiedName, SyntaxError, SyntaxKind, lexer::Token, token_set::*};
 use rowan::{TextRange, TextSize};
 
 #[derive(Debug)]
@@ -254,12 +254,9 @@ impl Parser {
         }
     }
 
-    // fn marker_valid(&self, marker: Marker) -> bool {
-    //     !matches!(
-    //         self.marker_kind(marker),
-    //         SyntaxKind::Error | SyntaxKind::Unknown
-    //     )
-    // }
+    fn is_marker_valid(&self, marker: Marker) -> bool {
+        self.marker_kind(marker) != SyntaxKind::Unknown
+    }
 
     fn is_lhs_expression(&self, marker: Marker) -> bool {
         match self.marker_kind(marker) {
@@ -452,23 +449,22 @@ impl Parser {
     // function func[this](a, b, c = 2) { stmts }
     //              ___________________
     fn parse_function_signature(&mut self) {
-        let m = if self.at(SyntaxKind::OpenBracket) {
+        let m = self.start();
+
+        if self.at(SyntaxKind::OpenBracket) {
             let m = self.start();
+
             self.expect_or_panic(SyntaxKind::OpenBracket);
             self.parse_expression();
             self.expect(SyntaxKind::CloseBracket);
             self.finish(m, SyntaxKind::Environment);
 
-            let m = self.start();
             self.expect(SyntaxKind::OpenParenthesis);
-            m
         } else {
-            let m = self.start();
             self.expect_with_message(
                 SyntaxKind::OpenParenthesis,
                 self.expected_but_got("'(' or '['"),
             );
-            m
         };
 
         if !self.try_bump(SyntaxKind::CloseParenthesis) {
@@ -690,7 +686,7 @@ impl Parser {
             }
             _ => {
                 let name = self.parse_name(error(), Some(MEMBER_RECOVERY));
-                if self.marker_kind(name) == SyntaxKind::Unknown && !self.at_set(MEMBER_RECOVERY) {
+                if !self.is_marker_valid(name) && !self.at_set(MEMBER_RECOVERY) {
                     self.drop(m);
                     return m;
                 }
@@ -704,7 +700,7 @@ impl Parser {
                 } else if object_kind != MemberObject::Enum {
                     // method() {} recovery
                     if self.at(SyntaxKind::OpenParenthesis) {
-                        if self.marker_kind(name) != SyntaxKind::Unknown {
+                        if self.is_marker_valid(name) {
                             self.error(
                                 self.marker_range(name),
                                 "Method name needs to be prepended with 'function' keyword",
@@ -823,16 +819,35 @@ impl Parser {
             self.parse_expression();
             self.finish(m, SyntaxKind::BinaryExpression);
         } else if self.at(SyntaxKind::Question) {
-            self.expect_or_panic(SyntaxKind::Question);
-            self.parse_expression();
-            if self.expect(SyntaxKind::Colon) || self.at_set(EXPRESSIONS) {
-                self.parse_expression();
-            }
-            self.finish(m, SyntaxKind::ConditionalExpression);
+            self.parse_conditional_expression(m);
         } else {
             self.drop(m);
         }
         m
+    }
+
+    fn finish_wrapper_or_drop(&mut self, wrapper: Marker, inner: Marker, kind: SyntaxKind) {
+        if self.is_marker_valid(inner) {
+            self.finish(wrapper, kind);
+        } else {
+            self.drop(wrapper);
+        }
+    }
+
+    fn parse_conditional_expression(&mut self, m: Marker) {
+        self.expect_or_panic(SyntaxKind::Question);
+
+        let then = self.start();
+        let expr = self.parse_expression();
+        self.finish_wrapper_or_drop(then, expr, SyntaxKind::ThenBranch);
+
+        if self.expect(SyntaxKind::Colon) || self.at_set(EXPRESSIONS) {
+            let else_ = self.start();
+            let expr = self.parse_expression();
+            self.finish_wrapper_or_drop(else_, expr, SyntaxKind::ElseBranch);
+        }
+
+        self.finish(m, SyntaxKind::ConditionalExpression);
     }
 
     fn parse_operator(&mut self, expect_set: TokenSet) {
@@ -997,7 +1012,11 @@ impl Parser {
 
     fn parse_member_access_expression(&mut self, m: Marker) {
         self.parse_proper_or_error(SyntaxKind::Dot, "Expected '.' for member access");
+
+        let member = self.start();
         self.parse_name("member's name", None);
+        self.finish(member, SyntaxKind::Member);
+
         self.finish(m, SyntaxKind::MemberAccessExpression);
     }
 
@@ -1015,7 +1034,9 @@ impl Parser {
             );
         }
         self.expect_or_panic(SyntaxKind::OpenBracket);
-        self.parse_expression();
+        let index = self.start();
+        let expr = self.parse_expression();
+        self.finish_wrapper_or_drop(index, expr, SyntaxKind::Index);
         self.expect(SyntaxKind::CloseBracket);
         self.finish(m, SyntaxKind::ElementAccessExpression);
     }
@@ -1335,26 +1356,46 @@ impl Parser {
     fn parse_for_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ForKeyword);
-        self.expect(SyntaxKind::OpenParenthesis);
 
+        // Also parses '('
+        self.parse_for_initialiser();
+        self.parse_for_condition();
+        // Alsp parses ')'
+        self.parse_for_increment();
+
+        self.parse_statement(/* parse_end */ false);
+
+        self.finish(m, SyntaxKind::ForStatement);
+    }
+
+    fn parse_for_initialiser(&mut self) {
+        self.expect(SyntaxKind::OpenParenthesis);
         if !self.try_bump(SyntaxKind::Semicolon) {
+            let m = self.start();
             if self.at(SyntaxKind::LocalKeyword) {
                 self.parse_local_statement();
-                self.expect(SyntaxKind::Semicolon);
             } else if self.at_set(EXPRESSIONS) {
                 self.parse_comma_expression();
-                self.expect(SyntaxKind::Semicolon);
             } else {
                 self.error_with_recovery(
                     self.expected_but_got("expression, 'local' or ';'"),
                     STATEMENT_OR_EXPRESSION,
                 );
+                self.drop(m);
+                return;
             }
-        }
 
+            self.finish(m, SyntaxKind::ForInitialiser);
+            self.expect(SyntaxKind::Semicolon);
+        }
+    }
+
+    fn parse_for_condition(&mut self) {
         if !self.try_bump(SyntaxKind::Semicolon) {
             if self.at_set(EXPRESSIONS) {
+                let m = self.start();
                 self.parse_comma_expression();
+                self.finish(m, SyntaxKind::ForCondition);
                 self.expect(SyntaxKind::Semicolon);
             } else {
                 self.error_with_recovery(
@@ -1363,10 +1404,14 @@ impl Parser {
                 );
             }
         }
+    }
 
+    fn parse_for_increment(&mut self) {
         if !self.try_bump(SyntaxKind::CloseParenthesis) {
             if self.at_set(EXPRESSIONS) {
+                let m = self.start();
                 self.parse_comma_expression();
+                self.finish(m, SyntaxKind::ForIncrement);
                 self.expect(SyntaxKind::CloseParenthesis);
             } else {
                 self.error_with_recovery(
@@ -1375,12 +1420,7 @@ impl Parser {
                 );
             }
         }
-
-        self.parse_statement(/* parse_end */ false);
-
-        self.finish(m, SyntaxKind::ForStatement);
     }
-
     // foreach (v in array) { continue }
     // foreach (k, v in table) { letsgo++ }
     fn parse_for_each_statement(&mut self) {
@@ -1391,35 +1431,30 @@ impl Parser {
 
         // This needs to be explicit so that 'in' is not considered as identifier written with reserved keyword
         // And is not bumped over
-        if !self.at(SyntaxKind::InKeyword) {
-            self.parse_name("key's or value's name", Some(STATEMENT_OR_EXPRESSION));
-        } else {
-            self.error_at_token(self.expected_but_got("key's or value's name"));
-        }
+        let key_or_value = self.start();
+        let name = self.parse_name("key's or value's name", Some(STATEMENT_OR_EXPRESSION));
 
-        let has_key = if self.at_set(SEPARATORS) {
+        if self.at_set(SEPARATORS) {
+            self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachKey);
             self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' to separate key and value");
-            // Same as above
-            if !self.at(SyntaxKind::InKeyword) {
-                self.parse_name("value's name", Some(STATEMENT_OR_EXPRESSION));
-            } else {
-                self.error_at_token(self.expected_but_got("value's name"));
-            }
 
-            true
+            let value = self.start();
+            let name = self.parse_name("value's name", Some(STATEMENT_OR_EXPRESSION));
+            self.finish_wrapper_or_drop(value, name, SyntaxKind::ForeachValue);
+
+            self.expect(SyntaxKind::InKeyword);
+            // foreach (k v in ...)
         } else if self.at_set(NAME) {
+            self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachKey);
+
             self.error_at_token("Expected ',' to separate key and value");
             self.parse_guaranteed_name();
-            true
-        } else {
-            false
-        };
 
-        if has_key {
             self.expect(SyntaxKind::InKeyword);
         } else {
+            self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachValue);
             self.expect_with_message(SyntaxKind::InKeyword, self.expected_but_got("',' or 'in'"));
-        }
+        };
 
         self.parse_expression();
         self.expect(SyntaxKind::CloseParenthesis);
@@ -1498,8 +1533,10 @@ impl Parser {
                 self.parse_expression();
                 self.finish(err, SyntaxKind::Error);
             } else {
+                let m = self.start();
                 self.parse_proper_or_error(SyntaxKind::Equals, "Expected '=' for initialisation");
                 self.parse_expression();
+                self.finish(m, SyntaxKind::Initialiser);
             }
         }
         self.finish(m, SyntaxKind::VariableDeclaration);
@@ -1607,30 +1644,25 @@ impl Parser {
     // function a::b::c() {}
     //          _______
     fn parse_qualified_name(&mut self) -> Marker {
+        let m = self.start();
         let name = self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
-        let m = match self.marker_kind(name) {
-            SyntaxKind::Unknown if self.at_set(NAME_QUALIFIER) => {
-                let m = self.start();
-                self.parse_proper_or_error(
-                    SyntaxKind::ColonColon,
-                    "Expected '::' to qualify a name",
-                );
-                self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
-                self.finish(m, SyntaxKind::QualifiedName);
-                m
+        // Didn't parse the name
+        if !self.is_marker_valid(name) {
+            if !self.at_set(NAME_QUALIFIER) {
+                self.drop(m);
+                return m;
             }
-            SyntaxKind::Unknown => return name,
-            _ => name,
+
+            self.parse_proper_or_error(SyntaxKind::ColonColon, "Expected '::' to qualify a name");
+            self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
         };
 
-        self.precede(m);
         while self.at_set(NAME_QUALIFIER) {
             self.parse_proper_or_error(SyntaxKind::ColonColon, "Expected '::' to qualify a name");
             self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
-            self.finish(m, SyntaxKind::QualifiedName);
-            self.precede(m);
         }
-        self.drop(m);
+
+        self.finish(m, SyntaxKind::QualifiedName);
         return m;
     }
 

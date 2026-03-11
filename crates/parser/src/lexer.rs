@@ -618,7 +618,7 @@ impl<'a> Lexer<'a> {
             }
 
             len += match self.literal_character() {
-                Some(chr) => chr.len_utf16(),
+                Some(chr) => chr.len_utf8(),
                 None => {
                     self.error(self.cursor_range(), "Unterminated character literal");
                     break;

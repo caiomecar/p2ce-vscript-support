@@ -8,8 +8,9 @@ use std::fmt::Display;
 
 pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::parser::Event;
+pub use ast::*;
 use rowan::GreenNodeBuilder;
-pub use rowan::{GreenNode, TextRange, TextSize};
+pub use rowan::{GreenNode, TextRange, TextSize, ast::AstNode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SyntaxError {

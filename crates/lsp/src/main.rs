@@ -3,8 +3,9 @@ use sq_3_parser::{Parse, SyntaxError, TextRange};
 use tower_lsp::jsonrpc;
 use tower_lsp::lsp_types::{
     Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    InitializeParams, InitializeResult, InitializedParams, MessageType, Position, Range,
-    ServerCapabilities, TextDocumentSyncKind, Url,
+    Hover, HoverContents, HoverParams, InitializeParams, InitializeResult, InitializedParams,
+    MarkupContent, MarkupKind, MessageType, Position, Range, ServerCapabilities,
+    TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
