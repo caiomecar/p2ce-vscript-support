@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{QualifiedName, SyntaxError, SyntaxKind, lexer::Token, token_set::*};
+use crate::{SyntaxError, SyntaxKind, lexer::Token, token_set::*};
 use rowan::{TextRange, TextSize};
 
 #[derive(Debug)]

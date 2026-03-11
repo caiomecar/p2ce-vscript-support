@@ -712,13 +712,11 @@ ast_node!(BreakStatement, BreakStatement);
 ast_node!(FunctionStatement, FunctionStatement);
 
 impl FunctionStatement {
-    pub fn name(&self) -> FunctionName {
+    pub fn name(&self) -> Option<FunctionName> {
         if let Some(qn) = support::child::<QualifiedName>(&self.0) {
-            FunctionName::Qualified(qn)
+            Some(FunctionName::Qualified(qn))
         } else {
-            FunctionName::Simple(
-                support::child(&self.0).expect("FunctionStatement must have a name"),
-            )
+            Some(FunctionName::Simple(support::child(&self.0)?))
         }
     }
 

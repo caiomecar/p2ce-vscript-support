@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use sq_3_parser::ast::*;
     use sq_3_parser::*;
 
     fn parse(src: &str) -> SourceFile {
@@ -332,7 +333,7 @@ mod tests {
     fn function_statement_qualified_name() {
         let stmt = first_stmt("function a::b::c() {}");
         let Stmt::Function(f) = stmt else { panic!() };
-        let FunctionName::Qualified(qn) = f.name() else {
+        let Some(FunctionName::Qualified(qn)) = f.name() else {
             panic!("expected qualified name")
         };
         assert_eq!(qn.names().count(), 3);

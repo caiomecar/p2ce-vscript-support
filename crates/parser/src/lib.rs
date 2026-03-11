@@ -1,16 +1,18 @@
-mod ast;
+pub mod ast;
 mod cst;
 mod lexer;
 mod parser;
 mod token_set;
 
+use crate::parser::Event;
+use rowan::GreenNodeBuilder;
 use std::fmt::Display;
 
 pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
-use crate::parser::Event;
-pub use ast::*;
-use rowan::GreenNodeBuilder;
-pub use rowan::{GreenNode, TextRange, TextSize, ast::AstNode};
+pub use rowan::{
+    GreenNode, TextRange, TextSize,
+    ast::{AstChildren, AstNode},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SyntaxError {
