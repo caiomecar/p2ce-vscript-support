@@ -120,20 +120,28 @@ pub enum SyntaxKind {
     Name,
     QualifiedName,
 
-    Initialiser,
     Operator,
-    VariableDeclarationList,
-    VariableDeclaration,
-    CatchClause,
 
     Index,
     Member,
+
+    VariableDeclarationList,
+    VariableDeclaration,
+    Initialiser,
+
+    CatchClause,
+
+    ForInitialiser,
+    ForCondition,
+    ForIncrement,
+
+    ForeachKey,
+    ForeachValue,
+
     Environment,
     ParameterList,
     VariedArgs,
-    Constructor,
-    Method,
-    Attributes,
+
     PostCallInitialiser,
 
     Extends,
@@ -142,12 +150,9 @@ pub enum SyntaxKind {
     StringName,
     ComputedName,
 
-    ForInitialiser,
-    ForCondition,
-    ForIncrement,
-
-    ForeachKey,
-    ForeachValue,
+    Constructor,
+    Method,
+    Attributes,
 
     // For ternary
     ThenBranch,
