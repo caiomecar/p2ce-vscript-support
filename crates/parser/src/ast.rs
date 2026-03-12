@@ -531,10 +531,10 @@ impl AstNode for ForInitialiser {
     type Language = SquirrelLanguage;
 
     fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(
-            kind,
-            SyntaxKind::LocalVariableDeclaration | SyntaxKind::LocalFunctionDeclaration
-        ) || Expr::can_cast(kind)
+        match kind {
+            SyntaxKind::LocalVariableDeclaration | SyntaxKind::LocalFunctionDeclaration => true,
+            _ => Expr::can_cast(kind),
+        }
     }
 
     fn cast(node: SyntaxNode) -> Option<Self> {
