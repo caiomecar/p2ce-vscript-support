@@ -76,6 +76,13 @@ enum MemberObject {
     PostCallInitialiser,
 }
 
+#[derive(Clone, Copy)]
+enum ParsingObjectSeparator {
+    None,
+    Comma,
+    Semicolon,
+}
+
 pub fn parse(tokens: Box<[Token]>) -> (Box<[Event]>, Vec<SyntaxError>) {
     let mut parser = Parser::new(tokens);
     parser.parse_source_file();
@@ -102,7 +109,7 @@ struct Parser {
     lookahead_index: usize,
     prev_token: Token,
     has_preceding_line_feed: bool,
-    parsing_members: bool,
+    object_separator: ParsingObjectSeparator,
 
     errors: Vec<SyntaxError>,
     events: Vec<Event>,
@@ -116,7 +123,7 @@ impl Parser {
             lookahead_index: 0,
             prev_token: Token::dummy(),
             has_preceding_line_feed: false,
-            parsing_members: false,
+            object_separator: ParsingObjectSeparator::None,
             errors: vec![],
             events: vec![],
         }
@@ -536,7 +543,8 @@ impl Parser {
         //     return false;
         // }
 
-        self.parsing_members = true;
+        let save_separator = self.object_separator;
+        self.object_separator = ParsingObjectSeparator::Comma;
         while !self.at(SyntaxKind::CloseBrace) && !self.at(SyntaxKind::Eof) {
             self.parse_member(MemberObject::PostCallInitialiser);
 
@@ -544,7 +552,7 @@ impl Parser {
                 self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between members");
             }
         }
-        self.parsing_members = false;
+        self.object_separator = save_separator;
         self.expect(SyntaxKind::CloseBrace);
         self.finish(m, SyntaxKind::PostCallInitialiser);
     }
@@ -742,7 +750,8 @@ impl Parser {
             return;
         }
 
-        self.parsing_members = true;
+        let save_separator = self.object_separator;
+        self.object_separator = ParsingObjectSeparator::Semicolon;
         while !self.at(SyntaxKind::CloseBrace) && !self.at(SyntaxKind::Eof) {
             self.parse_member(MemberObject::Class);
 
@@ -750,7 +759,7 @@ impl Parser {
                 self.parse_proper_or_error(SyntaxKind::Semicolon, "Expected ';' between members");
             }
         }
-        self.parsing_members = false;
+        self.object_separator = save_separator;
         self.expect(SyntaxKind::CloseBrace);
     }
 
@@ -974,10 +983,10 @@ impl Parser {
     fn parse_postfix_expression(&mut self) -> Marker {
         let m = self.start();
 
-        let save_parsing_members = self.parsing_members;
-        self.parsing_members = false;
+        let save_separator = self.object_separator;
+        self.object_separator = ParsingObjectSeparator::None;
         let operand = self.parse_primary_expression();
-        self.parsing_members = save_parsing_members;
+        self.object_separator = save_separator;
 
         loop {
             match self.token() {
@@ -1026,10 +1035,16 @@ impl Parser {
             let end = start + TextSize::new(1);
             self.error(
                 TextRange::new(start, end),
-                if self.parsing_members {
-                    "Comma is needed before `[...]` property declaration."
-                } else {
-                    "A line break is not allowed before element access"
+                match self.object_separator {
+                    ParsingObjectSeparator::None => {
+                        "A line break is not allowed before element access"
+                    }
+                    ParsingObjectSeparator::Comma => {
+                        "Comma is needed before `[...]` property declaration."
+                    }
+                    ParsingObjectSeparator::Semicolon => {
+                        "Semicolon is needed before `[...]` property declaration."
+                    }
                 },
             );
         }
@@ -1155,7 +1170,9 @@ impl Parser {
     fn parse_table_literal_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::OpenBrace);
-        self.parsing_members = true;
+
+        let save_separator = self.object_separator;
+        self.object_separator = ParsingObjectSeparator::Comma;
         while !self.at(SyntaxKind::CloseBrace) && !self.at(SyntaxKind::Eof) {
             self.parse_member(MemberObject::Table);
 
@@ -1163,7 +1180,8 @@ impl Parser {
                 self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between members");
             }
         }
-        self.parsing_members = false;
+        self.object_separator = save_separator;
+
         self.expect(SyntaxKind::CloseBrace);
         self.finish(m, SyntaxKind::TableLiteralExpression);
         m
@@ -1688,7 +1706,9 @@ impl Parser {
         self.expect_or_panic(SyntaxKind::EnumKeyword);
         self.parse_name("enum's name", Some(STATEMENT_OR_EXPRESSION));
         self.expect(SyntaxKind::OpenBrace);
-        self.parsing_members = true;
+
+        let save_separator = self.object_separator;
+        self.object_separator = ParsingObjectSeparator::Comma;
         while !self.at(SyntaxKind::CloseBrace) && !self.at(SyntaxKind::Eof) {
             self.parse_member(MemberObject::Enum);
 
@@ -1696,7 +1716,8 @@ impl Parser {
                 self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between members");
             }
         }
-        self.parsing_members = false;
+        self.object_separator = save_separator;
+
         self.expect(SyntaxKind::CloseBrace);
         self.finish(m, SyntaxKind::EnumStatement);
     }
