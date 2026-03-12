@@ -35,14 +35,52 @@ macro_rules! ast_node {
 // But make it possible to distinct different parts of a node by having another SyntaxKind
 // Otherwise the tree should be as flattened as possible so if a node contains only a single
 // expression the wrapper is not created
-macro_rules! expr_wrapper {
-    ($name:ident) => {
-        impl $name {
-            pub fn expression(&self) -> Option<Expr> {
-                support::child(&self.0)
-            }
-        }
-    };
+pub trait ExpressionWrapper: AstNode<Language = SquirrelLanguage> {
+    fn expression(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+}
+
+// Doesn't actually account for all the names, only the flat ones
+pub trait HasName: AstNode<Language = SquirrelLanguage> {
+    fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+}
+
+pub trait HasDoc: AstNode<Language = SquirrelLanguage> {
+    fn doc(&self) -> Option<SyntaxToken> {
+        support::token(self.syntax(), SyntaxKind::DocComment)
+    }
+}
+
+pub trait HasOperator: AstNode<Language = SquirrelLanguage> {
+    fn operator(&self) -> Option<Operator> {
+        support::child(self.syntax())
+    }
+}
+
+pub trait HasOperand: AstNode<Language = SquirrelLanguage> {
+    fn operand(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+}
+
+// Doesn't account for case/default bodies and lambda expression
+pub trait HasBody: AstNode<Language = SquirrelLanguage> {
+    fn body(&self) -> Option<Stmt> {
+        support::child(self.syntax())
+    }
+}
+
+pub trait IsFunction: AstNode<Language = SquirrelLanguage> {
+    fn environment(&self) -> Option<Environment> {
+        support::child(self.syntax())
+    }
+
+    fn parameter_list(&self) -> Option<ParameterList> {
+        support::child(self.syntax())
+    }
 }
 
 fn first_token(node: &SyntaxNode) -> Option<SyntaxToken> {
@@ -52,7 +90,6 @@ fn first_token(node: &SyntaxNode) -> Option<SyntaxToken> {
 }
 
 ast_node!(Name, Name);
-
 impl Name {
     pub fn identifier(&self) -> Option<SyntaxToken> {
         support::token(&self.0, SyntaxKind::Identifier)
@@ -64,7 +101,6 @@ impl Name {
 }
 
 ast_node!(QualifiedName, QualifiedName);
-
 impl QualifiedName {
     pub fn names(&self) -> AstChildren<Name> {
         support::children(&self.0)
@@ -72,7 +108,6 @@ impl QualifiedName {
 }
 
 ast_node!(Operator, Operator);
-
 impl Operator {
     pub fn token(&self) -> Option<SyntaxToken> {
         first_token(&self.0)
@@ -87,15 +122,14 @@ impl LiteralExpression {
 }
 
 ast_node!(BinaryExpression, BinaryExpression);
+// Newslot assignment
+impl HasDoc for BinaryExpression {}
+impl HasOperator for BinaryExpression {}
+
 impl BinaryExpression {
     pub fn lhs(&self) -> Option<Expr> {
         support::children(&self.0).next()
     }
-
-    pub fn operator(&self) -> Option<Operator> {
-        support::child(&self.0)
-    }
-
     // It's impossible to have rhs without lhs with the current
     // algorithm therefore expression wrapper is not needed so
     // .nth works this may need to change in the future if
@@ -106,13 +140,12 @@ impl BinaryExpression {
 }
 
 ast_node!(ThenBranch, ThenBranch);
-expr_wrapper!(ThenBranch);
+impl ExpressionWrapper for ThenBranch {}
 
 ast_node!(ElseBranch, ElseBranch);
-expr_wrapper!(ElseBranch);
+impl ExpressionWrapper for ElseBranch {}
 
 ast_node!(ConditionalExpression, ConditionalExpression);
-
 impl ConditionalExpression {
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
@@ -128,75 +161,30 @@ impl ConditionalExpression {
 }
 
 ast_node!(PrefixUnaryExpression, PrefixUnaryExpression);
-
-impl PrefixUnaryExpression {
-    pub fn operator(&self) -> Option<Operator> {
-        support::child(&self.0)
-    }
-
-    pub fn operand(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-}
+impl HasOperator for PrefixUnaryExpression {}
+impl HasOperand for PrefixUnaryExpression {}
 
 ast_node!(PrefixUpdateExpression, PrefixUpdateExpression);
-
-impl PrefixUpdateExpression {
-    pub fn operator(&self) -> Option<Operator> {
-        support::child(&self.0)
-    }
-
-    pub fn operand(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-}
+impl HasOperator for PrefixUpdateExpression {}
+impl HasOperand for PrefixUpdateExpression {}
 
 ast_node!(PostfixUpdateExpression, PostfixUpdateExpression);
-
-impl PostfixUpdateExpression {
-    pub fn operand(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-
-    pub fn operator(&self) -> Option<Operator> {
-        support::child(&self.0)
-    }
-}
+impl HasOperator for PostfixUpdateExpression {}
+impl HasOperand for PostfixUpdateExpression {}
 
 ast_node!(DeleteExpression, DeleteExpression);
-
-impl DeleteExpression {
-    pub fn operand(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-}
+impl HasOperand for DeleteExpression {}
 
 ast_node!(TypeOfExpression, TypeOfExpression);
-
-impl TypeOfExpression {
-    pub fn operand(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-}
+impl HasOperand for TypeOfExpression {}
 
 ast_node!(CloneExpression, CloneExpression);
-
-impl CloneExpression {
-    pub fn operand(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-}
+impl HasOperand for CloneExpression {}
 
 ast_node!(ResumeExpression, ResumeExpression);
-
-impl ResumeExpression {
-    pub fn operand(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-}
+impl HasOperand for ResumeExpression {}
 
 ast_node!(RawCallExpression, RawCallExpression);
-
 impl RawCallExpression {
     pub fn arguments(&self) -> AstChildren<Expr> {
         support::children(&self.0)
@@ -204,11 +192,7 @@ impl RawCallExpression {
 }
 
 ast_node!(Member, Member);
-impl Member {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-}
+impl HasName for Member {}
 
 ast_node!(MemberAccessExpression, MemberAccessExpression);
 
@@ -223,7 +207,7 @@ impl MemberAccessExpression {
 }
 
 ast_node!(Index, Index);
-expr_wrapper!(Index);
+impl ExpressionWrapper for Index {}
 
 ast_node!(ElementAccessExpression, ElementAccessExpression);
 impl ElementAccessExpression {
@@ -253,12 +237,7 @@ impl CallExpression {
 }
 
 ast_node!(RootAccessExpression, RootAccessExpression);
-
-impl RootAccessExpression {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-}
+impl HasName for RootAccessExpression {}
 
 ast_node!(ThisExpression, ThisExpression);
 ast_node!(BaseExpression, BaseExpression);
@@ -290,24 +269,13 @@ impl TableLiteralExpression {
 }
 
 ast_node!(FunctionExpression, FunctionExpression);
-
-impl FunctionExpression {
-    pub fn parameter_list(&self) -> Option<ParameterList> {
-        support::child(&self.0)
-    }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
-}
+impl IsFunction for FunctionExpression {}
+impl HasBody for FunctionExpression {}
 
 ast_node!(LambdaExpression, LambdaExpression);
+impl IsFunction for LambdaExpression {}
 
 impl LambdaExpression {
-    pub fn parameter_list(&self) -> Option<ParameterList> {
-        support::child(&self.0)
-    }
-
     pub fn body(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -461,6 +429,7 @@ impl AstNode for Expr {
 }
 
 ast_node!(SourceFile, SourceFile);
+impl HasDoc for SourceFile {}
 
 impl SourceFile {
     pub fn statements(&self) -> AstChildren<Stmt> {
@@ -497,24 +466,18 @@ impl IfStatement {
 }
 
 ast_node!(WhileStatement, WhileStatement);
+impl HasBody for WhileStatement {}
 
 impl WhileStatement {
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
     }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
 }
 
 ast_node!(DoWhileStatement, DoWhileStatement);
+impl HasBody for DoWhileStatement {}
 
 impl DoWhileStatement {
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
-
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -559,12 +522,13 @@ impl AstNode for ForInitialiser {
 }
 
 ast_node!(ForCondition, ForCondition);
-expr_wrapper!(ForCondition);
+impl ExpressionWrapper for ForCondition {}
 
 ast_node!(ForIncrement, ForIncrement);
-expr_wrapper!(ForIncrement);
+impl ExpressionWrapper for ForIncrement {}
 
 ast_node!(ForStatement, ForStatement);
+impl HasBody for ForStatement {}
 
 impl ForStatement {
     pub fn initialiser(&self) -> Option<ForInitialiser> {
@@ -578,27 +542,16 @@ impl ForStatement {
     pub fn increment(&self) -> Option<ForIncrement> {
         support::child(&self.0)
     }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
 }
 
 ast_node!(ForEachKey, ForeachKey);
-impl ForEachKey {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-}
+impl HasName for ForEachKey {}
 
 ast_node!(ForEachValue, ForeachValue);
-impl ForEachValue {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-}
+impl HasName for ForEachValue {}
 
 ast_node!(ForEachStatement, ForEachStatement);
+impl HasBody for ForEachStatement {}
 
 impl ForEachStatement {
     pub fn key(&self) -> Option<ForEachKey> {
@@ -610,10 +563,6 @@ impl ForEachStatement {
     }
 
     pub fn iterable(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-
-    pub fn body(&self) -> Option<Stmt> {
         support::child(&self.0)
     }
 }
@@ -655,18 +604,17 @@ impl DefaultClause {
 }
 
 ast_node!(ConstStatement, ConstStatement);
+impl HasDoc for ConstStatement {}
+impl HasName for ConstStatement {}
 
 impl ConstStatement {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-
     pub fn value(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 }
 
 ast_node!(LocalVariableDeclaration, LocalVariableDeclaration);
+impl HasDoc for LocalVariableDeclaration {}
 
 impl LocalVariableDeclaration {
     pub fn declarations(&self) -> AstChildren<VariableDeclaration> {
@@ -675,20 +623,10 @@ impl LocalVariableDeclaration {
 }
 
 ast_node!(LocalFunctionDeclaration, LocalFunctionDeclaration);
-
-impl LocalFunctionDeclaration {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-
-    pub fn parameter_list(&self) -> Option<ParameterList> {
-        support::child(&self.0)
-    }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
-}
+impl HasDoc for LocalFunctionDeclaration {}
+impl HasName for LocalFunctionDeclaration {}
+impl IsFunction for LocalFunctionDeclaration {}
+impl HasBody for LocalFunctionDeclaration {}
 
 ast_node!(ReturnStatement, ReturnStatement);
 
@@ -710,6 +648,9 @@ ast_node!(ContinueStatement, ContinueStatement);
 ast_node!(BreakStatement, BreakStatement);
 
 ast_node!(FunctionStatement, FunctionStatement);
+impl HasDoc for FunctionStatement {}
+impl IsFunction for FunctionStatement {}
+impl HasBody for FunctionStatement {}
 
 impl FunctionStatement {
     pub fn name(&self) -> Option<FunctionName> {
@@ -719,14 +660,6 @@ impl FunctionStatement {
             Some(FunctionName::Simple(support::child(&self.0)?))
         }
     }
-
-    pub fn parameter_list(&self) -> Option<ParameterList> {
-        support::child(&self.0)
-    }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
 }
 
 pub enum FunctionName {
@@ -735,6 +668,7 @@ pub enum FunctionName {
 }
 
 ast_node!(ClassStatement, ClassStatement);
+impl HasDoc for ClassStatement {}
 
 impl ClassStatement {
     pub fn name(&self) -> Option<Expr> {
@@ -751,25 +685,29 @@ impl ClassStatement {
 }
 
 ast_node!(EnumStatement, EnumStatement);
+impl HasDoc for EnumStatement {}
+impl HasName for EnumStatement {}
 
 impl EnumStatement {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-
     pub fn members(&self) -> AstChildren<Property> {
         support::children(&self.0)
     }
 }
 
 ast_node!(TryStatement, TryStatement);
+impl HasBody for TryStatement {}
 
 impl TryStatement {
-    pub fn body(&self) -> Option<Stmt> {
+    pub fn catch_clause(&self) -> Option<CatchClause> {
         support::child(&self.0)
     }
+}
 
-    pub fn catch_clause(&self) -> Option<CatchClause> {
+ast_node!(CatchClause, CatchClause);
+impl HasBody for CatchClause {}
+
+impl CatchClause {
+    pub fn binding(&self) -> Option<VariableDeclaration> {
         support::child(&self.0)
     }
 }
@@ -783,7 +721,7 @@ impl ThrowStatement {
 }
 
 ast_node!(ExpressionStatement, ExpressionStatement);
-expr_wrapper!(ExpressionStatement);
+impl ExpressionWrapper for ExpressionStatement {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
@@ -899,15 +837,13 @@ impl AstNode for Stmt {
 }
 
 ast_node!(Initialiser, Initialiser);
-expr_wrapper!(Initialiser);
+impl ExpressionWrapper for Initialiser {}
 
 ast_node!(VariableDeclaration, VariableDeclaration);
+impl HasDoc for VariableDeclaration {}
+impl HasName for VariableDeclaration {}
 
 impl VariableDeclaration {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-
     pub fn initialiser(&self) -> Option<Initialiser> {
         support::child(&self.0)
     }
@@ -916,10 +852,6 @@ impl VariableDeclaration {
 ast_node!(ParameterList, ParameterList);
 
 impl ParameterList {
-    pub fn environment(&self) -> Option<Environment> {
-        support::child(&self.0)
-    }
-
     pub fn parameters(&self) -> AstChildren<VariableDeclaration> {
         support::children(&self.0)
     }
@@ -930,24 +862,12 @@ impl ParameterList {
 }
 
 ast_node!(Environment, Environment);
-expr_wrapper!(Environment);
+impl ExpressionWrapper for Environment {}
 
 ast_node!(VariedArgs, VariedArgs);
 
-ast_node!(CatchClause, CatchClause);
-
-impl CatchClause {
-    pub fn binding(&self) -> Option<VariableDeclaration> {
-        support::child(&self.0)
-    }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
-}
-
 ast_node!(Extends, Extends);
-expr_wrapper!(Extends);
+impl ExpressionWrapper for Extends {}
 
 ast_node!(Attributes, Attributes);
 
@@ -966,6 +886,7 @@ impl PostCallInitialiser {
 }
 
 ast_node!(Property, Property);
+impl HasDoc for Property {}
 
 impl Property {
     pub fn name(&self) -> Option<MemberName> {
@@ -995,7 +916,7 @@ impl StringName {
 }
 
 ast_node!(ComputedName, ComputedName);
-expr_wrapper!(ComputedName);
+impl ExpressionWrapper for ComputedName {}
 
 pub enum MemberName {
     Identifier(Name),
@@ -1004,32 +925,15 @@ pub enum MemberName {
 }
 
 ast_node!(Constructor, Constructor);
-
-impl Constructor {
-    pub fn parameter_list(&self) -> Option<ParameterList> {
-        support::child(&self.0)
-    }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
-}
+impl HasDoc for Constructor {}
+impl IsFunction for Constructor {}
+impl HasBody for Constructor {}
 
 ast_node!(Method, Method);
-
-impl Method {
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-
-    pub fn parameter_list(&self) -> Option<ParameterList> {
-        support::child(&self.0)
-    }
-
-    pub fn body(&self) -> Option<Stmt> {
-        support::child(&self.0)
-    }
-}
+impl HasDoc for Method {}
+impl HasName for Method {}
+impl IsFunction for Method {}
+impl HasBody for Method {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ClassMember {

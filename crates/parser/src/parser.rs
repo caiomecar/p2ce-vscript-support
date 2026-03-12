@@ -111,6 +111,9 @@ struct Parser {
     has_preceding_line_feed: bool,
     object_separator: ParsingObjectSeparator,
 
+    last_comment_index: Option<usize>,
+    new_lines_between: usize,
+
     errors: Vec<SyntaxError>,
     events: Vec<Event>,
 }
@@ -124,6 +127,8 @@ impl Parser {
             prev_token: Token::dummy(),
             has_preceding_line_feed: false,
             object_separator: ParsingObjectSeparator::None,
+            last_comment_index: None,
+            new_lines_between: 0,
             errors: vec![],
             events: vec![],
         }
@@ -155,10 +160,25 @@ impl Parser {
 
     // Adds the marker as the last element to the events array
     fn start(&mut self) -> Marker {
-        self.consume_to_lookahead();
-        let index = self.events.len();
-        self.events.push(Event::Pending);
-        Marker(index)
+        // Attach comments to the nodes if there's only a single new line in between them
+        if self.new_lines_between <= 1
+            && let Some(comment_index) = self.last_comment_index
+        {
+            let save_lookahead = self.lookahead_index;
+            self.lookahead_index = comment_index;
+            self.consume_to_lookahead();
+
+            let index = self.events.len();
+            self.events.push(Event::Pending);
+            self.lookahead_index = save_lookahead;
+            self.consume_to_lookahead();
+            Marker(index)
+        } else {
+            self.consume_to_lookahead();
+            let index = self.events.len();
+            self.events.push(Event::Pending);
+            Marker(index)
+        }
     }
 
     // Removes the marker of Pending type from the array, if marker
@@ -292,15 +312,21 @@ impl Parser {
 
     fn skip_trivia(&mut self) {
         self.has_preceding_line_feed = false;
+        self.new_lines_between = 0;
         loop {
-            if self.at_set(TRIVIA) {
-                if !self.has_preceding_line_feed && self.at(SyntaxKind::LineFeed) {
+            match self.token() {
+                SyntaxKind::Whitespace | SyntaxKind::Unknown => {}
+                SyntaxKind::LineFeed => {
+                    self.new_lines_between += 1;
                     self.has_preceding_line_feed = true;
                 }
-                self.lookahead_index += 1;
-            } else {
-                break;
+                SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::DocComment => {
+                    self.last_comment_index = Some(self.lookahead_index);
+                }
+                _ => break,
             }
+
+            self.lookahead_index += 1;
         }
     }
 
@@ -456,23 +482,27 @@ impl Parser {
     // function func[this](a, b, c = 2) { stmts }
     //              ___________________
     fn parse_function_signature(&mut self) {
-        let m = self.start();
-
-        if self.at(SyntaxKind::OpenBracket) {
+        let has_env = if self.at(SyntaxKind::OpenBracket) {
             let m = self.start();
 
             self.expect_or_panic(SyntaxKind::OpenBracket);
             self.parse_expression();
             self.expect(SyntaxKind::CloseBracket);
             self.finish(m, SyntaxKind::Environment);
+            true
+        } else {
+            false
+        };
 
+        let m = self.start();
+        if has_env {
             self.expect(SyntaxKind::OpenParenthesis);
         } else {
             self.expect_with_message(
                 SyntaxKind::OpenParenthesis,
                 self.expected_but_got("'(' or '['"),
             );
-        };
+        }
 
         if !self.try_bump(SyntaxKind::CloseParenthesis) {
             loop {

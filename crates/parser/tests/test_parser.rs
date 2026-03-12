@@ -732,7 +732,7 @@ mod tests {
     fn function_expression_with_environment() {
         let expr = first_expr_inside_parentheses("(function[env](a) {})");
         let Expr::Function(f) = expr else { panic!() };
-        assert!(f.parameter_list().unwrap().environment().is_some());
+        assert!(f.environment().is_some());
     }
 
     #[test]
@@ -843,8 +843,28 @@ mod tests {
         };
         assert_eq!(lf.name().unwrap().text().unwrap(), "abc");
         let pl = lf.parameter_list().unwrap();
-        assert!(pl.environment().is_some());
+        assert!(lf.environment().is_some());
         assert_eq!(pl.parameters().count(), 1);
+    }
+
+    #[test]
+    fn test_local_variable_doc() {
+        let stmt = first_stmt("/**abc*/\nlocal a = 2;");
+        let Stmt::LocalVariable(lv) = stmt else {
+            panic!("expected local variable");
+        };
+
+        assert!(lv.doc().is_some());
+    }
+
+    #[test]
+    fn test_local_variable_no_doc() {
+        let stmt = first_stmt("/**abc*/\n\nlocal a = 2;");
+        let Stmt::LocalVariable(lv) = stmt else {
+            panic!("expected local variable");
+        };
+
+        assert!(lv.doc().is_none());
     }
 
     #[test]
