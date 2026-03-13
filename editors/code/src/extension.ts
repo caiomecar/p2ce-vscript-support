@@ -10,10 +10,14 @@ import { workspace } from 'vscode';
 
 let client: LanguageClient;
 
+function inDebug(): boolean {
+    return process.env["TF2_VSCRIPT_LS_DEV"] === "1"
+}
+
 function getLocalServerPath(): string {
     const isWindows = process.platform == "win32";
 
-    if (process.env["TF2_VSCRIPT_LS_DEV"] === "1") {
+    if (inDebug()) {
         return path.join("..", "..", "target", "debug", isWindows ? "tf2-vscript-ls.exe" : "tf2-vscript-ls");
     }
 
@@ -23,14 +27,14 @@ function getLocalServerPath(): string {
 export function activate(context: vscode.ExtensionContext) {
     const serverPath = context.asAbsolutePath(getLocalServerPath());
 
+    const env = { ...process.env };
+    if (inDebug()) {
+        env.RUST_LOG = "debug"
+    }
+
     const run: Executable = {
         command: serverPath,
-        options: {
-            env: {
-                ...process.env,
-                RUST_LOG: "debug",
-            },
-        },
+        options: { env },
     };
 
 
