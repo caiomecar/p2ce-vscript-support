@@ -5,9 +5,8 @@ import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
-    TransportKind
 } from 'vscode-languageclient/node';
-import { debug, window, workspace } from 'vscode';
+import { workspace } from 'vscode';
 
 let client: LanguageClient;
 
@@ -33,15 +32,15 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ language: 'squirrel' }],
+        documentSelector: [{ language: 'tf2vscript' }],
         synchronize: {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
         }
     };
 
     client = new LanguageClient(
-        'squirrelLanguageServer',
-        'Squirrel Language Server',
+        'tf2-vscript-language-server',
+        'TF2 VScript Language Server',
         serverOptions,
         clientOptions
     );
