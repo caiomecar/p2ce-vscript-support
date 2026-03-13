@@ -9,3 +9,10 @@ license.workspace = true
 [dependencies]
 rowan = { workspace = true }
 phf = { version = "0.13.1", features = ["macros"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "parse"
+harness = false

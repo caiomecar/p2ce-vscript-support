@@ -48,8 +48,15 @@ impl Parse {
     }
 
     pub fn new(text: &str) -> Parse {
+        let now = std::time::Instant::now();
         let (tokens, mut lex_errors) = lexer::tokenise(text);
+        eprintln!("Lexing took {:?}", now.elapsed());
+        eprintln!("Tokens: {}", tokens.len());
+
+        let now = std::time::Instant::now();
         let (events, parse_errors) = parser::parse(tokens);
+        eprintln!("Parsing took {:?}", now.elapsed());
+        eprintln!("Events: {}", events.len());
 
         let mut builder = GreenNodeBuilder::new();
         let mut i = 0;
