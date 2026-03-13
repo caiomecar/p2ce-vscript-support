@@ -31,7 +31,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
         with:
           fetch-depth: ${{ env.FETCH_DEPTH }}
 
@@ -57,7 +57,7 @@ jobs:
 
           cp target/${{ matrix.rust-target }}/release/$BIN editors/code/out/$OUT
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6.3.0
         with:
           node-version: 22
 
@@ -74,7 +74,7 @@ jobs:
         working-directory: editors/code
 
       # - name: Upload VSIX
-      #   uses: actions/upload-artifact@v4
+      #   uses: actions/upload-artifact@v7
       #   with:
       #     name: tf2-vscript-support-${{ matrix.code-target }}
       #     path: editors/code/*.vsix
