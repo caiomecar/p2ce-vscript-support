@@ -34,15 +34,6 @@ const fn mask(kind: SyntaxKind) -> u128 {
     1u128 << (kind as u16)
 }
 
-pub(crate) const TRIVIA: TokenSet = TokenSet::new(&[
-    SyntaxKind::Whitespace,
-    SyntaxKind::LineFeed,
-    SyntaxKind::LineComment,
-    SyntaxKind::BlockComment,
-    SyntaxKind::DocComment,
-    SyntaxKind::Unknown,
-]);
-
 pub(crate) const ALWAYS_RECOVER: TokenSet = TokenSet::new(&[
     SyntaxKind::Eof,
     SyntaxKind::OpenBrace,
