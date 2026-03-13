@@ -164,6 +164,9 @@ impl Parser {
         if self.new_lines_between <= 1
             && let Some(comment_index) = self.last_comment_index
         {
+            // To not trigger on further starts
+            self.last_comment_index = None;
+
             let save_lookahead = self.lookahead_index;
             self.lookahead_index = comment_index;
             self.consume_to_lookahead();
