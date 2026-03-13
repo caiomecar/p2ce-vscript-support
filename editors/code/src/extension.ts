@@ -59,7 +59,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     client.start();
 
-    client.traceOutputChannel.show(true);
+    if (inDebug()) {
+        client.traceOutputChannel.show(true);
+    }
 }
 
 export function deactivate(): Thenable<void> | undefined {
