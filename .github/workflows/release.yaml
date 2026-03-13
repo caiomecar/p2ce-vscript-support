@@ -61,6 +61,7 @@ jobs:
 
       - name: Build Extension
         run: npm run build-release
+        working-directory: editors/code
 
       - name: Package VS Code Extension
         run: npx vsce package --target ${{ matrix.code-target }}
@@ -69,7 +70,7 @@ jobs:
       # - name: Upload VSIX
       #   uses: actions/upload-artifact@v4
       #   with:
-      #     name: vscode-extension-${{ matrix.code-target }}
-      #     path: vscode-extension/*.vsix
+      #     name: tf2-vscript-support-${{ matrix.code-target }}
+      #     path: editors/code/*.vsix
 
 
