@@ -73,10 +73,18 @@ jobs:
         run: npx vsce package --target ${{ matrix.code-target }}
         working-directory: editors/code
 
-      # - name: Upload VSIX
-      #   uses: actions/upload-artifact@v7
-      #   with:
-      #     name: tf2-vscript-support-${{ matrix.code-target }}
-      #     path: editors/code/*.vsix
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: tf2-vscript-support-${{ matrix.code-target }}
+          path: editors/code/*.vsix
+
+      # - name: Publish to VS Code Marketplace
+      #   run: npx vsce publish -p ${{ secrets.MARKETPLACE_TOKEN }} --packagePath *.vsix
+      #   working-directory: editors/code
+
+      # - name: Publish to Open VSX
+      #   run: npx ovsx publish *.vsix -p ${{ secrets.OPENVSX_TOKEN }}
+      #   working-directory: editors/code
 
 
