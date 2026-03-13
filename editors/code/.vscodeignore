@@ -3,7 +3,8 @@
 !package.json
 !README.md
 !LICENSE
-!out/**.js
+!out/server*
+!out/extension.js
 !logo.png
 !language-configuration.json
 !syntaxes/

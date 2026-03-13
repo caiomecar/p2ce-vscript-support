@@ -13,13 +13,16 @@
         "${workspaceFolder}/editors/code/out/**/*.js"
       ],
       "autoAttachChildProcesses": true,
+      "env": {
+        "TF2_VSCRIPT_LS_DEV": "1"
+      },
       "preLaunchTask": "rust: cargo build",
     },
     {
       "name": "Attach to Rust Server",
       "type": "lldb",
       "request": "attach",
-      "program": "${workspaceFolder}/target/debug/tf2-vscript-lsp",
+      "program": "${workspaceFolder}/target/debug/tf2-vscript-ls",
       "stopOnEntry": false
     }
   ]
