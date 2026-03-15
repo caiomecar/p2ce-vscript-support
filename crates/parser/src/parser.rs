@@ -161,8 +161,8 @@ impl Parser {
     // Adds the marker as the last element to the events array
     fn start(&mut self) -> Marker {
         // Attach comments to the nodes if there's only a single new line in between them
-        if self.new_lines_between <= 1
-            && let Some(comment_index) = self.last_comment_index
+        if let Some(comment_index) = self.last_comment_index
+            && self.new_lines_between <= 1
         {
             // To not trigger on further starts
             self.last_comment_index = None;
