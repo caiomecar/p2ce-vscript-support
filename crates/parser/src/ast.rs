@@ -28,6 +28,36 @@ macro_rules! ast_node {
     };
 }
 
+macro_rules! ast_enum {
+    ($name:ident { $($variant:ident($inner:ident)),* $(,)? }) => {
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        pub enum $name {
+            $($variant($inner),)*
+        }
+
+        impl AstNode for $name {
+            type Language = SquirrelLanguage;
+
+            fn can_cast(kind: SyntaxKind) -> bool {
+                matches!(kind, $(SyntaxKind::$inner)|*)
+            }
+
+            fn cast(node: SyntaxNode) -> Option<Self> {
+                Some(match node.kind() {
+                    $(SyntaxKind::$inner => $name::$variant($inner(node)),)*
+                    _ => return None,
+                })
+            }
+
+            fn syntax(&self) -> &SyntaxNode {
+                match self {
+                    $($name::$variant(n) => n.syntax(),)*
+                }
+            }
+        }
+    };
+}
+
 // Searching `Expr` can be ambigious if a node has multiple expressions as direct children.
 // Example: for (;abc;) | for (;;abc)
 // Searching for the first expression here will either give us the condition or the increment
@@ -293,8 +323,7 @@ impl ClassExpression {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Expr {
+ast_enum!(Expr {
     Literal(LiteralExpression),
     Name(Name),
     Binary(BinaryExpression),
@@ -321,112 +350,7 @@ pub enum Expr {
     Function(FunctionExpression),
     Lambda(LambdaExpression),
     Class(ClassExpression),
-}
-
-impl AstNode for Expr {
-    type Language = SquirrelLanguage;
-
-    fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(
-            kind,
-            SyntaxKind::LiteralExpression
-                | SyntaxKind::Name
-                | SyntaxKind::BinaryExpression
-                | SyntaxKind::ConditionalExpression
-                | SyntaxKind::PrefixUnaryExpression
-                | SyntaxKind::PrefixUpdateExpression
-                | SyntaxKind::PostfixUpdateExpression
-                | SyntaxKind::DeleteExpression
-                | SyntaxKind::TypeOfExpression
-                | SyntaxKind::CloneExpression
-                | SyntaxKind::ResumeExpression
-                | SyntaxKind::RawCallExpression
-                | SyntaxKind::MemberAccessExpression
-                | SyntaxKind::ElementAccessExpression
-                | SyntaxKind::CallExpression
-                | SyntaxKind::RootAccessExpression
-                | SyntaxKind::ThisExpression
-                | SyntaxKind::BaseExpression
-                | SyntaxKind::FileExpression
-                | SyntaxKind::LineExpression
-                | SyntaxKind::ParenthesisedExpression
-                | SyntaxKind::ArrayLiteralExpression
-                | SyntaxKind::TableLiteralExpression
-                | SyntaxKind::FunctionExpression
-                | SyntaxKind::LambdaExpression
-                | SyntaxKind::ClassExpression
-        )
-    }
-
-    fn cast(node: SyntaxNode) -> Option<Self> {
-        Some(match node.kind() {
-            SyntaxKind::LiteralExpression => Expr::Literal(LiteralExpression(node)),
-            SyntaxKind::Name => Expr::Name(Name(node)),
-            SyntaxKind::BinaryExpression => Expr::Binary(BinaryExpression(node)),
-            SyntaxKind::ConditionalExpression => Expr::Conditional(ConditionalExpression(node)),
-            SyntaxKind::PrefixUnaryExpression => Expr::PrefixUnary(PrefixUnaryExpression(node)),
-            SyntaxKind::PrefixUpdateExpression => Expr::PrefixUpdate(PrefixUpdateExpression(node)),
-            SyntaxKind::PostfixUpdateExpression => {
-                Expr::PostfixUpdate(PostfixUpdateExpression(node))
-            }
-            SyntaxKind::DeleteExpression => Expr::Delete(DeleteExpression(node)),
-            SyntaxKind::TypeOfExpression => Expr::TypeOf(TypeOfExpression(node)),
-            SyntaxKind::CloneExpression => Expr::Clone(CloneExpression(node)),
-            SyntaxKind::ResumeExpression => Expr::Resume(ResumeExpression(node)),
-            SyntaxKind::RawCallExpression => Expr::RawCall(RawCallExpression(node)),
-            SyntaxKind::MemberAccessExpression => Expr::MemberAccess(MemberAccessExpression(node)),
-            SyntaxKind::ElementAccessExpression => {
-                Expr::ElementAccess(ElementAccessExpression(node))
-            }
-            SyntaxKind::CallExpression => Expr::Call(CallExpression(node)),
-            SyntaxKind::RootAccessExpression => Expr::RootAccess(RootAccessExpression(node)),
-            SyntaxKind::ThisExpression => Expr::This(ThisExpression(node)),
-            SyntaxKind::BaseExpression => Expr::Base(BaseExpression(node)),
-            SyntaxKind::FileExpression => Expr::File(FileExpression(node)),
-            SyntaxKind::LineExpression => Expr::Line(LineExpression(node)),
-            SyntaxKind::ParenthesisedExpression => {
-                Expr::Parenthesised(ParenthesisedExpression(node))
-            }
-            SyntaxKind::ArrayLiteralExpression => Expr::ArrayLiteral(ArrayLiteralExpression(node)),
-            SyntaxKind::TableLiteralExpression => Expr::TableLiteral(TableLiteralExpression(node)),
-            SyntaxKind::FunctionExpression => Expr::Function(FunctionExpression(node)),
-            SyntaxKind::LambdaExpression => Expr::Lambda(LambdaExpression(node)),
-            SyntaxKind::ClassExpression => Expr::Class(ClassExpression(node)),
-            _ => return None,
-        })
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        match self {
-            Expr::Literal(n) => n.syntax(),
-            Expr::Name(n) => n.syntax(),
-            Expr::Binary(n) => n.syntax(),
-            Expr::Conditional(n) => n.syntax(),
-            Expr::PrefixUnary(n) => n.syntax(),
-            Expr::PrefixUpdate(n) => n.syntax(),
-            Expr::PostfixUpdate(n) => n.syntax(),
-            Expr::Delete(n) => n.syntax(),
-            Expr::TypeOf(n) => n.syntax(),
-            Expr::Clone(n) => n.syntax(),
-            Expr::Resume(n) => n.syntax(),
-            Expr::RawCall(n) => n.syntax(),
-            Expr::MemberAccess(n) => n.syntax(),
-            Expr::ElementAccess(n) => n.syntax(),
-            Expr::Call(n) => n.syntax(),
-            Expr::RootAccess(n) => n.syntax(),
-            Expr::This(n) => n.syntax(),
-            Expr::Base(n) => n.syntax(),
-            Expr::File(n) => n.syntax(),
-            Expr::Line(n) => n.syntax(),
-            Expr::Parenthesised(n) => n.syntax(),
-            Expr::ArrayLiteral(n) => n.syntax(),
-            Expr::TableLiteral(n) => n.syntax(),
-            Expr::Function(n) => n.syntax(),
-            Expr::Lambda(n) => n.syntax(),
-            Expr::Class(n) => n.syntax(),
-        }
-    }
-}
+});
 
 ast_node!(SourceFile, SourceFile);
 impl HasDoc for SourceFile {}
@@ -483,6 +407,7 @@ impl DoWhileStatement {
     }
 }
 
+// The only nested enum, no ast_enum! call
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ForInitialiser {
     LocalVariableDeclaration(LocalVariableDeclaration),
@@ -654,18 +579,14 @@ impl HasBody for FunctionStatement {}
 
 impl FunctionStatement {
     pub fn name(&self) -> Option<FunctionName> {
-        if let Some(qn) = support::child::<QualifiedName>(&self.0) {
-            Some(FunctionName::Qualified(qn))
-        } else {
-            Some(FunctionName::Simple(support::child(&self.0)?))
-        }
+        support::child(&self.0)
     }
 }
 
-pub enum FunctionName {
+ast_enum!(FunctionName {
     Simple(Name),
-    Qualified(QualifiedName),
-}
+    Qualified(QualifiedName)
+});
 
 ast_node!(ClassStatement, ClassStatement);
 impl HasDoc for ClassStatement {}
@@ -723,8 +644,7 @@ impl ThrowStatement {
 ast_node!(ExpressionStatement, ExpressionStatement);
 impl ExpressionWrapper for ExpressionStatement {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Stmt {
+ast_enum!(Stmt {
     Empty(EmptyStatement),
     Block(BlockStatement),
     If(IfStatement),
@@ -746,95 +666,7 @@ pub enum Stmt {
     Try(TryStatement),
     Throw(ThrowStatement),
     Expression(ExpressionStatement),
-}
-
-impl AstNode for Stmt {
-    type Language = SquirrelLanguage;
-
-    fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(
-            kind,
-            SyntaxKind::EmptyStatement
-                | SyntaxKind::BlockStatement
-                | SyntaxKind::IfStatement
-                | SyntaxKind::WhileStatement
-                | SyntaxKind::DoWhileStatement
-                | SyntaxKind::ForStatement
-                | SyntaxKind::ForEachStatement
-                | SyntaxKind::SwitchStatement
-                | SyntaxKind::ConstStatement
-                | SyntaxKind::LocalVariableDeclaration
-                | SyntaxKind::LocalFunctionDeclaration
-                | SyntaxKind::ReturnStatement
-                | SyntaxKind::YieldStatement
-                | SyntaxKind::ContinueStatement
-                | SyntaxKind::BreakStatement
-                | SyntaxKind::FunctionStatement
-                | SyntaxKind::ClassStatement
-                | SyntaxKind::EnumStatement
-                | SyntaxKind::TryStatement
-                | SyntaxKind::ThrowStatement
-                | SyntaxKind::ExpressionStatement
-        )
-    }
-
-    fn cast(node: SyntaxNode) -> Option<Self> {
-        Some(match node.kind() {
-            SyntaxKind::EmptyStatement => Stmt::Empty(EmptyStatement(node)),
-            SyntaxKind::BlockStatement => Stmt::Block(BlockStatement(node)),
-            SyntaxKind::IfStatement => Stmt::If(IfStatement(node)),
-            SyntaxKind::WhileStatement => Stmt::While(WhileStatement(node)),
-            SyntaxKind::DoWhileStatement => Stmt::DoWhile(DoWhileStatement(node)),
-            SyntaxKind::ForStatement => Stmt::For(ForStatement(node)),
-            SyntaxKind::ForEachStatement => Stmt::ForEach(ForEachStatement(node)),
-            SyntaxKind::SwitchStatement => Stmt::Switch(SwitchStatement(node)),
-            SyntaxKind::ConstStatement => Stmt::Const(ConstStatement(node)),
-            SyntaxKind::LocalVariableDeclaration => {
-                Stmt::LocalVariable(LocalVariableDeclaration(node))
-            }
-            SyntaxKind::LocalFunctionDeclaration => {
-                Stmt::LocalFunction(LocalFunctionDeclaration(node))
-            }
-            SyntaxKind::ReturnStatement => Stmt::Return(ReturnStatement(node)),
-            SyntaxKind::YieldStatement => Stmt::Yield(YieldStatement(node)),
-            SyntaxKind::ContinueStatement => Stmt::Continue(ContinueStatement(node)),
-            SyntaxKind::BreakStatement => Stmt::Break(BreakStatement(node)),
-            SyntaxKind::FunctionStatement => Stmt::Function(FunctionStatement(node)),
-            SyntaxKind::ClassStatement => Stmt::Class(ClassStatement(node)),
-            SyntaxKind::EnumStatement => Stmt::Enum(EnumStatement(node)),
-            SyntaxKind::TryStatement => Stmt::Try(TryStatement(node)),
-            SyntaxKind::ThrowStatement => Stmt::Throw(ThrowStatement(node)),
-            SyntaxKind::ExpressionStatement => Stmt::Expression(ExpressionStatement(node)),
-            _ => return None,
-        })
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        match self {
-            Stmt::Empty(n) => n.syntax(),
-            Stmt::Block(n) => n.syntax(),
-            Stmt::If(n) => n.syntax(),
-            Stmt::While(n) => n.syntax(),
-            Stmt::DoWhile(n) => n.syntax(),
-            Stmt::For(n) => n.syntax(),
-            Stmt::ForEach(n) => n.syntax(),
-            Stmt::Switch(n) => n.syntax(),
-            Stmt::Const(n) => n.syntax(),
-            Stmt::LocalVariable(n) => n.syntax(),
-            Stmt::LocalFunction(n) => n.syntax(),
-            Stmt::Return(n) => n.syntax(),
-            Stmt::Yield(n) => n.syntax(),
-            Stmt::Continue(n) => n.syntax(),
-            Stmt::Break(n) => n.syntax(),
-            Stmt::Function(n) => n.syntax(),
-            Stmt::Class(n) => n.syntax(),
-            Stmt::Enum(n) => n.syntax(),
-            Stmt::Try(n) => n.syntax(),
-            Stmt::Throw(n) => n.syntax(),
-            Stmt::Expression(n) => n.syntax(),
-        }
-    }
-}
+});
 
 ast_node!(Initialiser, Initialiser);
 impl ExpressionWrapper for Initialiser {}
@@ -890,16 +722,7 @@ impl HasDoc for Property {}
 
 impl Property {
     pub fn name(&self) -> Option<MemberName> {
-        if let Some(n) = support::child::<Name>(&self.0) {
-            return Some(MemberName::Identifier(n));
-        }
-        if let Some(n) = support::child::<StringName>(&self.0) {
-            return Some(MemberName::String(n));
-        }
-        if let Some(n) = support::child::<ComputedName>(&self.0) {
-            return Some(MemberName::Computed(n));
-        }
-        None
+        support::child(&self.0)
     }
 
     pub fn value(&self) -> Option<Expr> {
@@ -918,11 +741,11 @@ impl StringName {
 ast_node!(ComputedName, ComputedName);
 impl ExpressionWrapper for ComputedName {}
 
-pub enum MemberName {
+ast_enum!(MemberName {
     Identifier(Name),
     String(StringName),
     Computed(ComputedName),
-}
+});
 
 ast_node!(Constructor, Constructor);
 impl HasDoc for Constructor {}
@@ -935,37 +758,8 @@ impl HasName for Method {}
 impl IsFunction for Method {}
 impl HasBody for Method {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ClassMember {
+ast_enum!(ClassMember {
     Property(Property),
     Constructor(Constructor),
     Method(Method),
-}
-
-impl AstNode for ClassMember {
-    type Language = SquirrelLanguage;
-
-    fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(
-            kind,
-            SyntaxKind::Property | SyntaxKind::Constructor | SyntaxKind::Method
-        )
-    }
-
-    fn cast(node: SyntaxNode) -> Option<Self> {
-        Some(match node.kind() {
-            SyntaxKind::Property => ClassMember::Property(Property(node)),
-            SyntaxKind::Constructor => ClassMember::Constructor(Constructor(node)),
-            SyntaxKind::Method => ClassMember::Method(Method(node)),
-            _ => return None,
-        })
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        match self {
-            ClassMember::Property(n) => n.syntax(),
-            ClassMember::Constructor(n) => n.syntax(),
-            ClassMember::Method(n) => n.syntax(),
-        }
-    }
-}
+});
