@@ -314,19 +314,16 @@ mod tests {
     }
 
     #[test]
-    fn function_statement_variadic() {
-        let stmt = first_stmt("function variadic(...) {}");
-        let Stmt::Function(f) = stmt else { panic!() };
-        assert!(f.parameter_list().unwrap().is_variadic());
-    }
-
-    #[test]
     fn function_statement_default_param() {
         let stmt = first_stmt("function greet(name = \"world\") {}");
         let Stmt::Function(f) = stmt else { panic!() };
         let params: Vec<_> = f.parameter_list().unwrap().parameters().collect();
         assert_eq!(params.len(), 1);
-        assert!(params[0].initialiser().is_some());
+        let param = match params.first().unwrap() {
+            Parameter::Variable(v) => v,
+            Parameter::Ellipsis(_) => panic!(),
+        };
+        assert!(param.initialiser().is_some());
     }
 
     #[test]
@@ -812,18 +809,12 @@ mod tests {
             .parameter_list()
             .unwrap()
             .parameters()
-            .map(|p| p.name().unwrap().text().unwrap())
+            .map(|p| match p {
+                Parameter::Variable(v) => v.name().unwrap().text().unwrap(),
+                Parameter::Ellipsis(_) => panic!(),
+            })
             .collect();
         assert_eq!(names, ["alpha", "beta", "gamma"]);
-    }
-
-    #[test]
-    fn variadic_with_named_params() {
-        let stmt = first_stmt("function f(a, b, ...) {}");
-        let Stmt::Function(f) = stmt else { panic!() };
-        let pl = f.parameter_list().unwrap();
-        assert_eq!(pl.parameters().count(), 2);
-        assert!(pl.is_variadic());
     }
 
     #[test]

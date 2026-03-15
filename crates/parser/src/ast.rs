@@ -681,15 +681,16 @@ impl VariableDeclaration {
     }
 }
 
+ast_enum!(Parameter {
+    Variable(VariableDeclaration),
+    Ellipsis(VariedArgs),
+});
+
 ast_node!(ParameterList, ParameterList);
 
 impl ParameterList {
-    pub fn parameters(&self) -> AstChildren<VariableDeclaration> {
+    pub fn parameters(&self) -> AstChildren<Parameter> {
         support::children(&self.0)
-    }
-
-    pub fn is_variadic(&self) -> bool {
-        support::child::<VariedArgs>(&self.0).is_some()
     }
 }
 
