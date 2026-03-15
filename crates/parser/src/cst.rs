@@ -123,7 +123,7 @@ pub enum SyntaxKind {
     Operator,
 
     Index,
-    Member,
+    MemberPart,
 
     VariableDeclarationList,
     VariableDeclaration,

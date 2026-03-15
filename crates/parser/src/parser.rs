@@ -1057,7 +1057,7 @@ impl Parser {
 
         let member = self.start();
         self.parse_name("member's name", None);
-        self.finish(member, SyntaxKind::Member);
+        self.finish(member, SyntaxKind::MemberPart);
 
         self.finish(m, SyntaxKind::MemberAccessExpression);
     }

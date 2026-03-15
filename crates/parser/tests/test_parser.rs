@@ -362,14 +362,14 @@ mod tests {
         let Stmt::Class(c) = stmt else { panic!() };
         let members: Vec<_> = c.members().collect();
         assert_eq!(members.len(), 1);
-        assert!(matches!(members[0], ClassMember::Constructor(_)));
+        assert!(matches!(members[0], Member::Constructor(_)));
     }
 
     #[test]
     fn class_statement_method() {
         let stmt = first_stmt("class Foo { function bar(a, b) {} }");
         let Stmt::Class(c) = stmt else { panic!() };
-        let ClassMember::Method(m) = c.members().next().unwrap() else {
+        let Member::Method(m) = c.members().next().unwrap() else {
             panic!()
         };
         assert_eq!(m.name().unwrap().text().unwrap(), "bar");
@@ -582,7 +582,10 @@ mod tests {
             panic!("expected member access")
         };
         assert!(m.object().is_some());
-        assert_eq!(m.member().unwrap().name().unwrap().text().unwrap(), "field");
+        assert_eq!(
+            m.member_part().unwrap().name().unwrap().text().unwrap(),
+            "field"
+        );
     }
 
     #[test]
@@ -591,11 +594,17 @@ mod tests {
         let Expr::MemberAccess(outer) = expr else {
             panic!()
         };
-        assert_eq!(outer.member().unwrap().name().unwrap().text().unwrap(), "c");
+        assert_eq!(
+            outer.member_part().unwrap().name().unwrap().text().unwrap(),
+            "c"
+        );
         let Expr::MemberAccess(inner) = outer.object().unwrap() else {
             panic!()
         };
-        assert_eq!(inner.member().unwrap().name().unwrap().text().unwrap(), "b");
+        assert_eq!(
+            inner.member_part().unwrap().name().unwrap().text().unwrap(),
+            "b"
+        );
     }
 
     #[test]
@@ -704,7 +713,10 @@ mod tests {
         let Expr::TableLiteral(t) = expr else {
             panic!()
         };
-        let prop = t.members().next().unwrap();
+        let member = t.members().next().unwrap();
+        let Member::Property(prop) = member else {
+            panic!()
+        };
         assert!(matches!(prop.name().unwrap(), MemberName::String(_)));
     }
 
@@ -714,7 +726,10 @@ mod tests {
         let Expr::TableLiteral(t) = expr else {
             panic!()
         };
-        let prop = t.members().next().unwrap();
+        let member = t.members().next().unwrap();
+        let Member::Property(prop) = member else {
+            panic!()
+        };
         assert!(matches!(prop.name().unwrap(), MemberName::Computed(_)));
     }
 
@@ -815,7 +830,7 @@ mod tests {
     fn class_property_value() {
         let stmt = first_stmt("class Foo { hp = 100; }");
         let Stmt::Class(c) = stmt else { panic!() };
-        let ClassMember::Property(p) = c.members().next().unwrap() else {
+        let Member::Property(p) = c.members().next().unwrap() else {
             panic!()
         };
         let MemberName::Identifier(name) = p.name().unwrap() else {
@@ -829,7 +844,7 @@ mod tests {
     fn class_constructor_params() {
         let stmt = first_stmt("class Vec2 { constructor(x, y) { this.x = x; this.y = y } }");
         let Stmt::Class(c) = stmt else { panic!() };
-        let ClassMember::Constructor(ctor) = c.members().next().unwrap() else {
+        let Member::Constructor(ctor) = c.members().next().unwrap() else {
             panic!()
         };
         assert_eq!(ctor.parameter_list().unwrap().parameters().count(), 2);

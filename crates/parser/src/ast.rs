@@ -221,8 +221,8 @@ impl RawCallExpression {
     }
 }
 
-ast_node!(Member, Member);
-impl HasName for Member {}
+ast_node!(MemberPart, MemberPart);
+impl HasName for MemberPart {}
 
 ast_node!(MemberAccessExpression, MemberAccessExpression);
 
@@ -231,7 +231,7 @@ impl MemberAccessExpression {
         support::child(&self.0)
     }
 
-    pub fn member(&self) -> Option<Member> {
+    pub fn member_part(&self) -> Option<MemberPart> {
         support::child(&self.0)
     }
 }
@@ -293,7 +293,7 @@ impl ArrayLiteralExpression {
 ast_node!(TableLiteralExpression, TableLiteralExpression);
 
 impl TableLiteralExpression {
-    pub fn members(&self) -> AstChildren<Property> {
+    pub fn members(&self) -> AstChildren<Member> {
         support::children(&self.0)
     }
 }
@@ -318,7 +318,7 @@ impl ClassExpression {
         support::child(&self.0)
     }
 
-    pub fn members(&self) -> AstChildren<ClassMember> {
+    pub fn members(&self) -> AstChildren<Member> {
         support::children(&self.0)
     }
 }
@@ -600,7 +600,7 @@ impl ClassStatement {
         support::child(&self.0)
     }
 
-    pub fn members(&self) -> AstChildren<ClassMember> {
+    pub fn members(&self) -> AstChildren<Member> {
         support::children(&self.0)
     }
 }
@@ -758,7 +758,7 @@ impl HasName for Method {}
 impl IsFunction for Method {}
 impl HasBody for Method {}
 
-ast_enum!(ClassMember {
+ast_enum!(Member {
     Property(Property),
     Constructor(Constructor),
     Method(Method),
