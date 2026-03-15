@@ -43,8 +43,8 @@ pub struct Parse {
 }
 
 impl Parse {
-    pub fn into_syntax(self) -> SyntaxNode {
-        SyntaxNode::new_root(self.green_node)
+    pub fn into_syntax(&self) -> SyntaxNode {
+        SyntaxNode::new_root(self.green_node.clone())
     }
 
     pub fn new(text: &str) -> Parse {
