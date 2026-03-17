@@ -83,14 +83,14 @@ enum ParsingObjectSeparator {
     Semicolon,
 }
 
-pub fn parse(tokens: Box<[Token]>) -> (Box<[Event]>, Vec<SyntaxError>) {
+pub fn parse(tokens: Vec<Token>) -> (Vec<Event>, Vec<SyntaxError>) {
     let mut parser = Parser::new(tokens);
     parser.parse_source_file();
-    (parser.events.into_boxed_slice(), parser.errors)
+    (parser.events, parser.errors)
 }
 
 struct Parser {
-    tokens: Box<[Token]>,
+    tokens: Vec<Token>,
     // We keep track of index of the token we've put as an event and index
     // of the token we're currently inspecting
     //
@@ -119,7 +119,7 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(tokens: Box<[Token]>) -> Self {
+    fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
             consumed_index: 0,
@@ -129,8 +129,8 @@ impl Parser {
             object_separator: ParsingObjectSeparator::None,
             last_comment_index: None,
             new_lines_between: 0,
-            errors: vec![],
-            events: vec![],
+            errors: Vec::new(),
+            events: Vec::new(),
         }
     }
 

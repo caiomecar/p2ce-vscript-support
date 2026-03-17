@@ -123,10 +123,13 @@ mod tests {
     #[test]
     fn for_statement() {
         let stmt = first_stmt("for (local i = 0; i < 10; i++) {}");
+        dbg!(&stmt);
         let Stmt::For(f) = stmt else {
             panic!("expected for")
         };
+        assert!(f.initialiser().is_some());
         assert!(f.condition().is_some());
+        assert!(f.increment().is_some());
         assert!(f.body().is_some());
     }
 
@@ -134,9 +137,13 @@ mod tests {
     fn for_statement_empty_parts() {
         // All three parts optional
         let stmt = first_stmt("for (;;) {}");
-        let Stmt::For(_) = stmt else {
+        let Stmt::For(f) = stmt else {
             panic!("expected for")
         };
+
+        assert!(f.initialiser().is_none());
+        assert!(f.condition().is_none());
+        assert!(f.increment().is_none());
     }
 
     #[test]

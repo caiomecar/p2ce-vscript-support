@@ -113,10 +113,14 @@ pub trait IsFunction: AstNode<Language = SquirrelLanguage> {
     }
 }
 
-fn first_token(node: &SyntaxNode) -> Option<SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|it| it.into_token())
-        .next()
+pub trait SingleToken: AstNode<Language = SquirrelLanguage> {
+    fn token(&self) -> Option<SyntaxToken> {
+        // Comments can be included at the front, but never at the back
+        self.syntax()
+            .children_with_tokens()
+            .filter_map(|it| it.into_token())
+            .last()
+    }
 }
 
 ast_node!(Name, Name);
@@ -138,18 +142,10 @@ impl QualifiedName {
 }
 
 ast_node!(Operator, Operator);
-impl Operator {
-    pub fn token(&self) -> Option<SyntaxToken> {
-        first_token(&self.0)
-    }
-}
+impl SingleToken for Operator {}
 
 ast_node!(LiteralExpression, LiteralExpression);
-impl LiteralExpression {
-    pub fn token(&self) -> Option<SyntaxToken> {
-        first_token(&self.0)
-    }
-}
+impl SingleToken for LiteralExpression {}
 
 ast_node!(BinaryExpression, BinaryExpression);
 // Newslot assignment
@@ -407,42 +403,26 @@ impl DoWhileStatement {
     }
 }
 
-// The only nested enum, no ast_enum! call
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ForInitialiser {
+ast_node!(ForInitialiser, ForInitialiser);
+pub enum ForInitialiserKind {
     LocalVariableDeclaration(LocalVariableDeclaration),
     LocalFunctionDeclaration(LocalFunctionDeclaration),
     Expression(Expr),
 }
-
-impl AstNode for ForInitialiser {
-    type Language = SquirrelLanguage;
-
-    fn can_cast(kind: SyntaxKind) -> bool {
-        match kind {
-            SyntaxKind::LocalVariableDeclaration | SyntaxKind::LocalFunctionDeclaration => true,
-            _ => Expr::can_cast(kind),
-        }
-    }
-
-    fn cast(node: SyntaxNode) -> Option<Self> {
-        Some(match node.kind() {
-            SyntaxKind::LocalVariableDeclaration => {
-                ForInitialiser::LocalVariableDeclaration(LocalVariableDeclaration(node))
+impl ForInitialiser {
+    pub fn kind(&self) -> Option<ForInitialiserKind> {
+        self.syntax().children().find_map(|node| match node.kind() {
+            SyntaxKind::LocalVariableDeclaration => Some(
+                ForInitialiserKind::LocalVariableDeclaration(LocalVariableDeclaration(node)),
+            ),
+            SyntaxKind::LocalFunctionDeclaration => Some(
+                ForInitialiserKind::LocalFunctionDeclaration(LocalFunctionDeclaration(node)),
+            ),
+            _ if Expr::can_cast(node.kind()) => {
+                Some(ForInitialiserKind::Expression(Expr::cast(node)?))
             }
-            SyntaxKind::LocalFunctionDeclaration => {
-                ForInitialiser::LocalFunctionDeclaration(LocalFunctionDeclaration(node))
-            }
-            _ => ForInitialiser::Expression(Expr::cast(node)?),
+            _ => None,
         })
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        match self {
-            ForInitialiser::LocalVariableDeclaration(n) => n.syntax(),
-            ForInitialiser::LocalFunctionDeclaration(n) => n.syntax(),
-            ForInitialiser::Expression(n) => n.syntax(),
-        }
     }
 }
 
@@ -732,12 +712,7 @@ impl Property {
 }
 
 ast_node!(StringName, StringName);
-
-impl StringName {
-    pub fn token(&self) -> Option<SyntaxToken> {
-        first_token(&self.0)
-    }
-}
+impl SingleToken for StringName {}
 
 ast_node!(ComputedName, ComputedName);
 impl ExpressionWrapper for ComputedName {}

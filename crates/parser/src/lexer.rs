@@ -60,9 +60,9 @@ struct Lexer<'a> {
     errors: Vec<SyntaxError>,
 }
 
-pub(crate) fn tokenise(text: &str) -> (Box<[Token]>, Vec<SyntaxError>) {
+pub(crate) fn tokenise(text: &str) -> (Vec<Token>, Vec<SyntaxError>) {
     let mut lexer = Lexer::new(text);
-    let mut tokens = vec![];
+    let mut tokens = Vec::new();
     loop {
         let token = lexer.next_token();
         tokens.push(token);
@@ -71,7 +71,7 @@ pub(crate) fn tokenise(text: &str) -> (Box<[Token]>, Vec<SyntaxError>) {
         }
     }
 
-    (tokens.into_boxed_slice(), lexer.errors)
+    (tokens, lexer.errors)
 }
 
 impl Token {
