@@ -558,15 +558,10 @@ impl IsFunction for FunctionStatement {}
 impl HasBody for FunctionStatement {}
 
 impl FunctionStatement {
-    pub fn name(&self) -> Option<FunctionName> {
+    pub fn name(&self) -> Option<QualifiedName> {
         support::child(&self.0)
     }
 }
-
-ast_enum!(FunctionName {
-    Simple(Name),
-    Qualified(QualifiedName)
-});
 
 ast_node!(ClassStatement, ClassStatement);
 impl HasDoc for ClassStatement {}

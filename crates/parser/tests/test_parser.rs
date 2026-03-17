@@ -337,7 +337,7 @@ mod tests {
     fn function_statement_qualified_name() {
         let stmt = first_stmt("function a::b::c() {}");
         let Stmt::Function(f) = stmt else { panic!() };
-        let Some(FunctionName::Qualified(qn)) = f.name() else {
+        let Some(qn) = f.name() else {
             panic!("expected qualified name")
         };
         assert_eq!(qn.names().count(), 3);
