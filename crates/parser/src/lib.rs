@@ -39,7 +39,7 @@ impl SyntaxError {
 #[derive(Debug, Clone)]
 pub struct Parse {
     green_node: GreenNode,
-    errors: Box<[SyntaxError]>,
+    errors: Vec<SyntaxError>,
 }
 
 impl Parse {
@@ -79,7 +79,7 @@ impl Parse {
 
         Parse {
             green_node: builder.finish(),
-            errors: lex_errors.into_boxed_slice(),
+            errors: lex_errors,
         }
     }
 
