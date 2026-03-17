@@ -91,8 +91,8 @@ pub fn parse(tokens: Vec<Token>) -> (Vec<Event>, Vec<SyntaxError>) {
 
 struct Parser {
     tokens: Vec<Token>,
-    // We keep track of index of the token we've put as an event and index
-    // of the token we're currently inspecting
+    // We keep track of index of the token we've put into events(meaning that it is
+    // consumed) and index of the token we're currently inspecting
     //
     // When we do .bump every token up to the current lookahead_index is consumed
     // (exclusive so Eof is avoided and when we call it twice in a row we don't get
@@ -107,12 +107,12 @@ struct Parser {
     // trivia tokens
     consumed_index: usize,
     lookahead_index: usize,
-    prev_token: Token,
-    has_preceding_line_feed: bool,
-    object_separator: ParsingObjectSeparator,
+    preceding_comments_index: Option<usize>,
 
-    last_comment_index: Option<usize>,
     new_lines_between: usize,
+
+    prev_token: Token,
+    object_separator: ParsingObjectSeparator,
 
     errors: Vec<SyntaxError>,
     events: Vec<Event>,
@@ -124,18 +124,17 @@ impl Parser {
             tokens,
             consumed_index: 0,
             lookahead_index: 0,
-            prev_token: Token::dummy(),
-            has_preceding_line_feed: false,
-            object_separator: ParsingObjectSeparator::None,
-            last_comment_index: None,
+            preceding_comments_index: None,
             new_lines_between: 0,
+            prev_token: Token::dummy(),
+            object_separator: ParsingObjectSeparator::None,
             errors: Vec::new(),
             events: Vec::new(),
         }
     }
 
     fn parse_source_file(&mut self) {
-        // Create those markers manually so we don't trigger consume_to_lookeahead
+        // Create this marker manually so we don't trigger consume_to_lookeahead
         // And cause trivia tokens to start outside of the source file node
         self.events.push(Event::Pending);
         let m = Marker(0);
@@ -158,17 +157,15 @@ impl Parser {
         self.consumed_index = self.lookahead_index;
     }
 
-    // Adds the marker as the last element to the events array
+    /// Adds the marker as the last element to the events array
     fn start(&mut self) -> Marker {
         // Attach comments to the nodes if there's only a single new line in between them
-        if let Some(comment_index) = self.last_comment_index
-            && self.new_lines_between <= 1
-        {
+        if let Some(comments_index) = self.preceding_comments_index {
             // To not trigger on further starts
-            self.last_comment_index = None;
+            self.preceding_comments_index = None;
 
             let save_lookahead = self.lookahead_index;
-            self.lookahead_index = comment_index;
+            self.lookahead_index = comments_index;
             self.consume_to_lookahead();
 
             let index = self.events.len();
@@ -184,11 +181,11 @@ impl Parser {
         }
     }
 
-    // Removes the marker of Pending type from the array, if marker
-    // wasn't a result of calling .precede completely invalidates
-    // the marker, as it starts to point at either out of bounds or
-    // token event. Otherwise rolls back the state of a marker before
-    // .precede was called
+    /// Removes the marker of Pending type from the array, if marker
+    /// wasn't a result of calling .precede completely invalidates
+    /// the marker, as it starts to point at either out of bounds or
+    /// token event. Otherwise rolls back the state of a marker before
+    /// .precede was called
     fn drop(&mut self, marker: Marker) {
         assert!(
             marker.0 < self.events.len(),
@@ -203,8 +200,8 @@ impl Parser {
         self.events.remove(marker.0);
     }
 
-    // Finishes the marker of Pending type.
-    // Can call .precede after this is accomplished
+    /// Finishes the marker of Pending type.
+    /// Can call .precede after this is accomplished
     fn finish(&mut self, marker: Marker, kind: SyntaxKind) {
         assert!(
             marker.0 < self.events.len(),
@@ -220,8 +217,8 @@ impl Parser {
         self.events.push(Event::Finish);
     }
 
-    // "Creates" a new marker right before the passed in marker
-    // Passed in marker should always be finished
+    /// "Creates" a new marker right before the passed in marker
+    /// Passed in marker should always be finished
     fn precede(&mut self, marker: Marker) {
         assert!(
             marker.0 < self.events.len(),
@@ -278,6 +275,7 @@ impl Parser {
                 panic!("Trying to get the type of an unfinished marker")
             }
             // Either the marker was completed, or was dropped but previously
+            // called .precede on which gives the resulting wrapping marker
             Event::Start { kind } => kind,
             // Marker was dropped but it wasn't the last element in the array
             Event::Token { .. } => SyntaxKind::Unknown,
@@ -314,17 +312,26 @@ impl Parser {
     }
 
     fn skip_trivia(&mut self) {
-        self.has_preceding_line_feed = false;
         self.new_lines_between = 0;
         loop {
             match self.token() {
                 SyntaxKind::Whitespace | SyntaxKind::Unknown => {}
                 SyntaxKind::LineFeed => {
+                    // If there're more than 1 new line it between
+                    // - don't attach the comments to the next node
+                    if self.new_lines_between > 0 {
+                        self.preceding_comments_index = None;
+                    }
                     self.new_lines_between += 1;
-                    self.has_preceding_line_feed = true;
                 }
-                SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::DocComment => {
-                    self.last_comment_index = Some(self.lookahead_index);
+                SyntaxKind::LineComment => {
+                    if self.preceding_comments_index.is_none() {
+                        self.preceding_comments_index = Some(self.lookahead_index);
+                    }
+                    self.new_lines_between = 0;
+                }
+                SyntaxKind::BlockComment | SyntaxKind::DocComment => {
+                    self.preceding_comments_index = Some(self.lookahead_index);
                 }
                 _ => break,
             }
@@ -377,7 +384,7 @@ impl Parser {
         self.finish(m, SyntaxKind::Error);
     }
 
-    // Recovery set is just what we don't want to skip over
+    /// Recovery set is just what we don't want to skip over
     fn error_with_recovery(&mut self, message: impl Display, recovery: TokenSet) {
         if self.at_set(ALWAYS_RECOVER) || self.at_set(recovery) {
             self.error_at_token(message);
@@ -414,13 +421,13 @@ impl Parser {
         self.bump();
     }
 
-    // Example: ASSIGNMENT_OPERATOR = [=, :, <-]
-    // There are recovery sets that contain possible tokens that user could've written
-    // Only 1 of those tokens is correct depending on what we're parsing
-    // The recovery strategy is to check whether we're at this sort of set and then
-    // pass the proper token into this function that will either proceed without errors
-    // or wrap the incorrect token into the error node and proceed as if we've read
-    // the correct operator
+    /// Example: ASSIGNMENT_OPERATOR = [=, :, <-]
+    /// There are recovery sets that contain possible tokens that user could've written
+    /// Only 1 of those tokens is correct depending on what we're parsing
+    /// The recovery strategy is to check whether we're at this sort of set and then
+    /// pass the proper token into this function that will either proceed without errors
+    /// or wrap the incorrect token into the error node and proceed as if we've read
+    /// the correct operator
     fn parse_proper_or_error(&mut self, proper: SyntaxKind, message: impl Display) {
         if !self.at(proper) {
             self.error_and_advance(message);
@@ -450,9 +457,9 @@ impl Parser {
         let m = self.start();
         let expected_message = self.expected_but_got(message);
         if self.at(SyntaxKind::Integer) {
-            // It would've been possible the identifier recovery where we have a preceding
-            // number and identifier afterwards, but this can be valid syntax in squirrel
-            // due to optionality of the commas. E.g. local abc = 0, a = [123abc]
+            // It would've been possible to make the identifier recovery where we have a
+            // preceding number and identifier afterwards, but this can be valid syntax in
+            // squirrel due to optionality of the commas. E.g. local abc = 0, a = [123abc]
             self.error_at_token(format!(
                 "{}. Digit cannot be the starting character of an identifier",
                 expected_message,
@@ -460,7 +467,7 @@ impl Parser {
             self.bump();
             self.finish(m, SyntaxKind::Error);
             m
-        } else if self.at_set(KEYWORDS) && !self.has_preceding_line_feed {
+        } else if self.at_set(KEYWORDS) && self.new_lines_between == 0 {
             self.error_at_token(format!(
                 "{}. {} is a reserved word that can't be used here",
                 expected_message,
@@ -664,7 +671,7 @@ impl Parser {
                     self.parse_expression();
                 } else if object_kind != MemberObject::Enum {
                     self.error_at_token(self.expected_but_got("'='"));
-                    if !self.has_preceding_line_feed && self.at_set(EXPRESSIONS) {
+                    if self.new_lines_between == 0 && self.at_set(EXPRESSIONS) {
                         self.parse_expression();
                     }
                 }
@@ -689,7 +696,7 @@ impl Parser {
                     self.parse_expression();
                 } else if object_kind != MemberObject::Enum {
                     self.error_at_token(self.expected_but_got("':'"));
-                    if !self.has_preceding_line_feed && self.at_set(EXPRESSIONS) {
+                    if self.new_lines_between == 0 && self.at_set(EXPRESSIONS) {
                         self.parse_expression();
                     }
                 }
@@ -1063,7 +1070,7 @@ impl Parser {
     }
 
     fn parse_element_access_expression(&mut self, m: Marker) {
-        if self.has_preceding_line_feed {
+        if self.new_lines_between != 0 {
             let start = self.prev_token.range.end();
             let end = start + TextSize::new(1);
             self.error(
@@ -1254,7 +1261,7 @@ impl Parser {
     }
 
     fn can_parse_end_of_statement(&mut self) -> bool {
-        self.at_set(END_OF_STATEMENT) || self.has_preceding_line_feed
+        self.at_set(END_OF_STATEMENT) || self.new_lines_between != 0
     }
 
     fn parse_end_of_statement(&mut self) {
