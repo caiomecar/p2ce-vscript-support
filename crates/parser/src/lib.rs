@@ -14,7 +14,7 @@ pub use rowan::{
     ast::{AstChildren, AstNode},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxError {
     range: TextRange,
     message: String,
@@ -36,17 +36,13 @@ impl SyntaxError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Parse {
     green_node: GreenNode,
     errors: Vec<SyntaxError>,
 }
 
 impl Parse {
-    pub fn into_syntax(&self) -> SyntaxNode {
-        SyntaxNode::new_root(self.green_node.clone())
-    }
-
     pub fn new(text: &str) -> Parse {
         let now = std::time::Instant::now();
         let (tokens, mut lex_errors) = lexer::tokenise(text);
@@ -58,29 +54,32 @@ impl Parse {
         eprintln!("Parsing took {:?}", now.elapsed());
         eprintln!("Events: {}", events.len());
 
+        lex_errors.extend(parse_errors);
+
+        let now = std::time::Instant::now();
+
         let mut builder = GreenNodeBuilder::new();
-        let mut i = 0;
-        while i < events.len() {
-            match events[i] {
+        for event in events.into_iter() {
+            match event {
                 Event::Start { kind } => builder.start_node(kind.into()),
                 Event::Finish => builder.finish_node(),
                 Event::Token { kind, range } => builder.token(kind.into(), &text[range]),
                 Event::Pending => {
-                    panic!(
-                        "Pending event found, rest of the tokens: {:#?}",
-                        &events[i..]
-                    )
+                    panic!("Pending event found, current tree: {:#?}", builder.finish())
                 }
             }
-            i += 1;
         }
 
-        lex_errors.extend(parse_errors);
+        eprintln!("Building a tree took {:?}", now.elapsed());
 
         Parse {
             green_node: builder.finish(),
             errors: lex_errors,
         }
+    }
+
+    pub fn into_syntax(self) -> SyntaxNode {
+        SyntaxNode::new_root(self.green_node)
     }
 
     pub fn errors(&self) -> &[SyntaxError] {

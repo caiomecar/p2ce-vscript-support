@@ -109,7 +109,7 @@ struct Parser {
     lookahead_index: usize,
     preceding_comments_index: Option<usize>,
 
-    new_lines_between: usize,
+    has_preceding_new_line: bool,
 
     prev_token: Token,
     object_separator: ParsingObjectSeparator,
@@ -125,7 +125,7 @@ impl Parser {
             consumed_index: 0,
             lookahead_index: 0,
             preceding_comments_index: None,
-            new_lines_between: 0,
+            has_preceding_new_line: false,
             prev_token: Token::dummy(),
             object_separator: ParsingObjectSeparator::None,
             errors: Vec::new(),
@@ -312,23 +312,24 @@ impl Parser {
     }
 
     fn skip_trivia(&mut self) {
-        self.new_lines_between = 0;
+        self.has_preceding_new_line = false;
         loop {
             match self.token() {
                 SyntaxKind::Whitespace | SyntaxKind::Unknown => {}
                 SyntaxKind::LineFeed => {
                     // If there're more than 1 new line it between
                     // - don't attach the comments to the next node
-                    if self.new_lines_between > 0 {
+                    if self.has_preceding_new_line {
                         self.preceding_comments_index = None;
+                    } else {
+                        self.has_preceding_new_line = true;
                     }
-                    self.new_lines_between += 1;
                 }
                 SyntaxKind::LineComment => {
                     if self.preceding_comments_index.is_none() {
                         self.preceding_comments_index = Some(self.lookahead_index);
                     }
-                    self.new_lines_between = 0;
+                    self.has_preceding_new_line = false;
                 }
                 SyntaxKind::BlockComment | SyntaxKind::DocComment => {
                     self.preceding_comments_index = Some(self.lookahead_index);
@@ -467,7 +468,7 @@ impl Parser {
             self.bump();
             self.finish(m, SyntaxKind::Error);
             m
-        } else if self.at_set(KEYWORDS) && self.new_lines_between == 0 {
+        } else if self.at_set(KEYWORDS) && !self.has_preceding_new_line {
             self.error_at_token(format!(
                 "{}. {} is a reserved word that can't be used here",
                 expected_message,
@@ -671,7 +672,7 @@ impl Parser {
                     self.parse_expression();
                 } else if object_kind != MemberObject::Enum {
                     self.error_at_token(self.expected_but_got("'='"));
-                    if self.new_lines_between == 0 && self.at_set(EXPRESSIONS) {
+                    if !self.has_preceding_new_line && self.at_set(EXPRESSIONS) {
                         self.parse_expression();
                     }
                 }
@@ -696,7 +697,7 @@ impl Parser {
                     self.parse_expression();
                 } else if object_kind != MemberObject::Enum {
                     self.error_at_token(self.expected_but_got("':'"));
-                    if self.new_lines_between == 0 && self.at_set(EXPRESSIONS) {
+                    if !self.has_preceding_new_line && self.at_set(EXPRESSIONS) {
                         self.parse_expression();
                     }
                 }
@@ -1070,7 +1071,7 @@ impl Parser {
     }
 
     fn parse_element_access_expression(&mut self, m: Marker) {
-        if self.new_lines_between != 0 {
+        if self.has_preceding_new_line {
             let start = self.prev_token.range.end();
             let end = start + TextSize::new(1);
             self.error(
@@ -1261,7 +1262,7 @@ impl Parser {
     }
 
     fn can_parse_end_of_statement(&mut self) -> bool {
-        self.at_set(END_OF_STATEMENT) || self.new_lines_between != 0
+        self.at_set(END_OF_STATEMENT) || self.has_preceding_new_line
     }
 
     fn parse_end_of_statement(&mut self) {
