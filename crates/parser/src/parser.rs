@@ -388,11 +388,11 @@ impl Parser {
     /// Recovery set is just what we don't want to skip over
     fn error_with_recovery(&mut self, message: impl Display, recovery: TokenSet) {
         if self.at_set(ALWAYS_RECOVER) || self.at_set(recovery) {
-            self.error_at_token(message);
+            self.error_at_token(self.expected_but_got(message));
             return;
         }
 
-        self.error_and_advance(message);
+        self.error_and_advance(self.expected_but_got(message));
     }
 
     fn try_bump(&mut self, kind: SyntaxKind) -> bool {
@@ -405,12 +405,12 @@ impl Parser {
     }
 
     fn expect(&mut self, kind: SyntaxKind) -> bool {
-        self.expect_with_message(kind, self.expected_but_got(kind.text()))
+        self.expect_with_message(kind, kind.text())
     }
 
     fn expect_with_message(&mut self, kind: SyntaxKind, message: impl Display) -> bool {
         if !self.try_bump(kind) {
-            self.error_at_token(message);
+            self.error_at_token(self.expected_but_got(message));
             false
         } else {
             true
@@ -456,14 +456,13 @@ impl Parser {
         }
 
         let m = self.start();
-        let expected_message = self.expected_but_got(message);
         if self.at(SyntaxKind::Integer) {
             // It would've been possible to make the identifier recovery where we have a
             // preceding number and identifier afterwards, but this can be valid syntax in
             // squirrel due to optionality of the commas. E.g. local abc = 0, a = [123abc]
             self.error_at_token(format!(
                 "{}. Digit cannot be the starting character of an identifier",
-                expected_message,
+                self.expected_but_got(message),
             ));
             self.bump();
             self.finish(m, SyntaxKind::Error);
@@ -471,7 +470,7 @@ impl Parser {
         } else if self.at_set(KEYWORDS) && !self.has_preceding_new_line {
             self.error_at_token(format!(
                 "{}. {} is a reserved word that can't be used here",
-                expected_message,
+                self.expected_but_got(message),
                 self.token().text()
             ));
             self.bump();
@@ -481,9 +480,9 @@ impl Parser {
             self.drop(m);
 
             if let Some(recovery) = recovery {
-                self.error_with_recovery(expected_message, recovery);
+                self.error_with_recovery(message, recovery);
             } else {
-                self.error_at_token(expected_message);
+                self.error_at_token(self.expected_but_got(message));
             }
 
             m
@@ -509,10 +508,7 @@ impl Parser {
         if has_env {
             self.expect(SyntaxKind::OpenParenthesis);
         } else {
-            self.expect_with_message(
-                SyntaxKind::OpenParenthesis,
-                self.expected_but_got("'(' or '['"),
-            );
+            self.expect_with_message(SyntaxKind::OpenParenthesis, "'(' or '['");
         }
 
         if !self.try_bump(SyntaxKind::CloseParenthesis) {
@@ -537,7 +533,7 @@ impl Parser {
                         break;
                     }
 
-                    self.error_with_recovery("Expected ',' between parameters", PARAMETER_RECOVERY);
+                    self.error_with_recovery("',' between parameters", PARAMETER_RECOVERY);
                 }
             }
             self.expect(SyntaxKind::CloseParenthesis);
@@ -734,8 +730,11 @@ impl Parser {
                 self.finish(m, SyntaxKind::Method);
             }
             _ => {
+                let simple_name = self.start();
                 let name = self.parse_name(error(), Some(MEMBER_RECOVERY));
-                if !self.is_marker_valid(name) && !self.at_set(MEMBER_RECOVERY) {
+                if !self.finish_wrapper_or_drop(simple_name, name, SyntaxKind::SimpleName)
+                    && !self.at_set(MEMBER_RECOVERY)
+                {
                     self.drop(m);
                     return m;
                 }
@@ -876,11 +875,13 @@ impl Parser {
         m
     }
 
-    fn finish_wrapper_or_drop(&mut self, wrapper: Marker, inner: Marker, kind: SyntaxKind) {
+    fn finish_wrapper_or_drop(&mut self, wrapper: Marker, inner: Marker, kind: SyntaxKind) -> bool {
         if self.is_marker_valid(inner) {
             self.finish(wrapper, kind);
+            true
         } else {
             self.drop(wrapper);
+            false
         }
     }
 
@@ -1436,10 +1437,7 @@ impl Parser {
             } else if self.at_set(EXPRESSIONS) {
                 self.parse_comma_expression();
             } else {
-                self.error_with_recovery(
-                    self.expected_but_got("expression, 'local' or ';'"),
-                    STATEMENT_OR_EXPRESSION,
-                );
+                self.error_with_recovery("expression, 'local' or ';'", STATEMENT_OR_EXPRESSION);
                 self.drop(m);
                 return;
             }
@@ -1457,10 +1455,7 @@ impl Parser {
                 self.finish(m, SyntaxKind::ForCondition);
                 self.expect(SyntaxKind::Semicolon);
             } else {
-                self.error_with_recovery(
-                    self.expected_but_got("expression or ';'"),
-                    STATEMENT_OR_EXPRESSION,
-                );
+                self.error_with_recovery("expression or ';'", STATEMENT_OR_EXPRESSION);
             }
         }
     }
@@ -1473,10 +1468,7 @@ impl Parser {
                 self.finish(m, SyntaxKind::ForIncrement);
                 self.expect(SyntaxKind::CloseParenthesis);
             } else {
-                self.error_with_recovery(
-                    self.expected_but_got("expression or ')'"),
-                    STATEMENT_OR_EXPRESSION,
-                );
+                self.error_with_recovery("expression or ')'", STATEMENT_OR_EXPRESSION);
             }
         }
     }
@@ -1512,7 +1504,7 @@ impl Parser {
             self.expect(SyntaxKind::InKeyword);
         } else {
             self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachValue);
-            self.expect_with_message(SyntaxKind::InKeyword, self.expected_but_got("',' or 'in'"));
+            self.expect_with_message(SyntaxKind::InKeyword, "',' or 'in'");
         };
 
         self.parse_expression();

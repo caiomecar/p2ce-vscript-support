@@ -383,6 +383,7 @@ mod tests {
     #[test]
     fn enum_statement() {
         let stmt = first_stmt("enum Color { Red, Green, Blue = 5 }");
+        dbg!(&stmt);
         let Stmt::Enum(e) = stmt else {
             panic!("expected enum")
         };
@@ -834,7 +835,8 @@ mod tests {
         let MemberName::Identifier(name) = p.name().unwrap() else {
             panic!()
         };
-        assert_eq!(name.text().unwrap(), "hp");
+        assert_eq!(name.name().unwrap().text().unwrap(), "hp");
+        assert_eq!(p.value().unwrap().syntax().text(), "100");
         assert!(p.value().is_some());
     }
 

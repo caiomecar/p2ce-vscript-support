@@ -147,6 +147,7 @@ pub enum SyntaxKind {
     Extends,
     Members,
     Property,
+    SimpleName,
     StringName,
     ComputedName,
 

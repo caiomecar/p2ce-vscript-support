@@ -113,6 +113,16 @@ pub trait IsFunction: AstNode<Language = SquirrelLanguage> {
     }
 }
 
+pub trait IsClass: AstNode<Language = SquirrelLanguage> {
+    fn extends(&self) -> Option<Extends> {
+        support::child(self.syntax())
+    }
+
+    fn members(&self) -> AstChildren<Member> {
+        support::children(self.syntax())
+    }
+}
+
 pub trait SingleToken: AstNode<Language = SquirrelLanguage> {
     fn token(&self) -> Option<SyntaxToken> {
         // Comments can be included at the front, but never at the back
@@ -308,16 +318,7 @@ impl LambdaExpression {
 }
 
 ast_node!(ClassExpression, ClassExpression);
-
-impl ClassExpression {
-    pub fn extends(&self) -> Option<Extends> {
-        support::child(&self.0)
-    }
-
-    pub fn members(&self) -> AstChildren<Member> {
-        support::children(&self.0)
-    }
-}
+impl IsClass for ClassExpression {}
 
 ast_enum!(Expr {
     Literal(LiteralExpression),
@@ -565,18 +566,11 @@ impl FunctionStatement {
 
 ast_node!(ClassStatement, ClassStatement);
 impl HasDoc for ClassStatement {}
+impl IsClass for ClassStatement {}
 
 impl ClassStatement {
     pub fn name(&self) -> Option<Expr> {
         support::child(&self.0)
-    }
-
-    pub fn extends(&self) -> Option<Extends> {
-        support::child(&self.0)
-    }
-
-    pub fn members(&self) -> AstChildren<Member> {
-        support::children(&self.0)
     }
 }
 
@@ -706,6 +700,13 @@ impl Property {
     }
 }
 
+ast_node!(SimpleName, SimpleName);
+impl SimpleName {
+    pub fn name(&self) -> Option<Name> {
+        support::child(&self.0)
+    }
+}
+
 ast_node!(StringName, StringName);
 impl SingleToken for StringName {}
 
@@ -713,7 +714,7 @@ ast_node!(ComputedName, ComputedName);
 impl ExpressionWrapper for ComputedName {}
 
 ast_enum!(MemberName {
-    Identifier(Name),
+    Identifier(SimpleName),
     String(StringName),
     Computed(ComputedName),
 });

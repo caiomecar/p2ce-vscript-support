@@ -4,14 +4,14 @@ mod lexer;
 mod parser;
 mod token_set;
 
-use crate::parser::Event;
+use crate::{ast::SourceFile, parser::Event};
 use rowan::GreenNodeBuilder;
 use std::fmt::Display;
 
 pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 pub use rowan::{
     GreenNode, TextRange, TextSize,
-    ast::{AstChildren, AstNode},
+    ast::{AstChildren, AstNode, AstPtr, SyntaxNodePtr},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,11 +78,23 @@ impl Parse {
         }
     }
 
+    pub fn errors(&self) -> &[SyntaxError] {
+        &self.errors
+    }
+
+    pub fn syntax(&self) -> SyntaxNode {
+        SyntaxNode::new_root(self.green_node.clone())
+    }
+
+    pub fn source_file(&self) -> SourceFile {
+        SourceFile::cast(self.syntax()).unwrap()
+    }
+
     pub fn into_syntax(self) -> SyntaxNode {
         SyntaxNode::new_root(self.green_node)
     }
 
-    pub fn errors(&self) -> &[SyntaxError] {
-        &self.errors
+    pub fn finish(self) -> (SourceFile, Vec<SyntaxError>) {
+        (self.source_file(), self.errors)
     }
 }

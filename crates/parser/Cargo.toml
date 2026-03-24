@@ -7,7 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-rowan = { workspace = true }
+rowan = "0.16.1"
 phf = { version = "0.13.1", features = ["macros"] }
 
 [dev-dependencies]
