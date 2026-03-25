@@ -473,22 +473,6 @@ impl ForEachStatement {
     }
 }
 
-ast_node!(SwitchStatement, SwitchStatement);
-
-impl SwitchStatement {
-    pub fn discriminant(&self) -> Option<Expr> {
-        support::child(&self.0)
-    }
-
-    pub fn case_clauses(&self) -> AstChildren<CaseClause> {
-        support::children(&self.0)
-    }
-
-    pub fn default_clause(&self) -> Option<DefaultClause> {
-        support::child(&self.0)
-    }
-}
-
 ast_node!(CaseClause, CaseClause);
 
 impl CaseClause {
@@ -505,6 +489,23 @@ ast_node!(DefaultClause, DefaultClause);
 
 impl DefaultClause {
     pub fn body(&self) -> AstChildren<Stmt> {
+        support::children(&self.0)
+    }
+}
+
+ast_enum!(CaseOrDefaultClause {
+    Case(CaseClause),
+    Default(DefaultClause)
+});
+
+ast_node!(SwitchStatement, SwitchStatement);
+
+impl SwitchStatement {
+    pub fn discriminant(&self) -> Option<Expr> {
+        support::child(&self.0)
+    }
+
+    pub fn clauses(&self) -> AstChildren<CaseOrDefaultClause> {
         support::children(&self.0)
     }
 }

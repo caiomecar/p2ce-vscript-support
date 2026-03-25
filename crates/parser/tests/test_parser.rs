@@ -176,15 +176,17 @@ mod tests {
             panic!("expected switch")
         };
         assert!(s.discriminant().is_some());
-        assert_eq!(s.case_clauses().count(), 2);
-        assert!(s.default_clause().is_some());
+        assert_eq!(s.clauses().count(), 3);
     }
 
     #[test]
     fn switch_case_bodies() {
         let stmt = first_stmt("switch (x) { case 1: a(); b(); break; }");
         let Stmt::Switch(s) = stmt else { panic!() };
-        let case = s.case_clauses().next().unwrap();
+        let case = match s.clauses().next() {
+            Some(CaseOrDefaultClause::Case(case)) => case,
+            _ => panic!(),
+        };
         assert!(case.test().is_some());
         assert_eq!(case.body().count(), 3); // a(); b(); break;
     }
