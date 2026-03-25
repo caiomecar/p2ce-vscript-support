@@ -184,7 +184,7 @@ mod tests {
         let stmt = first_stmt("switch (x) { case 1: a(); b(); break; }");
         let Stmt::Switch(s) = stmt else { panic!() };
         let case = match s.clauses().next() {
-            Some(CaseOrDefaultClause::Case(case)) => case,
+            Some(SwitchClause::Case(case)) => case,
             _ => panic!(),
         };
         assert!(case.test().is_some());

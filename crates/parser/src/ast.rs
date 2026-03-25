@@ -493,7 +493,7 @@ impl DefaultClause {
     }
 }
 
-ast_enum!(CaseOrDefaultClause {
+ast_enum!(SwitchClause {
     Case(CaseClause),
     Default(DefaultClause)
 });
@@ -505,7 +505,7 @@ impl SwitchStatement {
         support::child(&self.0)
     }
 
-    pub fn clauses(&self) -> AstChildren<CaseOrDefaultClause> {
+    pub fn clauses(&self) -> AstChildren<SwitchClause> {
         support::children(&self.0)
     }
 }
