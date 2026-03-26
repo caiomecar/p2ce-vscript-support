@@ -1,0 +1,13 @@
+[package]
+name = "ide"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+sq-3-parser = { path = "../parser" }
+line-index = { workspace = true }
+la-arena = "0.3.1"
+salsa = { workspace = true }
+rustc-hash = { workspace = true }

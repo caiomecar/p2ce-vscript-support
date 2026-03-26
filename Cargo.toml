@@ -8,7 +8,9 @@ license = "MIT"
 
 
 [workspace.dependencies]
-rowan = "0.16.1"
+salsa = "0.26.0"
+rustc-hash = "2.1.1"
+line-index = "0.1.2"
 
 [profile.release]
 codegen-units = 1
