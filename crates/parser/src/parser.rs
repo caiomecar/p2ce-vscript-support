@@ -665,7 +665,11 @@ impl Parser {
                         SyntaxKind::Equals,
                         "Expected '=' for initialisation",
                     );
-                    self.parse_expression();
+                    if self.at(SyntaxKind::LessThanSlash) {
+                        self.error_and_advance(self.expected_but_got("expression"));
+                    } else {
+                        self.parse_expression();
+                    }
                 } else if object_kind != MemberObject::Enum {
                     self.error_at_token(self.expected_but_got("'='"));
                     if !self.has_preceding_new_line && self.at_set(EXPRESSIONS) {
@@ -865,7 +869,6 @@ impl Parser {
                 self.error(self.marker_range(lhs), "The left-hand side of an assignment expression must be a variable or a property access.");
             }
             self.parse_operator(ASSIGNMENT_OPERATORS);
-            self.parse_expression();
             self.finish(m, SyntaxKind::BinaryExpression);
         } else if self.at(SyntaxKind::Question) {
             self.parse_conditional_expression(m);
@@ -1130,11 +1133,7 @@ impl Parser {
             SyntaxKind::FunctionKeyword => self.parse_function_expression(),
             SyntaxKind::At => self.parse_lambda_expression(),
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
-            // Literally every single token can appear directly after the expression,
-            // so we don't skip any tokens. ':' can appear in case or ternaries while
-            // all operators get a chance to be parsed by the functions lower in the
-            // call stack
-            _ => self.parse_name("expression", None),
+            _ => self.parse_name("expression", Some(EXPRESSION_RECOVERY)),
         }
     }
 
@@ -1529,8 +1528,12 @@ impl Parser {
                 SyntaxKind::CaseKeyword => {
                     let m = self.start();
                     self.expect_or_panic(SyntaxKind::CaseKeyword);
-                    self.parse_expression();
-                    self.expect(SyntaxKind::Colon);
+                    if self.at(SyntaxKind::Colon) {
+                        self.error_and_advance(self.expected_but_got("expression"));
+                    } else {
+                        self.parse_expression();
+                        self.expect(SyntaxKind::Colon);
+                    }
                     self.parse_case_body();
                     self.finish(m, SyntaxKind::CaseClause);
                 }

@@ -319,7 +319,7 @@ impl<'a> Lexer<'a> {
                     _ => {
                         self.error_at_token("'..' is not a valid operator");
 
-                        SyntaxKind::DotDotDot
+                        self.next_and_return(SyntaxKind::DotDotDot)
                     }
                 },
                 _ => SyntaxKind::Dot,

@@ -13,6 +13,16 @@ impl TokenSet {
         TokenSet(bitset)
     }
 
+    const fn besides(kinds: &[SyntaxKind]) -> TokenSet {
+        let mut bitset = u128::MAX;
+        let mut i = 0;
+        while i < kinds.len() {
+            bitset &= !mask(kinds[i]);
+            i += 1;
+        }
+        TokenSet(bitset)
+    }
+
     const fn union(&self, other: TokenSet) -> TokenSet {
         TokenSet(self.0 | other.0)
     }
@@ -267,3 +277,10 @@ pub(crate) const CALL_ARGUMENTS_STOP: TokenSet = STATEMENT.union(TokenSet::new(&
     SyntaxKind::CloseParenthesis,
     SyntaxKind::CloseBrace,
 ]));
+
+pub(crate) const EXPRESSION_RECOVERY: TokenSet = TokenSet::besides(&[
+    SyntaxKind::Colon,
+    SyntaxKind::DotDotDot,
+    SyntaxKind::LessThanSlash,
+    SyntaxKind::SlashGreaterThan,
+]);
