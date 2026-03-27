@@ -73,10 +73,10 @@ macro_rules! ast_token_enum {
                 }
             }
 
-            pub fn token(node: &SyntaxNode) -> Option<Self> {
+            pub fn token(node: &SyntaxNode) -> Option<(Self, SyntaxToken)> {
                 node.children_with_tokens()
                     .filter_map(|it| it.into_token())
-                    .find_map(|tok| Self::from_kind(tok.kind()))
+                    .find_map(|tok| Some((Self::from_kind(tok.kind())?, tok)))
             }
         }
     };
@@ -141,16 +141,6 @@ pub trait IsClass: AstNode<Language = SquirrelLanguage> {
     }
 }
 
-pub trait SingleToken: AstNode<Language = SquirrelLanguage> {
-    fn token(&self) -> Option<SyntaxToken> {
-        // Comments can be included at the front, but never at the back
-        self.syntax()
-            .children_with_tokens()
-            .filter_map(|it| it.into_token())
-            .last()
-    }
-}
-
 ast_node!(Name, Name);
 impl Name {
     pub fn identifier(&self) -> Option<SyntaxToken> {
@@ -169,12 +159,23 @@ impl QualifiedName {
     }
 }
 
-ast_node!(Operator, Operator);
-impl SingleToken for Operator {}
+ast_token_enum!(LiteralExpressionKind {
+    NullKeyword => Null,
+    TrueKeyword => True,
+    FalseKeyword => False,
+    String => String,
+    VerbatimString => VerbatimString,
+    Integer => Integer,
+    Character => Character,
+    Float => Float,
+});
 
 ast_node!(LiteralExpression, LiteralExpression);
-impl SingleToken for LiteralExpression {}
-
+impl LiteralExpression {
+    pub fn token(&self) -> Option<(LiteralExpressionKind, SyntaxToken)> {
+        LiteralExpressionKind::token(&self.0)
+    }
+}
 ast_token_enum!(BinaryOperator {
     Comma => Comma,
 
@@ -223,8 +224,8 @@ impl BinaryExpression {
         support::children(&self.0).next()
     }
 
-    pub fn operator(&self) -> Option<BinaryOperator> {
-        BinaryOperator::token(self.syntax())
+    pub fn operator(&self) -> Option<(BinaryOperator, SyntaxToken)> {
+        BinaryOperator::token(&self.0)
     }
     // It's impossible to have rhs without lhs with the current
     // algorithm therefore expression wrapper is not needed so
@@ -264,8 +265,8 @@ ast_token_enum!(PrefixUnaryOperator {
 ast_node!(PrefixUnaryExpression, PrefixUnaryExpression);
 impl HasOperand for PrefixUnaryExpression {}
 impl PrefixUnaryExpression {
-    pub fn operator(&self) -> Option<PrefixUnaryOperator> {
-        PrefixUnaryOperator::token(self.syntax())
+    pub fn operator(&self) -> Option<(PrefixUnaryOperator, SyntaxToken)> {
+        PrefixUnaryOperator::token(&self.0)
     }
 }
 
@@ -276,8 +277,8 @@ ast_token_enum!(PrefixUpdateOperator {
 ast_node!(PrefixUpdateExpression, PrefixUpdateExpression);
 impl HasOperand for PrefixUpdateExpression {}
 impl PrefixUpdateExpression {
-    pub fn operator(&self) -> Option<PrefixUpdateOperator> {
-        PrefixUpdateOperator::token(self.syntax())
+    pub fn operator(&self) -> Option<(PrefixUpdateOperator, SyntaxToken)> {
+        PrefixUpdateOperator::token(&self.0)
     }
 }
 
@@ -288,8 +289,8 @@ ast_token_enum!(PostfixUpdateOperator {
 ast_node!(PostfixUpdateExpression, PostfixUpdateExpression);
 impl HasOperand for PostfixUpdateExpression {}
 impl PostfixUpdateExpression {
-    pub fn operator(&self) -> Option<PostfixUpdateOperator> {
-        PostfixUpdateOperator::token(self.syntax())
+    pub fn operator(&self) -> Option<(PostfixUpdateOperator, SyntaxToken)> {
+        PostfixUpdateOperator::token(&self.0)
     }
 }
 
@@ -793,8 +794,17 @@ impl SimpleName {
     }
 }
 
+ast_token_enum!(StringNameKind {
+    String => Normal,
+    VerbatimString => Verbatim,
+});
+
 ast_node!(StringName, StringName);
-impl SingleToken for StringName {}
+impl StringName {
+    pub fn token(&self) -> Option<(StringNameKind, SyntaxToken)> {
+        StringNameKind::token(&self.0)
+    }
+}
 
 ast_node!(ComputedName, ComputedName);
 impl ExpressionWrapper for ComputedName {}

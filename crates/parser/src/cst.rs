@@ -120,8 +120,6 @@ pub enum SyntaxKind {
     Name,
     QualifiedName,
 
-    Operator,
-
     Index,
     MemberPart,
 

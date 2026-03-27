@@ -429,21 +429,21 @@ mod tests {
         let Expr::Literal(lit) = expr else {
             panic!("expected literal")
         };
-        assert_eq!(lit.token().unwrap().text(), "42");
+        assert_eq!(lit.token().unwrap().1.text(), "42");
     }
 
     #[test]
     fn literal_float() {
         let expr = first_expr("3.14");
         let Expr::Literal(lit) = expr else { panic!() };
-        assert_eq!(lit.token().unwrap().text(), "3.14");
+        assert_eq!(lit.token().unwrap().1.text(), "3.14");
     }
 
     #[test]
     fn literal_string() {
         let expr = first_expr("\"hello\"");
         let Expr::Literal(lit) = expr else { panic!() };
-        assert_eq!(lit.token().unwrap().text(), "\"hello\"");
+        assert_eq!(lit.token().unwrap().1.text(), "\"hello\"");
     }
 
     #[test]
@@ -482,7 +482,7 @@ mod tests {
     fn binary_operator_text() {
         let expr = first_expr("a == b");
         let Expr::Binary(b) = expr else { panic!() };
-        assert_eq!(b.operator(), Some(BinaryOperator::Equals));
+        assert_eq!(b.operator().unwrap().0, BinaryOperator::Equals);
     }
 
     #[test]
@@ -490,12 +490,12 @@ mod tests {
         // 1 + 2 * 3 should parse as 1 + (2 * 3), so the root is '+'
         let expr = first_expr("1 + 2 * 3");
         let Expr::Binary(b) = expr else { panic!() };
-        assert_eq!(b.operator(), Some(BinaryOperator::Add));
+        assert_eq!(b.operator().unwrap().0, BinaryOperator::Add);
         // rhs should be the multiplication
         let Expr::Binary(rhs) = b.rhs().unwrap() else {
             panic!()
         };
-        assert_eq!(rhs.operator(), Some(BinaryOperator::Multiply));
+        assert_eq!(rhs.operator().unwrap().0, BinaryOperator::Multiply);
     }
 
     #[test]
@@ -515,7 +515,7 @@ mod tests {
         let Expr::PrefixUnary(u) = expr else {
             panic!("expected prefix unary")
         };
-        assert_eq!(u.operator(), Some(PrefixUnaryOperator::Negation));
+        assert_eq!(u.operator().unwrap().0, PrefixUnaryOperator::Negation);
         assert!(u.operand().is_some());
     }
 
@@ -523,7 +523,7 @@ mod tests {
     fn prefix_unary_not() {
         let expr = first_expr("!flag");
         let Expr::PrefixUnary(u) = expr else { panic!() };
-        assert_eq!(u.operator(), Some(PrefixUnaryOperator::LogicalNot));
+        assert_eq!(u.operator().unwrap().0, PrefixUnaryOperator::LogicalNot);
     }
 
     #[test]
@@ -532,7 +532,7 @@ mod tests {
         let Expr::PrefixUpdate(u) = expr else {
             panic!("expected prefix update")
         };
-        assert_eq!(u.operator(), Some(PrefixUpdateOperator::Increment));
+        assert_eq!(u.operator().unwrap().0, PrefixUpdateOperator::Increment);
         assert!(u.operand().is_some());
     }
 
@@ -543,7 +543,7 @@ mod tests {
             panic!("expected postfix update")
         };
         assert!(u.operand().is_some());
-        assert_eq!(u.operator(), Some(PostfixUpdateOperator::Decrement));
+        assert_eq!(u.operator().unwrap().0, PostfixUpdateOperator::Decrement);
     }
 
     #[test]
@@ -790,7 +790,7 @@ mod tests {
         let Expr::Binary(b) = expr else {
             panic!("expected binary (assignment)")
         };
-        assert_eq!(b.operator(), Some(BinaryOperator::Assign));
+        assert_eq!(b.operator().unwrap().0, BinaryOperator::Assign);
     }
 
     #[test]
@@ -807,7 +807,7 @@ mod tests {
                 panic!("expected binary for {}", op.0)
             };
 
-            assert_eq!(b.operator(), Some(op.1));
+            assert_eq!(b.operator().unwrap().0, op.1);
         }
     }
 
@@ -815,7 +815,7 @@ mod tests {
     fn slot_creation_operator() {
         let expr = first_expr("obj <- 42");
         let Expr::Binary(b) = expr else { panic!() };
-        assert_eq!(b.operator(), Some(BinaryOperator::NewSlot));
+        assert_eq!(b.operator().unwrap().0, BinaryOperator::NewSlot);
     }
 
     #[test]

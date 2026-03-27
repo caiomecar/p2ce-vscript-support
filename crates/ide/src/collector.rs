@@ -340,9 +340,9 @@ impl Collector {
 
         let Some(name) = (match property.name() {
             Some(MemberName::Identifier(name)) => name.name().and_then(|n| n.text()),
-            Some(MemberName::String(name)) => {
-                name.token().and_then(|t| Some(unquote_string(t.text())))
-            }
+            Some(MemberName::String(name)) => name
+                .token()
+                .and_then(|(_kind, token)| Some(unquote_string(token.text()))),
             Some(MemberName::Computed(name)) => {
                 let Some(expr) = name.expression() else {
                     return;
@@ -992,22 +992,24 @@ impl Collector {
     }
 
     fn literal_expression(&mut self, expr: &LiteralExpression) -> ExpressionKind {
-        let token = expr.token().unwrap();
-        match token.kind() {
-            SyntaxKind::Integer => ExpressionKind::Literal(Type::Integer),
-            SyntaxKind::Character => ExpressionKind::Literal(Type::Integer),
-            SyntaxKind::Float => ExpressionKind::Literal(Type::Float),
-            SyntaxKind::String | SyntaxKind::VerbatimString => {
+        let Some((kind, token)) = expr.token() else {
+            return ExpressionKind::Unknown;
+        };
+
+        match kind {
+            LiteralExpressionKind::Integer => ExpressionKind::Literal(Type::Integer),
+            LiteralExpressionKind::Character => ExpressionKind::Literal(Type::Integer),
+            LiteralExpressionKind::Float => ExpressionKind::Literal(Type::Float),
+            LiteralExpressionKind::String | LiteralExpressionKind::VerbatimString => {
                 let id = self
                     .arenas
                     .strings
                     .alloc(unquote_string(token.text()).into_boxed_str());
                 ExpressionKind::Literal(Type::String(Some(id)))
             }
-            SyntaxKind::NullKeyword => ExpressionKind::Literal(Type::Null),
-            SyntaxKind::TrueKeyword => ExpressionKind::Literal(Type::Boolean),
-            SyntaxKind::FalseKeyword => ExpressionKind::Literal(Type::Boolean),
-            _ => unreachable!(),
+            LiteralExpressionKind::Null => ExpressionKind::Literal(Type::Null),
+            LiteralExpressionKind::True => ExpressionKind::Literal(Type::Boolean),
+            LiteralExpressionKind::False => ExpressionKind::Literal(Type::Boolean),
         }
     }
 
@@ -1481,7 +1483,7 @@ impl Collector {
     }
 
     fn binary_expression(&mut self, expr: &BinaryExpression) -> ExpressionKind {
-        let Some(operator) = expr.operator() else {
+        let Some((operator, _)) = expr.operator() else {
             return ExpressionKind::Unknown;
         };
 
