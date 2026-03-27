@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::SyntaxError;
 use crate::cst::SyntaxKind;
 
@@ -139,12 +137,15 @@ impl<'a> Lexer<'a> {
         TextRange::new(self.pos, next_pos)
     }
 
-    fn error(&mut self, range: TextRange, message: impl Display) {
-        self.errors.push(SyntaxError::new(range, message));
+    fn error(&mut self, error: SyntaxError) {
+        self.errors.push(error);
     }
 
-    fn error_at_token(&mut self, message: impl Display) {
-        self.error(self.token_range(), message);
+    fn error_at_token(&mut self, message: String) {
+        self.error(SyntaxError {
+            range: self.token_range(),
+            message,
+        })
     }
 
     fn next_token(&mut self) -> Token {
@@ -178,7 +179,7 @@ impl<'a> Lexer<'a> {
                     // JavaScript '===' error recovery
                     if self.next_and_peek() == Some('=') {
                         self.next();
-                        self.error_at_token("'===' is not a valid comparison operator");
+                        self.error_at_token("'===' is not a valid comparison operator".to_owned());
                     }
 
                     SyntaxKind::EqualsEquals
@@ -186,7 +187,7 @@ impl<'a> Lexer<'a> {
                 // JavaScript '=>' recovery
                 Some('>') => {
                     self.next();
-                    self.error_at_token("'=>' is not a valid lambda expression");
+                    self.error_at_token("'=>' is not a valid lambda expression".to_owned());
 
                     SyntaxKind::Unknown
                 }
@@ -202,7 +203,7 @@ impl<'a> Lexer<'a> {
                     // '<<<' error recovery
                     if self.next_and_peek() == Some('<') {
                         self.next();
-                        self.error_at_token("'<<<' is not a valid shift operator");
+                        self.error_at_token("'<<<' is not a valid shift operator".to_owned());
                     }
 
                     SyntaxKind::LessThanLessThan
@@ -211,7 +212,7 @@ impl<'a> Lexer<'a> {
                 // PHP '<>' error recovery
                 Some('>') => {
                     self.next();
-                    self.error_at_token("'<>' is not a valid comparison operator");
+                    self.error_at_token("'<>' is not a valid comparison operator".to_owned());
 
                     SyntaxKind::ExclamationEquals
                 }
@@ -232,7 +233,7 @@ impl<'a> Lexer<'a> {
                     // JavaScript '!==' error recovery
                     if self.next_and_peek() == Some('=') {
                         self.next();
-                        self.error_at_token("'!==' is not a valid comparsison operator");
+                        self.error_at_token("'!==' is not a valid comparsison operator".to_owned());
                     }
 
                     SyntaxKind::ExclamationEquals
@@ -247,7 +248,10 @@ impl<'a> Lexer<'a> {
             '"' => self.string(),
             // '`' recovery
             '`' => {
-                self.error(self.next_char_range(), "'`' is not a valid quote");
+                self.errors.push(SyntaxError {
+                    message: "'`' is not a valid quote".to_owned(),
+                    range: self.next_char_range(),
+                });
                 self.string()
             }
             '\'' => self.character(),
@@ -266,11 +270,11 @@ impl<'a> Lexer<'a> {
                 Some('?') => {
                     if let Some('=') = self.next_and_peek() {
                         self.next();
-                        self.error_at_token("'??=' is not a valid assignment operator");
+                        self.error_at_token("'??=' is not a valid assignment operator".to_owned());
 
                         SyntaxKind::Equals
                     } else {
-                        self.error_at_token("'??' is not a valid operator");
+                        self.error_at_token("'??' is not a valid operator".to_owned());
 
                         SyntaxKind::BarBar
                     }
@@ -278,7 +282,7 @@ impl<'a> Lexer<'a> {
                 // JavaScript '?.' error recovery
                 Some('.') => {
                     self.next();
-                    self.error_at_token("'?.' is not a valid member access operator");
+                    self.error_at_token("'?.' is not a valid member access operator".to_owned());
 
                     SyntaxKind::Dot
                 }
@@ -288,7 +292,7 @@ impl<'a> Lexer<'a> {
                 // '^=' error recovery
                 Some('=') => {
                     self.next();
-                    self.error_at_token("'^=' is not a valid assignment operator");
+                    self.error_at_token("'^=' is not a valid assignment operator".to_owned());
 
                     SyntaxKind::AsteriskEquals
                 }
@@ -298,7 +302,7 @@ impl<'a> Lexer<'a> {
                 // Lua '~=' error recovery
                 Some('=') => {
                     self.next();
-                    self.error_at_token("'~=' is not a valid comparison operator");
+                    self.error_at_token("'~=' is not a valid comparison operator".to_owned());
 
                     SyntaxKind::ExclamationEquals
                 }
@@ -310,14 +314,14 @@ impl<'a> Lexer<'a> {
                     // Rust '..=' error recovery
                     Some('=') => {
                         self.next();
-                        self.error_at_token("'..=' is not a valid operator");
+                        self.error_at_token("'..=' is not a valid operator".to_owned());
 
                         // This is used for range, there's really no appropriate recovery
                         SyntaxKind::Unknown
                     }
                     // '..' error recovery
                     _ => {
-                        self.error_at_token("'..' is not a valid operator");
+                        self.error_at_token("'..' is not a valid operator".to_owned());
 
                         self.next_and_return(SyntaxKind::DotDotDot)
                     }
@@ -329,7 +333,7 @@ impl<'a> Lexer<'a> {
                     // JavaScript '&&=' error recovery
                     Some('=') => {
                         self.next();
-                        self.error_at_token("'&&=' is not a valid assignment operator");
+                        self.error_at_token("'&&=' is not a valid assignment operator".to_owned());
 
                         SyntaxKind::Equals
                     }
@@ -338,7 +342,7 @@ impl<'a> Lexer<'a> {
                 // '&=' error recovery
                 Some('=') => {
                     self.next();
-                    self.error_at_token("'&=' is not a valid assignment operator");
+                    self.error_at_token("'&=' is not a valid assignment operator".to_owned());
 
                     SyntaxKind::AsteriskEquals
                 }
@@ -349,7 +353,7 @@ impl<'a> Lexer<'a> {
                     // JavaScript '||=' error recovery
                     Some('=') => {
                         self.next();
-                        self.error_at_token("'||=' is not a valid assignment operator");
+                        self.error_at_token("'||=' is not a valid assignment operator".to_owned());
 
                         SyntaxKind::Equals
                     }
@@ -358,7 +362,7 @@ impl<'a> Lexer<'a> {
                 // '|=' error recovery
                 Some('=') => {
                     self.next();
-                    self.error_at_token("'|=' is not a valid assignment operator");
+                    self.error_at_token("'|=' is not a valid assignment operator".to_owned());
 
                     SyntaxKind::PlusEquals
                 }
@@ -369,7 +373,7 @@ impl<'a> Lexer<'a> {
                 // ':=' error recovery
                 Some('=') => {
                     self.next();
-                    self.error_at_token("':=' is not a valid assignment operator");
+                    self.error_at_token("':=' is not a valid assignment operator".to_owned());
 
                     SyntaxKind::Equals
                 }
@@ -380,14 +384,14 @@ impl<'a> Lexer<'a> {
                 // '**' error recovery
                 Some('*') => {
                     self.next();
-                    self.error_at_token("'**' is not a valid operator");
+                    self.error_at_token("'**' is not a valid operator".to_owned());
 
                     SyntaxKind::Asterisk
                 }
                 // '*/' error recovery
                 Some('/') => {
                     self.next();
-                    self.error_at_token("There's no comment to close with '*/'");
+                    self.error_at_token("There's no comment to close with '*/'".to_owned());
 
                     SyntaxKind::Unknown
                 }
@@ -405,7 +409,7 @@ impl<'a> Lexer<'a> {
                 // used for switch case in Go but those cases are non recoverable
                 Some('>') => {
                     self.next();
-                    self.error_at_token("'->' is not a valid member access operator");
+                    self.error_at_token("'->' is not a valid member access operator".to_owned());
 
                     SyntaxKind::Dot
                 }
@@ -474,10 +478,10 @@ impl<'a> Lexer<'a> {
         loop {
             match self.peek() {
                 None => {
-                    self.error(
-                        self.cursor_range(),
-                        "Unterminated block comment ('*/' expected)",
-                    );
+                    self.errors.push(SyntaxError {
+                        message: "Unterminated block comment ('*/' expected)".to_owned(),
+                        range: self.cursor_range(),
+                    });
                     break;
                 }
                 Some('*') => {
@@ -566,10 +570,10 @@ impl<'a> Lexer<'a> {
                     let start = self.pos - TextSize::new(1);
                     let end = self.pos + TextSize::new(1);
 
-                    self.error(
-                        TextRange::new(start, end),
-                        format!("Invalid escape sequence '{esc}'"),
-                    );
+                    self.errors.push(SyntaxError {
+                        message: format!("Invalid escape sequence '{esc}'"),
+                        range: TextRange::new(start, end),
+                    });
 
                     Some('\\')
                 }
@@ -597,7 +601,10 @@ impl<'a> Lexer<'a> {
             }
 
             if self.literal_character().is_none() {
-                self.error(self.cursor_range(), "Unterminated string literal");
+                self.errors.push(SyntaxError {
+                    message: "Unterminated string literal".to_owned(),
+                    range: self.cursor_range(),
+                });
                 break;
             };
         }
@@ -620,18 +627,21 @@ impl<'a> Lexer<'a> {
             len += match self.literal_character() {
                 Some(chr) => chr.len_utf8(),
                 None => {
-                    self.error(self.cursor_range(), "Unterminated character literal");
+                    self.errors.push(SyntaxError {
+                        message: "Unterminated character literal".to_owned(),
+                        range: self.cursor_range(),
+                    });
                     break;
                 }
             } as u32;
         }
 
         if len == 0 {
-            self.error_at_token("Empty character literal");
+            self.error_at_token("Empty character literal".to_owned());
         }
 
         if len > 1 {
-            self.error_at_token("Character literal may only contain one codepoint");
+            self.error_at_token("Character literal may only contain one codepoint".to_owned());
         }
 
         SyntaxKind::Character
@@ -656,7 +666,10 @@ impl<'a> Lexer<'a> {
                     chr
                 }
                 None => {
-                    self.error(self.cursor_range(), "Unterminated verbatim string literal");
+                    self.errors.push(SyntaxError {
+                        message: "Unterminated verbatim string literal".to_owned(),
+                        range: self.cursor_range(),
+                    });
                     break;
                 }
             };
@@ -671,7 +684,10 @@ impl<'a> Lexer<'a> {
         self.next();
 
         if !matches!(self.peek(), Some('a'..='f' | 'A'..='F' | '0'..='9')) {
-            self.error(self.next_char_range(), "Hexadecimal number expected");
+            self.errors.push(SyntaxError {
+                message: "Hexadecimal number expected".to_owned(),
+                range: self.next_char_range(),
+            });
             return ' ';
         }
 
@@ -700,10 +716,10 @@ impl<'a> Lexer<'a> {
         let end = self.pos;
 
         char::from_u32(value).unwrap_or_else(|| {
-            self.error(
-                TextRange::new(start, end),
-                "Invalid unicode character escape",
-            );
+            self.errors.push(SyntaxError {
+                message: "Invalid unicode character escape".to_owned(),
+                range: TextRange::new(start, end),
+            });
             ' '
         })
     }
@@ -714,10 +730,10 @@ impl<'a> Lexer<'a> {
             if chr.is_ascii_alphanumeric() || chr == '_' {
                 self.next();
             } else if chr.is_alphanumeric() || chr == '$' {
-                self.error(
-                    self.next_char_range(),
-                    format!("Character '{chr}' is not allowed in the identifier"),
-                );
+                self.errors.push(SyntaxError {
+                    message: format!("Character '{chr}' is not allowed in the identifier"),
+                    range: self.next_char_range(),
+                });
                 self.next();
             } else {
                 break;
@@ -784,7 +800,10 @@ impl<'a> Lexer<'a> {
                             self.next();
                         }
                         _ => {
-                            self.error(self.next_char_range(), "Exponent expected");
+                            self.errors.push(SyntaxError {
+                                message: "Exponent expected".to_owned(),
+                                range: self.next_char_range(),
+                            });
                         }
                     }
                 }
@@ -828,10 +847,10 @@ impl<'a> Lexer<'a> {
                     self.next();
                 }
                 Some('8' | '9') => {
-                    self.error(
-                        self.next_char_range(),
-                        "Invalid octal digit, expected number from 0 to 7",
-                    );
+                    self.errors.push(SyntaxError {
+                        message: "Invalid octal digit, expected number from 0 to 7".to_owned(),
+                        range: self.next_char_range(),
+                    });
                     self.next();
                 }
                 // Some('a'..='z' | 'A'..='Z') => {

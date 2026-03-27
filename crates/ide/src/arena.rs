@@ -1,9 +1,10 @@
 use la_arena::{Arena, Idx};
-use rustc_hash::FxHashMap;
 
-use crate::{ExpressionKind, Symbol, SymbolKind};
+use crate::{
+    collector::ExpressionKind,
+    symbol::{Symbol, SymbolTable, Type},
+};
 
-pub type SymbolTable = FxHashMap<String, SymbolId>;
 pub type SymbolId = Idx<Symbol>;
 pub type TableId = Idx<TableData>;
 pub type ClassId = Idx<ClassData>;
@@ -19,13 +20,25 @@ pub enum Container {
     Enum(EnumId),
 }
 
-impl From<Container> for SymbolKind {
+impl From<Container> for Type {
     fn from(value: Container) -> Self {
         match value {
-            Container::Table(idx) => SymbolKind::Table(idx),
-            Container::Class(idx) => SymbolKind::Class(idx),
-            Container::Enum(idx) => SymbolKind::Enum(idx),
+            Container::Table(idx) => Type::Table(idx),
+            Container::Class(idx) => Type::Class(idx),
+            Container::Enum(idx) => Type::Enum(idx),
         }
+    }
+}
+
+impl TryFrom<Type> for Container {
+    type Error = ();
+    fn try_from(value: Type) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Type::Table(idx) => Container::Table(idx),
+            Type::Class(idx) => Container::Class(idx),
+            Type::Enum(idx) => Container::Enum(idx),
+            _ => return Err(()),
+        })
     }
 }
 
@@ -87,11 +100,11 @@ impl EnumData {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FunctionData {
-    pub ret: SymbolKind,
+    pub ret: Type,
     pub params: Vec<SymbolId>,
     pub params_state: ParamsState,
-    pub yielding: Option<SymbolKind>,
-    pub throwing: Option<SymbolKind>,
+    pub yielding: Option<Type>,
+    pub throwing: Option<Type>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -104,7 +117,7 @@ pub enum ParamsState {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ArrayData {
-    pub kind: SymbolKind,
+    pub kind: Type,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -135,22 +148,20 @@ impl Arenas {
         }
     }
 
-    pub fn get_kind_members(&self, kind: SymbolKind) -> Option<Vec<SymbolId>> {
+    pub fn get_kind_members(&self, kind: Type) -> Option<Vec<SymbolId>> {
         Some(match kind {
-            SymbolKind::Table(id) => self.tables[id].get_members(self),
-            SymbolKind::Class(id) => self.classes[id].get_members(),
-            SymbolKind::Instance(id) => self.classes[id].get_members(),
-            SymbolKind::Enum(id) => self.enums[id].get_members(),
+            Type::Table(id) => self.tables[id].get_members(self),
+            Type::Class(id) => self.classes[id].get_members(),
+            Type::Instance(id) => self.classes[id].get_members(),
+            Type::Enum(id) => self.enums[id].get_members(),
             _ => return None,
         })
     }
 
-    pub fn clone_kind(&mut self, kind: SymbolKind) -> SymbolKind {
+    pub fn clone_type(&mut self, kind: Type) -> Type {
         match kind {
-            SymbolKind::Table(id) => SymbolKind::Table(self.tables.alloc(self.tables[id].clone())),
-            SymbolKind::Class(id) => {
-                SymbolKind::Class(self.classes.alloc(self.classes[id].clone()))
-            }
+            Type::Table(id) => Type::Table(self.tables.alloc(self.tables[id].clone())),
+            Type::Class(id) => Type::Class(self.classes.alloc(self.classes[id].clone())),
             _ => kind,
         }
     }
@@ -167,11 +178,11 @@ impl Arenas {
         members
     }
 
-    pub fn expr_to_symbol_kind(&self, expr: &ExpressionKind) -> SymbolKind {
+    pub fn expr_to_type(&self, expr: &ExpressionKind) -> Type {
         match *expr {
             ExpressionKind::Literal(kind) => kind,
             ExpressionKind::Symbol(_, symbol) => self.symbols[symbol].kind,
-            _ => SymbolKind::Unknown,
+            _ => Type::Unknown,
         }
     }
 }

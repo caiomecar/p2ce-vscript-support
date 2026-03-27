@@ -363,18 +363,25 @@ impl Parser {
         format!("Expected {}, but got {}", expected, self.token().text())
     }
 
-    fn error(&mut self, range: TextRange, message: impl Display) {
-        if self.errors.last().is_some_and(|err| err.range() == range) {
+    fn error(&mut self, error: SyntaxError) {
+        if self
+            .errors
+            .last()
+            .is_some_and(|last_err| last_err.range() == error.range())
+        {
             return;
         }
-        self.errors.push(SyntaxError::new(range, message));
+        self.errors.push(error);
     }
 
-    fn error_at_token(&mut self, message: impl Display) {
-        self.error(self.tokens[self.lookahead_index].range, message);
+    fn error_at_token(&mut self, message: String) {
+        self.error(SyntaxError {
+            range: self.tokens[self.lookahead_index].range,
+            message,
+        });
     }
 
-    fn error_and_advance(&mut self, message: impl Display) {
+    fn error_and_advance(&mut self, message: String) {
         self.error_at_token(message);
         if self.at(SyntaxKind::Eof) {
             return;
@@ -429,7 +436,7 @@ impl Parser {
     /// pass the proper token into this function that will either proceed without errors
     /// or wrap the incorrect token into the error node and proceed as if we've read
     /// the correct operator
-    fn parse_proper_or_error(&mut self, proper: SyntaxKind, message: impl Display) {
+    fn parse_proper_or_error(&mut self, proper: SyntaxKind, message: String) {
         if !self.at(proper) {
             self.error_and_advance(message);
         } else {
@@ -549,7 +556,10 @@ impl Parser {
             loop {
                 self.parse_expression();
                 if self.at_set(SEPARATORS) {
-                    self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between arguments");
+                    self.parse_proper_or_error(
+                        SyntaxKind::Comma,
+                        "Expected ',' between arguments".to_owned(),
+                    );
                     continue;
                 }
 
@@ -586,7 +596,10 @@ impl Parser {
             self.parse_member(MemberObject::PostCallInitialiser);
 
             if self.at_set(SEPARATORS) {
-                self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between members");
+                self.parse_proper_or_error(
+                    SyntaxKind::Comma,
+                    "Expected ',' between members".to_owned(),
+                );
             }
         }
         self.object_separator = save_separator;
@@ -606,7 +619,10 @@ impl Parser {
             self.parse_member(MemberObject::Table);
 
             if self.at_set(SEPARATORS) {
-                self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between members");
+                self.parse_proper_or_error(
+                    SyntaxKind::Comma,
+                    "Expected ',' between members".to_owned(),
+                );
             }
         }
         self.expect(SyntaxKind::SlashGreaterThan);
@@ -626,14 +642,14 @@ impl Parser {
 
         let has_prefix_construct = if self.at(SyntaxKind::StaticKeyword) {
             if object_kind != MemberObject::Class {
-                self.error_and_advance("Static is only allowed in class declarations");
+                self.error_and_advance("Static is only allowed in class declarations".to_owned());
             } else {
                 self.bump();
             }
             true
         } else if self.at(SyntaxKind::LessThanSlash) {
             if object_kind != MemberObject::Class {
-                self.error_at_token("Attributes are only allowed in class declarations");
+                self.error_at_token("Attributes are only allowed in class declarations".to_owned());
             }
             self.parse_attributes();
             true
@@ -651,7 +667,9 @@ impl Parser {
         match self.token() {
             SyntaxKind::OpenBracket => {
                 if object_kind == MemberObject::Enum {
-                    self.error_at_token("Computed property name is not allowed in the enum");
+                    self.error_at_token(
+                        "Computed property name is not allowed in the enum".to_owned(),
+                    );
                 }
 
                 let name = self.start();
@@ -663,7 +681,7 @@ impl Parser {
                 if self.at_set(INIT_OPERATORS) {
                     self.parse_proper_or_error(
                         SyntaxKind::Equals,
-                        "Expected '=' for initialisation",
+                        "Expected '=' for initialisation".to_owned(),
                     );
                     if self.at(SyntaxKind::LessThanSlash) {
                         self.error_and_advance(self.expected_but_got("expression"));
@@ -681,7 +699,7 @@ impl Parser {
             SyntaxKind::String | SyntaxKind::VerbatimString => {
                 if object_kind != MemberObject::Table {
                     self.error_at_token(
-                        "String property names are only allowed in tables / attributes",
+                        "String property names are only allowed in tables / attributes".to_owned(),
                     );
                 }
 
@@ -692,7 +710,7 @@ impl Parser {
                 if self.at_set(INIT_OPERATORS) {
                     self.parse_proper_or_error(
                         SyntaxKind::Colon,
-                        "Expected ':' for initialisation",
+                        "Expected ':' for initialisation".to_owned(),
                     );
                     self.parse_expression();
                 } else if object_kind != MemberObject::Enum {
@@ -709,7 +727,7 @@ impl Parser {
                     MemberObject::Enum | MemberObject::PostCallInitialiser
                 ) {
                     self.error_at_token(
-                        "Constructors are only allowed in tables / classes / attributes",
+                        "Constructors are only allowed in tables / classes / attributes".to_owned(),
                     );
                 }
 
@@ -724,7 +742,7 @@ impl Parser {
                     MemberObject::Enum | MemberObject::PostCallInitialiser
                 ) {
                     self.error_at_token(
-                        "Methods are only allowed in tables / classes / attributes",
+                        "Methods are only allowed in tables / classes / attributes".to_owned(),
                     );
                 }
                 self.bump();
@@ -746,19 +764,23 @@ impl Parser {
                 if self.at_set(INIT_OPERATORS) {
                     self.parse_proper_or_error(
                         SyntaxKind::Equals,
-                        "Expected '=' for initialisation",
+                        "Expected '=' for initialisation".to_owned(),
                     );
                     self.parse_expression();
                 } else if object_kind != MemberObject::Enum {
                     // method() {} recovery
                     if self.at(SyntaxKind::OpenParenthesis) {
                         if self.is_marker_valid(name) {
-                            self.error(
-                                self.marker_range(name),
-                                "Method name needs to be prepended with 'function' keyword",
-                            );
+                            self.error(SyntaxError {
+                                message:
+                                    "Method name needs to be prepended with 'function' keyword"
+                                        .to_owned(),
+                                range: self.marker_range(name),
+                            });
                         } else {
-                            self.error_at_token("Method needs to be prepended with a name");
+                            self.error_at_token(
+                                "Method needs to be prepended with a name".to_owned(),
+                            );
                         }
                         self.parse_function_signature();
                         self.parse_statement(/* parse_end */ false);
@@ -800,7 +822,10 @@ impl Parser {
             self.parse_member(MemberObject::Class);
 
             if self.at_set(SEPARATORS) {
-                self.parse_proper_or_error(SyntaxKind::Semicolon, "Expected ';' between members");
+                self.parse_proper_or_error(
+                    SyntaxKind::Semicolon,
+                    "Expected ';' between members".to_owned(),
+                );
             }
         }
         self.object_separator = save_separator;
@@ -866,7 +891,10 @@ impl Parser {
         let lhs = self.parse_binary_expression(BinaryOperatorPrecedence::Lowest);
         if self.at_set(ASSIGNMENT_OPERATORS) {
             if !self.is_lhs_expression(lhs) {
-                self.error(self.marker_range(lhs), "The left-hand side of an assignment expression must be a variable or a property access.");
+                self.error(SyntaxError {
+                    message: "The left-hand side of an assignment expression must be a variable or a property access".to_owned(),
+                    range: self.marker_range(lhs),
+                });
             }
             self.parse_operator(ASSIGNMENT_OPERATORS);
             self.parse_expression();
@@ -949,7 +977,7 @@ impl Parser {
                 self.parse_prefix_unary_expression()
             }
             SyntaxKind::Plus => {
-                self.error_at_token("Leading plus is not supported");
+                self.error_at_token("Leading plus is not supported".to_owned());
                 self.parse_prefix_unary_expression()
             }
             SyntaxKind::PlusPlus | SyntaxKind::MinusMinus => self.parse_prefix_update_expression(),
@@ -975,7 +1003,10 @@ impl Parser {
         self.parse_operator(UPDATE_OPERATORS);
         let operand = self.parse_prefix_expression();
         if !self.is_lhs_expression(operand) {
-            self.error(self.marker_range(operand),"The operand of an increment or decrement operator must be a variable or a property access.");
+            self.error(SyntaxError {
+                message: "The operand of an increment or decrement operator must be a variable or a property access".to_owned(),
+                range: self.marker_range(operand),
+            });
         }
         self.finish(m, SyntaxKind::PrefixUpdateExpression);
         m
@@ -986,7 +1017,10 @@ impl Parser {
         self.expect_or_panic(SyntaxKind::DeleteKeyword);
         let operand = self.parse_prefix_expression();
         if !self.is_lhs_expression(operand) {
-            self.error(self.marker_range(operand),"The right-hand side of a delete expression must be a variable or a property access.");
+            self.error(SyntaxError {
+                range: self.marker_range(operand),
+                message: "The right-hand side of a delete expression must be a variable or a property access".to_owned()
+            });
         }
         self.finish(m, SyntaxKind::DeleteExpression);
         m
@@ -1041,7 +1075,10 @@ impl Parser {
                         break;
                     }
                     if !self.is_lhs_expression(operand) {
-                        self.error(self.marker_range(operand), "The operand of an increment or decrement operator must be a variable or a property access.");
+                        self.error(SyntaxError {
+                            message: "The operand of an increment or decrement operator must be a variable or a property access".to_owned(),
+                            range: self.marker_range(operand),
+                        });
                     }
                     self.parse_postfix_update_expression(m);
                 }
@@ -1066,7 +1103,7 @@ impl Parser {
     }
 
     fn parse_member_access_expression(&mut self, m: Marker) {
-        self.parse_proper_or_error(SyntaxKind::Dot, "Expected '.' for member access");
+        self.parse_proper_or_error(SyntaxKind::Dot, "Expected '.' for member access".to_owned());
 
         let member = self.start();
         self.parse_name("member's name", None);
@@ -1079,9 +1116,8 @@ impl Parser {
         if self.has_preceding_new_line {
             let start = self.prev_token.range.end();
             let end = start + TextSize::new(1);
-            self.error(
-                TextRange::new(start, end),
-                match self.object_separator {
+            self.error(SyntaxError {
+                message: match self.object_separator {
                     ParsingObjectSeparator::None => {
                         "A line break is not allowed before element access"
                     }
@@ -1091,8 +1127,10 @@ impl Parser {
                     ParsingObjectSeparator::Semicolon => {
                         "Semicolon is needed before `[...]` property declaration."
                     }
-                },
-            );
+                }
+                .to_owned(),
+                range: TextRange::new(start, end),
+            });
         }
         self.expect_or_panic(SyntaxKind::OpenBracket);
         let index = self.start();
@@ -1199,7 +1237,10 @@ impl Parser {
         {
             self.parse_expression();
             if self.at_set(SEPARATORS) {
-                self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between elements");
+                self.parse_proper_or_error(
+                    SyntaxKind::Comma,
+                    "Expected ',' between elements".to_owned(),
+                );
                 continue;
             }
         }
@@ -1219,7 +1260,10 @@ impl Parser {
             self.parse_member(MemberObject::Table);
 
             if self.at_set(SEPARATORS) {
-                self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between members");
+                self.parse_proper_or_error(
+                    SyntaxKind::Comma,
+                    "Expected ',' between members".to_owned(),
+                );
             }
         }
         self.object_separator = save_separator;
@@ -1275,10 +1319,12 @@ impl Parser {
         if !self.can_parse_end_of_statement() {
             let start = self.prev_token.range.end();
             let end = start + TextSize::new(1);
-            self.error(
-                TextRange::new(start, end),
-                "End of statement expected (use ';' to separate statements on the same line)",
-            );
+            self.error(SyntaxError {
+                message:
+                    "End of statement expected (use ';' to separate statements on the same line)"
+                        .to_owned(),
+                range: TextRange::new(start, end),
+            });
         }
     }
 
@@ -1289,7 +1335,7 @@ impl Parser {
             }
 
             if self.at(SyntaxKind::CatchKeyword) {
-                self.error_at_token("'catch' must be prepended with 'try' block");
+                self.error_at_token("'catch' must be prepended with 'try' block".to_owned());
                 let m = self.start();
                 self.parse_catch_clause();
                 self.finish(m, SyntaxKind::TryStatement);
@@ -1297,7 +1343,7 @@ impl Parser {
             }
 
             if self.at(SyntaxKind::ElseKeyword) {
-                self.error_and_advance("'else' must be prepended with 'if' block");
+                self.error_and_advance("'else' must be prepended with 'if' block".to_owned());
                 continue;
             }
 
@@ -1487,7 +1533,10 @@ impl Parser {
 
         if self.at_set(SEPARATORS) {
             self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachKey);
-            self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' to separate key and value");
+            self.parse_proper_or_error(
+                SyntaxKind::Comma,
+                "Expected ',' to separate key and value".to_owned(),
+            );
 
             let value = self.start();
             let name = self.parse_name("value's name", Some(STATEMENT_OR_EXPRESSION));
@@ -1498,7 +1547,7 @@ impl Parser {
         } else if self.at_set(NAME) {
             self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachKey);
 
-            self.error_at_token("Expected ',' to separate key and value");
+            self.error_at_token("Expected ',' to separate key and value".to_owned());
             self.parse_guaranteed_name();
 
             self.expect(SyntaxKind::InKeyword);
@@ -1555,7 +1604,7 @@ impl Parser {
                 _ => {
                     // Case where user has written statements on top of the switch block
                     // but hasn't written 'case' above it yet
-                    self.error_at_token("Statement must be prepended with 'case' label");
+                    self.error_at_token("Statement must be prepended with 'case' label".to_owned());
                     let m = self.start();
                     self.parse_case_body();
                     self.finish(m, SyntaxKind::CaseClause);
@@ -1584,12 +1633,15 @@ impl Parser {
                 // We parse it anyways for better recovery
                 // Perhaps it shouldn't omit errors for parse_expression to not be misleading?
                 let err = self.start();
-                self.error_and_advance("Assignment is not allowed here");
+                self.error_and_advance("Assignment is not allowed here".to_owned());
                 self.parse_expression();
                 self.finish(err, SyntaxKind::Error);
             } else {
                 let m = self.start();
-                self.parse_proper_or_error(SyntaxKind::Equals, "Expected '=' for initialisation");
+                self.parse_proper_or_error(
+                    SyntaxKind::Equals,
+                    "Expected '=' for initialisation".to_owned(),
+                );
                 self.parse_expression();
                 self.finish(m, SyntaxKind::Initialiser);
             }
@@ -1609,7 +1661,7 @@ impl Parser {
             self.parse_name("function's name", Some(FUNCTION_NAME_RECOVERY));
             if self.at_set(NAME_QUALIFIER) {
                 self.error_and_advance(
-                    "Name qualification is only allowed for function statements.",
+                    "Name qualification is only allowed for function statements.".to_owned(),
                 );
             }
 
@@ -1708,12 +1760,18 @@ impl Parser {
                 return m;
             }
 
-            self.parse_proper_or_error(SyntaxKind::ColonColon, "Expected '::' to qualify a name");
+            self.parse_proper_or_error(
+                SyntaxKind::ColonColon,
+                "Expected '::' to qualify a name".to_owned(),
+            );
             self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
         };
 
         while self.at_set(NAME_QUALIFIER) {
-            self.parse_proper_or_error(SyntaxKind::ColonColon, "Expected '::' to qualify a name");
+            self.parse_proper_or_error(
+                SyntaxKind::ColonColon,
+                "Expected '::' to qualify a name".to_owned(),
+            );
             self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
         }
 
@@ -1727,10 +1785,10 @@ impl Parser {
         self.expect_or_panic(SyntaxKind::ClassKeyword);
         let name = self.parse_prefix_expression();
         if !self.is_lhs_expression(name) {
-            self.error(
-                self.marker_range(name),
-                "The class name must be a variable or a property access.",
-            );
+            self.error(SyntaxError {
+                message: "The class name must be a variable or a property access".to_owned(),
+                range: self.marker_range(name),
+            });
         }
         self.parse_class_body();
         self.finish(m, SyntaxKind::ClassStatement);
@@ -1750,7 +1808,10 @@ impl Parser {
             self.parse_member(MemberObject::Enum);
 
             if self.at_set(SEPARATORS) {
-                self.parse_proper_or_error(SyntaxKind::Comma, "Expected ',' between members");
+                self.parse_proper_or_error(
+                    SyntaxKind::Comma,
+                    "Expected ',' between members".to_owned(),
+                );
             }
         }
         self.object_separator = save_separator;

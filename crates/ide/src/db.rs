@@ -1,7 +1,7 @@
 use ::line_index::LineIndex;
 use sq_3_parser::Parse;
 
-use crate::{Collector, SourceSymbol};
+use crate::{SourceSymbol, collector::Collector};
 
 #[salsa::input]
 pub struct File {

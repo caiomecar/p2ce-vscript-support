@@ -16,23 +16,17 @@ pub use rowan::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxError {
-    range: TextRange,
     message: String,
+    range: TextRange,
 }
 
 impl SyntaxError {
-    pub fn new(range: TextRange, message: impl Display) -> SyntaxError {
-        Self {
-            range,
-            message: message.to_string(),
-        }
+    pub fn message(&self) -> &str {
+        &self.message
     }
 
     pub fn range(&self) -> TextRange {
         self.range
-    }
-    pub fn message(&self) -> &str {
-        &self.message
     }
 }
 

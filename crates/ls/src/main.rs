@@ -1,7 +1,7 @@
 mod conversions;
 
 use anyhow::Result;
-use ide::{Database, File, SymbolKind, line_index, parse, source_symbol};
+use ide::{Database, File, Type, line_index, parse, source_symbol};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::Request as _;
@@ -144,7 +144,7 @@ fn handle_request(
                 // get the object (abc) — the part before the dot
                 if let Some(kind) = member
                     .object()
-                    .and_then(|obj| source_symbol.symbol_kind_at(obj.syntax().text_range()))
+                    .and_then(|obj| source_symbol.type_at(obj.syntax().text_range()))
                 {
                     source_symbol.members_of_kind(kind).unwrap_or_default()
                 } else {
@@ -160,9 +160,9 @@ fn handle_request(
                     Some(CompletionItem {
                         label: symbol.name.clone(),
                         kind: Some(match symbol.kind {
-                            SymbolKind::Enum(_) => CompletionItemKind::ENUM,
-                            SymbolKind::Function(_) => CompletionItemKind::FUNCTION,
-                            SymbolKind::Class(_) => CompletionItemKind::CLASS,
+                            Type::Enum(_) => CompletionItemKind::ENUM,
+                            Type::Function(_) => CompletionItemKind::FUNCTION,
+                            Type::Class(_) => CompletionItemKind::CLASS,
                             _ => CompletionItemKind::VARIABLE,
                         }),
                         ..Default::default()
