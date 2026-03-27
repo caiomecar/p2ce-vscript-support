@@ -148,14 +148,14 @@ impl Arenas {
         }
     }
 
-    pub fn get_kind_members(&self, kind: Type) -> Option<Vec<SymbolId>> {
-        Some(match kind {
+    pub fn get_kind_members(&self, kind: Type) -> Vec<SymbolId> {
+        match kind {
             Type::Table(id) => self.tables[id].get_members(self),
             Type::Class(id) => self.classes[id].get_members(),
             Type::Instance(id) => self.classes[id].get_members(),
             Type::Enum(id) => self.enums[id].get_members(),
-            _ => return None,
-        })
+            _ => Vec::new(),
+        }
     }
 
     pub fn clone_type(&mut self, kind: Type) -> Type {

@@ -425,7 +425,12 @@ impl Parser {
     }
 
     fn expect_or_panic(&mut self, kind: SyntaxKind) {
-        assert!(self.token() == kind);
+        assert!(self.at(kind));
+        self.bump();
+    }
+
+    fn expect_set_or_panic(&mut self, expect_set: TokenSet) {
+        assert!(self.at_set(expect_set));
         self.bump();
     }
 
@@ -896,7 +901,7 @@ impl Parser {
                     range: self.marker_range(lhs),
                 });
             }
-            self.parse_operator(ASSIGNMENT_OPERATORS);
+            self.expect_set_or_panic(ASSIGNMENT_OPERATORS);
             self.parse_expression();
             self.finish(m, SyntaxKind::BinaryExpression);
         } else if self.at(SyntaxKind::Question) {
@@ -933,13 +938,6 @@ impl Parser {
         self.finish(m, SyntaxKind::ConditionalExpression);
     }
 
-    fn parse_operator(&mut self, expect_set: TokenSet) {
-        assert!(self.at_set(expect_set));
-        let m = self.start();
-        self.bump();
-        self.finish(m, SyntaxKind::Operator);
-    }
-
     // 1 + 2
     // abc() * 12312 + 2 - 124
     fn parse_binary_expression(&mut self, precedence: BinaryOperatorPrecedence) -> Marker {
@@ -955,7 +953,7 @@ impl Parser {
                 break;
             }
 
-            self.parse_operator(BINARY_OPERATORS);
+            self.expect_set_or_panic(BINARY_OPERATORS);
 
             self.parse_binary_expression(new_precedence);
 
@@ -978,7 +976,7 @@ impl Parser {
             }
             SyntaxKind::Plus => {
                 self.error_at_token("Leading plus is not supported".to_owned());
-                self.parse_prefix_unary_expression()
+                self.parse_prefix_expression()
             }
             SyntaxKind::PlusPlus | SyntaxKind::MinusMinus => self.parse_prefix_update_expression(),
             SyntaxKind::DeleteKeyword => self.parse_delete_expression(),
@@ -992,7 +990,7 @@ impl Parser {
 
     fn parse_prefix_unary_expression(&mut self) -> Marker {
         let m = self.start();
-        self.parse_operator(PREFIX_UNARY_OPERATORS);
+        self.expect_set_or_panic(PREFIX_UNARY_OPERATORS);
         self.parse_prefix_expression();
         self.finish(m, SyntaxKind::PrefixUnaryExpression);
         m
@@ -1000,7 +998,7 @@ impl Parser {
 
     fn parse_prefix_update_expression(&mut self) -> Marker {
         let m = self.start();
-        self.parse_operator(UPDATE_OPERATORS);
+        self.expect_set_or_panic(UPDATE_OPERATORS);
         let operand = self.parse_prefix_expression();
         if !self.is_lhs_expression(operand) {
             self.error(SyntaxError {
@@ -1098,7 +1096,7 @@ impl Parser {
     }
 
     fn parse_postfix_update_expression(&mut self, m: Marker) {
-        self.parse_operator(UPDATE_OPERATORS);
+        self.expect_set_or_panic(UPDATE_OPERATORS);
         self.finish(m, SyntaxKind::PostfixUpdateExpression);
     }
 

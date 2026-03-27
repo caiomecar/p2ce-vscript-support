@@ -104,7 +104,6 @@ pub(crate) const BINARY_OPERATORS: TokenSet = TokenSet::new(&[
 ]);
 
 pub(crate) const PREFIX_UNARY_OPERATORS: TokenSet = TokenSet::new(&[
-    SyntaxKind::Plus,
     SyntaxKind::Minus,
     SyntaxKind::Exclamation,
     SyntaxKind::Tilde,

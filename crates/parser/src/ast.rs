@@ -58,6 +58,30 @@ macro_rules! ast_enum {
     };
 }
 
+macro_rules! ast_token_enum {
+    ($name:ident { $($kind:ident => $variant:ident),* $(,)? }) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum $name {
+            $($variant),*
+        }
+
+        impl $name {
+            pub fn from_kind(kind: SyntaxKind) -> Option<Self> {
+                match kind {
+                    $(SyntaxKind::$kind => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+
+            pub fn token(node: &SyntaxNode) -> Option<Self> {
+                node.children_with_tokens()
+                    .filter_map(|it| it.into_token())
+                    .find_map(|tok| Self::from_kind(tok.kind()))
+            }
+        }
+    };
+}
+
 // Searching `Expr` can be ambigious if a node has multiple expressions as direct children.
 // Example: for (;abc;) | for (;;abc)
 // Searching for the first expression here will either give us the condition or the increment
@@ -81,12 +105,6 @@ pub trait HasName: AstNode<Language = SquirrelLanguage> {
 pub trait HasDoc: AstNode<Language = SquirrelLanguage> {
     fn doc(&self) -> Option<SyntaxToken> {
         support::token(self.syntax(), SyntaxKind::DocComment)
-    }
-}
-
-pub trait HasOperator: AstNode<Language = SquirrelLanguage> {
-    fn operator(&self) -> Option<Operator> {
-        support::child(self.syntax())
     }
 }
 
@@ -157,14 +175,56 @@ impl SingleToken for Operator {}
 ast_node!(LiteralExpression, LiteralExpression);
 impl SingleToken for LiteralExpression {}
 
+ast_token_enum!(BinaryOperator {
+    Comma => Comma,
+
+    Plus => Add,
+    Minus => Subtract,
+    Asterisk => Multiply,
+    Slash => Divide,
+    Percent => Modulo,
+
+    Ampersand => BitwiseAnd,
+    Bar => BitwiseOr,
+    Caret => BitwiseXor,
+    LessThanLessThan => LeftShift,
+    GreaterThanGreaterThan => RightShift,
+    GreaterThanGreaterThanGreaterThan => UnsignedRightShift,
+
+    EqualsEquals => Equals,
+    ExclamationEquals => NotEquals,
+
+    LessThan => Less,
+    LessThanEquals => LessEqual,
+    GreaterThan => Greater,
+    GreaterThanEquals => GreaterEqual,
+    LessThanEqualsGreaterThan => ThreeWay,
+
+    InstanceOfKeyword => InstanceOf,
+    InKeyword => In,
+
+    AmpersandAmpersand => LogicalAnd,
+    BarBar => LogicalOr,
+
+    Equals => Assign,
+    LessThanMinus => NewSlot,
+    PlusEquals => AddAssign,
+    MinusEquals => SubtractAssign,
+    AsteriskEquals => MultiplyAssign,
+    SlashEquals => DivideAssign,
+    PercentEquals => ModuloAssign,
+});
+
 ast_node!(BinaryExpression, BinaryExpression);
-// Newslot assignment
 impl HasDoc for BinaryExpression {}
-impl HasOperator for BinaryExpression {}
 
 impl BinaryExpression {
     pub fn lhs(&self) -> Option<Expr> {
         support::children(&self.0).next()
+    }
+
+    pub fn operator(&self) -> Option<BinaryOperator> {
+        BinaryOperator::token(self.syntax())
     }
     // It's impossible to have rhs without lhs with the current
     // algorithm therefore expression wrapper is not needed so
@@ -196,17 +256,42 @@ impl ConditionalExpression {
     }
 }
 
+ast_token_enum!(PrefixUnaryOperator {
+    Minus => Negation,
+    Tilde => BitwiseNot,
+    Exclamation => LogicalNot,
+});
 ast_node!(PrefixUnaryExpression, PrefixUnaryExpression);
-impl HasOperator for PrefixUnaryExpression {}
 impl HasOperand for PrefixUnaryExpression {}
+impl PrefixUnaryExpression {
+    pub fn operator(&self) -> Option<PrefixUnaryOperator> {
+        PrefixUnaryOperator::token(self.syntax())
+    }
+}
 
+ast_token_enum!(PrefixUpdateOperator {
+    PlusPlus => Increment,
+    MinusMinus => Decrement,
+});
 ast_node!(PrefixUpdateExpression, PrefixUpdateExpression);
-impl HasOperator for PrefixUpdateExpression {}
 impl HasOperand for PrefixUpdateExpression {}
+impl PrefixUpdateExpression {
+    pub fn operator(&self) -> Option<PrefixUpdateOperator> {
+        PrefixUpdateOperator::token(self.syntax())
+    }
+}
 
+ast_token_enum!(PostfixUpdateOperator {
+    PlusPlus => Increment,
+    MinusMinus => Decrement,
+});
 ast_node!(PostfixUpdateExpression, PostfixUpdateExpression);
-impl HasOperator for PostfixUpdateExpression {}
 impl HasOperand for PostfixUpdateExpression {}
+impl PostfixUpdateExpression {
+    pub fn operator(&self) -> Option<PostfixUpdateOperator> {
+        PostfixUpdateOperator::token(self.syntax())
+    }
+}
 
 ast_node!(DeleteExpression, DeleteExpression);
 impl HasOperand for DeleteExpression {}

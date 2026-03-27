@@ -89,6 +89,13 @@ pub enum ExpressionKind {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NameExpressionSettings {
+    Normal,
+    ProduceParent,
+    NoLocalsAndConsts,
+}
+
 pub type RangeKindMap = FxHashMap<TextRange, ExpressionKind>;
 
 fn unquote_string(input: &str) -> String {
@@ -644,7 +651,8 @@ impl Collector {
             self.arenas
                 .add_container_member(self.container, final_name, symbol);
         } else {
-            let mut expr_kind = self.name_expression(&names[0], true);
+            let mut expr_kind =
+                self.name_expression(&names[0], NameExpressionSettings::NoLocalsAndConsts);
             let mut kind = self.arenas.expr_to_type(&expr_kind);
             let key = names[0].syntax().text_range();
             self.expr_kinds.insert(key, expr_kind.clone());
@@ -679,7 +687,7 @@ impl Collector {
                         Some(idx)
                     })
                     .map_or_else(
-                        || ExpressionKind::Parent(kind, text.into_boxed_str()),
+                        || ExpressionKind::Unknown,
                         |symbol| ExpressionKind::Symbol(Some(kind), symbol),
                     );
 
@@ -937,25 +945,31 @@ impl Collector {
         self.arenas.expr_to_type(&kind)
     }
 
+    // Only new slot binary operator needs produce_parent_kind so yeah
     fn collect_expr(&mut self, expr: &Expr) -> ExpressionKind {
-        let key = expr.syntax().text_range();
-        let kind = self.expr_kind(expr);
-        self.expr_kinds.insert(key, kind.clone());
-        kind
+        self.do_collect_expr(expr, false)
     }
 
-    fn expr_kind(&mut self, expr: &Expr) -> ExpressionKind {
-        match expr {
+    fn do_collect_expr(&mut self, expr: &Expr, produce_parent_kind: bool) -> ExpressionKind {
+        let key = expr.syntax().text_range();
+        let kind = match expr {
             Expr::Literal(expr) => self.literal_expression(expr),
             Expr::TableLiteral(expr) => self.table_literal_expression(expr),
             Expr::Class(expr) => self.class_expression(expr),
             Expr::ArrayLiteral(expr) => self.array_literal_expression(expr),
-            Expr::Name(expr) => self.name_expression(expr, false),
+            Expr::Name(expr) => self.name_expression(
+                expr,
+                if produce_parent_kind {
+                    NameExpressionSettings::ProduceParent
+                } else {
+                    NameExpressionSettings::Normal
+                },
+            ),
             Expr::This(expr) => self.this_expression(expr),
-            Expr::RootAccess(expr) => self.root_access_expression(expr),
+            Expr::RootAccess(expr) => self.root_access_expression(expr, produce_parent_kind),
             Expr::Base(expr) => self.base_expression(expr),
-            Expr::MemberAccess(expr) => self.member_access_expression(expr),
-            Expr::ElementAccess(expr) => self.element_access_expression(expr),
+            Expr::MemberAccess(expr) => self.member_access_expression(expr, produce_parent_kind),
+            Expr::ElementAccess(expr) => self.element_access_expression(expr, produce_parent_kind),
             Expr::Call(expr) => self.call_expression(expr),
             Expr::Clone(expr) => self.clone_expression(expr),
             Expr::Binary(expr) => self.binary_expression(expr),
@@ -972,7 +986,9 @@ impl Collector {
             Expr::Parenthesised(expr) => self.parenthesised_expression(expr),
             Expr::Function(expr) => self.function_expression(expr),
             Expr::Lambda(expr) => self.lambda_expression(expr),
-        }
+        };
+        self.expr_kinds.insert(key, kind.clone());
+        kind
     }
 
     fn literal_expression(&mut self, expr: &LiteralExpression) -> ExpressionKind {
@@ -1043,7 +1059,7 @@ impl Collector {
         )
     }
 
-    fn name_expression(&mut self, expr: &Name, only_members: bool) -> ExpressionKind {
+    fn name_expression(&mut self, expr: &Name, settings: NameExpressionSettings) -> ExpressionKind {
         let Some(text) = expr.text() else {
             return ExpressionKind::Unknown;
         };
@@ -1074,9 +1090,9 @@ impl Collector {
                 .find_map(find_function)
         };
 
-        if only_members {
+        if settings == NameExpressionSettings::NoLocalsAndConsts {
             return members().or_else(root).map_or_else(
-                || ExpressionKind::Parent(self.container.into(), text.into_boxed_str()),
+                || ExpressionKind::Unknown,
                 |id| ExpressionKind::Symbol(None, id),
             );
         }
@@ -1108,7 +1124,13 @@ impl Collector {
             .or_else(members)
             .or_else(root)
             .map_or_else(
-                || ExpressionKind::Parent(self.container.into(), text.into_boxed_str()),
+                || {
+                    if settings == NameExpressionSettings::ProduceParent {
+                        ExpressionKind::Parent(self.container.into(), text.into_boxed_str())
+                    } else {
+                        ExpressionKind::Unknown
+                    }
+                },
                 |id| ExpressionKind::Symbol(None, id),
             );
     }
@@ -1121,7 +1143,11 @@ impl Collector {
         })
     }
 
-    fn root_access_expression(&mut self, expr: &RootAccessExpression) -> ExpressionKind {
+    fn root_access_expression(
+        &mut self,
+        expr: &RootAccessExpression,
+        produce_parent_kind: bool,
+    ) -> ExpressionKind {
         let Some(text) = expr.name().and_then(|n| n.text()) else {
             return ExpressionKind::Unknown;
         };
@@ -1140,7 +1166,13 @@ impl Collector {
                 Some(idx)
             })
             .map_or_else(
-                || ExpressionKind::Parent(Type::Table(self.root_table), text.into_boxed_str()),
+                || {
+                    if produce_parent_kind {
+                        ExpressionKind::Parent(Type::Table(self.root_table), text.into_boxed_str())
+                    } else {
+                        ExpressionKind::Unknown
+                    }
+                },
                 |symbol| ExpressionKind::Symbol(None, symbol),
             )
     }
@@ -1172,7 +1204,11 @@ impl Collector {
         }
     }
 
-    fn member_access_expression(&mut self, expr: &MemberAccessExpression) -> ExpressionKind {
+    fn member_access_expression(
+        &mut self,
+        expr: &MemberAccessExpression,
+        produce_parent_kind: bool,
+    ) -> ExpressionKind {
         let obj = match expr.object() {
             Some(expr) => self.expr_symbol_kind(&expr),
             None => Type::Unknown,
@@ -1186,9 +1222,7 @@ impl Collector {
             return ExpressionKind::Unknown;
         };
 
-        let Some(members) = self.arenas.get_kind_members(obj) else {
-            return ExpressionKind::Parent(obj, text.into_boxed_str());
-        };
+        let members = self.arenas.get_kind_members(obj);
 
         let offset = expr.syntax().text_range().end();
         members
@@ -1203,12 +1237,22 @@ impl Collector {
                 Some(idx)
             })
             .map_or_else(
-                || ExpressionKind::Parent(obj, text.into_boxed_str()),
+                || {
+                    if produce_parent_kind {
+                        ExpressionKind::Parent(obj, text.into_boxed_str())
+                    } else {
+                        ExpressionKind::Unknown
+                    }
+                },
                 |symbol| ExpressionKind::Symbol(Some(obj), symbol),
             )
     }
 
-    fn element_access_expression(&mut self, expr: &ElementAccessExpression) -> ExpressionKind {
+    fn element_access_expression(
+        &mut self,
+        expr: &ElementAccessExpression,
+        produce_parent_kind: bool,
+    ) -> ExpressionKind {
         let obj = match expr.object() {
             Some(expr) => self.expr_symbol_kind(&expr),
             None => Type::Unknown,
@@ -1226,9 +1270,7 @@ impl Collector {
                 };
 
                 let text = self.arenas.strings[id].as_ref();
-                let Some(members) = self.arenas.get_kind_members(obj) else {
-                    return ExpressionKind::Unknown;
-                };
+                let members = self.arenas.get_kind_members(obj);
 
                 let offset = expr.syntax().text_range().end();
                 members
@@ -1244,7 +1286,13 @@ impl Collector {
                         Some(idx)
                     })
                     .map_or_else(
-                        || ExpressionKind::Parent(obj, text.into()),
+                        || {
+                            if produce_parent_kind {
+                                ExpressionKind::Parent(obj, text.into())
+                            } else {
+                                ExpressionKind::Unknown
+                            }
+                        },
                         |symbol| ExpressionKind::Symbol(Some(obj), symbol),
                     )
             }
@@ -1416,62 +1464,54 @@ impl Collector {
         ExpressionKind::Literal(self.arenas.clone_type(kind))
     }
 
-    fn binary_expression(&mut self, expr: &BinaryExpression) -> ExpressionKind {
-        let Some(left) = expr.lhs() else {
-            let Some(right) = expr.rhs() else {
-                return ExpressionKind::Unknown;
-            };
-
-            return self.collect_expr(&right);
-        };
-
-        let left_kind = self.collect_expr(&left);
-        let right_kind = if let Some(right) = expr.rhs() {
-            self.collect_expr(&right)
+    fn extract_lhs_and_rhs(&mut self, expr: &BinaryExpression) -> (ExpressionKind, ExpressionKind) {
+        let left = if let Some(left_expr) = expr.lhs() {
+            self.collect_expr(&left_expr)
         } else {
             ExpressionKind::Unknown
         };
 
-        let Some(operator) = expr.operator().and_then(|o| o.token()) else {
+        let right = if let Some(right_expr) = expr.lhs() {
+            self.collect_expr(&right_expr)
+        } else {
+            ExpressionKind::Unknown
+        };
+
+        (left, right)
+    }
+
+    fn binary_expression(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let Some(operator) = expr.operator() else {
             return ExpressionKind::Unknown;
         };
 
-        match operator.kind() {
-            SyntaxKind::Equals | SyntaxKind::LessThanMinus => {
-                self.equals_operator(left_kind, right_kind, operator, expr.syntax().text_range())
+        match operator {
+            BinaryOperator::NewSlot => self.new_slot_operator(expr),
+            BinaryOperator::Assign => self.equals_operator(expr),
+            BinaryOperator::Comma => self.comma_operator(expr),
+            BinaryOperator::In => self.in_operator(expr),
+            BinaryOperator::InstanceOf => self.instance_of_operator(expr),
+            BinaryOperator::Equals | BinaryOperator::NotEquals => self.equality_operator(expr),
+            BinaryOperator::Less
+            | BinaryOperator::LessEqual
+            | BinaryOperator::Greater
+            | BinaryOperator::GreaterEqual
+            | BinaryOperator::ThreeWay => {
+                self.comparison_operator(expr, operator == BinaryOperator::ThreeWay)
             }
-            SyntaxKind::Comma => right_kind,
-            SyntaxKind::InKeyword => self.in_operator(left_kind, right_kind, operator),
-            SyntaxKind::InstanceOfKeyword => {
-                self.instance_of_operator(left_kind, right_kind, operator)
-            }
-            SyntaxKind::EqualsEquals | SyntaxKind::ExclamationEquals => {
-                ExpressionKind::Literal(Type::Boolean)
-            }
-            SyntaxKind::LessThan
-            | SyntaxKind::LessThanEquals
-            | SyntaxKind::GreaterThan
-            | SyntaxKind::GreaterThanEquals
-            | SyntaxKind::LessThanEqualsGreaterThan => {
-                self.comparison_operator(left_kind, right_kind, operator)
-            }
-            SyntaxKind::Ampersand
-            | SyntaxKind::Bar
-            | SyntaxKind::Caret
-            | SyntaxKind::LessThanLessThan
-            | SyntaxKind::GreaterThanGreaterThan
-            | SyntaxKind::GreaterThanGreaterThanGreaterThan => {
-                self.bitwise_operator(left_kind, right_kind, operator)
-            }
-            SyntaxKind::AmpersandAmpersand | SyntaxKind::BarBar => {
-                self.logical_operator(left_kind, right_kind, operator)
-            }
-            SyntaxKind::PlusEquals | SyntaxKind::Plus => todo!(),
-            SyntaxKind::MinusEquals | SyntaxKind::Minus => todo!(),
-            SyntaxKind::AsteriskEquals | SyntaxKind::Asterisk => todo!(),
-            SyntaxKind::SlashEquals | SyntaxKind::Slash => todo!(),
-            SyntaxKind::PercentEquals | SyntaxKind::Percent => todo!(),
-            _ => unreachable!(),
+            BinaryOperator::BitwiseAnd
+            | BinaryOperator::BitwiseOr
+            | BinaryOperator::BitwiseXor
+            | BinaryOperator::LeftShift
+            | BinaryOperator::RightShift
+            | BinaryOperator::UnsignedRightShift => self.bitwise_operator(expr),
+
+            BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => self.logical_operator(expr),
+            BinaryOperator::AddAssign | BinaryOperator::Add => todo!(),
+            BinaryOperator::SubtractAssign | BinaryOperator::Subtract => todo!(),
+            BinaryOperator::MultiplyAssign | BinaryOperator::Multiply => todo!(),
+            BinaryOperator::DivideAssign | BinaryOperator::Divide => todo!(),
+            BinaryOperator::ModuloAssign | BinaryOperator::Modulo => todo!(),
         }
     }
 
@@ -1507,23 +1547,28 @@ impl Collector {
         })
     }
 
-    fn equals_operator(
-        &mut self,
-        left_kind: ExpressionKind,
-        right_kind: ExpressionKind,
-        operator: SyntaxToken,
-        range: TextRange,
-    ) -> ExpressionKind {
+    fn new_slot_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        // Do this manually so we can pass produce_parent_kind
+        let left_kind = if let Some(left_expr) = expr.lhs() {
+            self.do_collect_expr(&left_expr, true)
+        } else {
+            ExpressionKind::Unknown
+        };
+
+        let right_kind = if let Some(right_expr) = expr.lhs() {
+            self.collect_expr(&right_expr)
+        } else {
+            ExpressionKind::Unknown
+        };
+
         match left_kind {
-            ExpressionKind::Parent(parent, member)
-                if operator.kind() == SyntaxKind::LessThanMinus =>
-            {
-                match self.to_new_slot_applicable(parent, operator.text_range()) {
+            ExpressionKind::Parent(parent, member) => {
+                match self.to_new_slot_applicable(parent, expr.syntax().text_range()) {
                     Some(applicable) => {
                         let symbol = self.arenas.symbols.alloc(Symbol {
                             kind: self.arenas.expr_to_type(&right_kind),
                             name: member.to_string(),
-                            range,
+                            range: expr.syntax().text_range(),
                         });
 
                         self.arenas.add_container_member(
@@ -1535,20 +1580,10 @@ impl Collector {
                     _ => {}
                 }
             }
-            ExpressionKind::Parent(parent, _) => match parent {
-                Type::Array(_) | Type::Class(_) | Type::Table(_) | Type::Instance(_) => {}
-                kind => {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!("'{kind}' does not support an equals operator"),
-                        range: operator.text_range(),
-                        severity: DiagnosticSeverity::Error,
-                    });
-                }
-            },
-            ExpressionKind::Symbol(obj, symbol) if operator.kind() == SyntaxKind::LessThanMinus => {
+            ExpressionKind::Symbol(obj, symbol) => {
                 if let Some(obj) = obj {
                     if self
-                        .to_new_slot_applicable(obj, operator.text_range())
+                        .to_new_slot_applicable(obj, expr.syntax().text_range())
                         .is_none()
                     {
                         return right_kind;
@@ -1566,10 +1601,29 @@ impl Collector {
                     symbol.kind = kind;
                 }
             }
+            _ => {}
+        }
+        right_kind
+    }
 
+    fn equals_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
+
+        match left_kind {
+            ExpressionKind::Parent(parent, _) => match parent {
+                Type::Array(_) | Type::Class(_) | Type::Table(_) | Type::Instance(_) => {}
+                kind => {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!("'{kind}' does not support an equals operator"),
+                        range: expr.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    });
+                }
+            },
             ExpressionKind::Symbol(obj, symbol) => {
                 match obj {
                     Some(Type::Array(_)) => {}
+
                     None
                     | Some(Type::Class(_))
                     | Some(Type::Table(_))
@@ -1589,7 +1643,7 @@ impl Collector {
                     Some(kind) => {
                         self.diagnostics.push(Diagnostic {
                             message: format!("'{kind}' does not support an equals operator"),
-                            range: operator.text_range(),
+                            range: expr.syntax().text_range(),
                             severity: DiagnosticSeverity::Error,
                         });
                     }
@@ -1601,20 +1655,22 @@ impl Collector {
         right_kind
     }
 
-    fn in_operator(
-        &mut self,
-        left_kind: ExpressionKind,
-        right_kind: ExpressionKind,
-        operator: SyntaxToken,
-    ) -> ExpressionKind {
+    fn comma_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let (_left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
+        right_kind
+    }
+
+    fn in_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
         let right = self.arenas.expr_to_type(&right_kind);
+
         match right {
             Type::Array(_) => {
                 let left = self.arenas.expr_to_type(&left_kind);
                 if !matches!(left, Type::Unknown | Type::Integer) {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to index into an array using '{left}' (only integers are applicable)"),
-                        range: operator.text_range(),
+                        range: expr.syntax().text_range(),
                         severity: DiagnosticSeverity::Warning
                     });
                 }
@@ -1623,7 +1679,7 @@ impl Collector {
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message: format!("Indexing into '{right}' will always return false"),
-                    range: operator.text_range(),
+                    range: expr.syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
                 });
             }
@@ -1631,12 +1687,8 @@ impl Collector {
         ExpressionKind::Literal(Type::Boolean)
     }
 
-    fn instance_of_operator(
-        &mut self,
-        left_kind: ExpressionKind,
-        right_kind: ExpressionKind,
-        operator: SyntaxToken,
-    ) -> ExpressionKind {
+    fn instance_of_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
         let left = self.arenas.expr_to_type(&left_kind);
         let right = self.arenas.expr_to_type(&right_kind);
 
@@ -1650,7 +1702,7 @@ impl Collector {
                     message: format!(
                         "'instanceof' operator between '{left}' and '{right}' is not supported"
                     ),
-                    range: operator.text_range(),
+                    range: expr.syntax().text_range(),
                     severity: DiagnosticSeverity::Error,
                 });
             }
@@ -1659,12 +1711,17 @@ impl Collector {
         ExpressionKind::Literal(Type::Boolean)
     }
 
+    fn equality_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let (_left_kind, _right_kind) = self.extract_lhs_and_rhs(expr);
+        ExpressionKind::Literal(Type::Boolean)
+    }
+
     fn comparison_operator(
         &mut self,
-        left_kind: ExpressionKind,
-        right_kind: ExpressionKind,
-        operator: SyntaxToken,
+        expr: &BinaryExpression,
+        is_three_way: bool,
     ) -> ExpressionKind {
+        let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
         let left = self.arenas.expr_to_type(&left_kind);
         let right = self.arenas.expr_to_type(&right_kind);
 
@@ -1722,27 +1779,21 @@ impl Collector {
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message: format!("Cannot compare '{left}' to '{right}'"),
-                    range: operator.text_range(),
+                    range: expr.syntax().text_range(),
                     severity: DiagnosticSeverity::Error,
                 });
             }
         }
 
-        ExpressionKind::Literal(
-            if operator.kind() == SyntaxKind::GreaterThanGreaterThanGreaterThan {
-                Type::Integer
-            } else {
-                Type::Boolean
-            },
-        )
+        ExpressionKind::Literal(if is_three_way {
+            Type::Integer
+        } else {
+            Type::Boolean
+        })
     }
 
-    fn bitwise_operator(
-        &mut self,
-        left_kind: ExpressionKind,
-        right_kind: ExpressionKind,
-        operator: SyntaxToken,
-    ) -> ExpressionKind {
+    fn bitwise_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
         let left = self.arenas.expr_to_type(&left_kind);
         let right = self.arenas.expr_to_type(&right_kind);
 
@@ -1783,19 +1834,15 @@ impl Collector {
 
         self.diagnostics.push(Diagnostic {
             message: format!("Bitwise operator between '{left}' and '{right}' is not supported"),
-            range: operator.text_range(),
+            range: expr.syntax().text_range(),
             severity: DiagnosticSeverity::Error,
         });
 
         ExpressionKind::Literal(Type::Integer)
     }
 
-    fn logical_operator(
-        &mut self,
-        left_kind: ExpressionKind,
-        right_kind: ExpressionKind,
-        _operator: SyntaxToken,
-    ) -> ExpressionKind {
+    fn logical_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
+        let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
         let left = self.arenas.expr_to_type(&left_kind);
         let right = self.arenas.expr_to_type(&right_kind);
 
