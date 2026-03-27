@@ -869,6 +869,7 @@ impl Parser {
                 self.error(self.marker_range(lhs), "The left-hand side of an assignment expression must be a variable or a property access.");
             }
             self.parse_operator(ASSIGNMENT_OPERATORS);
+            self.parse_expression();
             self.finish(m, SyntaxKind::BinaryExpression);
         } else if self.at(SyntaxKind::Question) {
             self.parse_conditional_expression(m);
