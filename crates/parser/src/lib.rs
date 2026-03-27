@@ -6,7 +6,6 @@ mod token_set;
 
 use crate::{ast::SourceFile, parser::Event};
 use rowan::GreenNodeBuilder;
-use std::fmt::Display;
 
 pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 pub use rowan::{

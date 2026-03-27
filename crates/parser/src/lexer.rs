@@ -248,7 +248,7 @@ impl<'a> Lexer<'a> {
             '"' => self.string(),
             // '`' recovery
             '`' => {
-                self.errors.push(SyntaxError {
+                self.error(SyntaxError {
                     message: "'`' is not a valid quote".to_owned(),
                     range: self.next_char_range(),
                 });
@@ -478,7 +478,7 @@ impl<'a> Lexer<'a> {
         loop {
             match self.peek() {
                 None => {
-                    self.errors.push(SyntaxError {
+                    self.error(SyntaxError {
                         message: "Unterminated block comment ('*/' expected)".to_owned(),
                         range: self.cursor_range(),
                     });
@@ -570,7 +570,7 @@ impl<'a> Lexer<'a> {
                     let start = self.pos - TextSize::new(1);
                     let end = self.pos + TextSize::new(1);
 
-                    self.errors.push(SyntaxError {
+                    self.error(SyntaxError {
                         message: format!("Invalid escape sequence '{esc}'"),
                         range: TextRange::new(start, end),
                     });
@@ -601,7 +601,7 @@ impl<'a> Lexer<'a> {
             }
 
             if self.literal_character().is_none() {
-                self.errors.push(SyntaxError {
+                self.error(SyntaxError {
                     message: "Unterminated string literal".to_owned(),
                     range: self.cursor_range(),
                 });
@@ -627,7 +627,7 @@ impl<'a> Lexer<'a> {
             len += match self.literal_character() {
                 Some(chr) => chr.len_utf8(),
                 None => {
-                    self.errors.push(SyntaxError {
+                    self.error(SyntaxError {
                         message: "Unterminated character literal".to_owned(),
                         range: self.cursor_range(),
                     });
@@ -666,7 +666,7 @@ impl<'a> Lexer<'a> {
                     chr
                 }
                 None => {
-                    self.errors.push(SyntaxError {
+                    self.error(SyntaxError {
                         message: "Unterminated verbatim string literal".to_owned(),
                         range: self.cursor_range(),
                     });
@@ -684,7 +684,7 @@ impl<'a> Lexer<'a> {
         self.next();
 
         if !matches!(self.peek(), Some('a'..='f' | 'A'..='F' | '0'..='9')) {
-            self.errors.push(SyntaxError {
+            self.error(SyntaxError {
                 message: "Hexadecimal number expected".to_owned(),
                 range: self.next_char_range(),
             });
@@ -716,7 +716,7 @@ impl<'a> Lexer<'a> {
         let end = self.pos;
 
         char::from_u32(value).unwrap_or_else(|| {
-            self.errors.push(SyntaxError {
+            self.error(SyntaxError {
                 message: "Invalid unicode character escape".to_owned(),
                 range: TextRange::new(start, end),
             });
@@ -730,7 +730,7 @@ impl<'a> Lexer<'a> {
             if chr.is_ascii_alphanumeric() || chr == '_' {
                 self.next();
             } else if chr.is_alphanumeric() || chr == '$' {
-                self.errors.push(SyntaxError {
+                self.error(SyntaxError {
                     message: format!("Character '{chr}' is not allowed in the identifier"),
                     range: self.next_char_range(),
                 });
@@ -800,7 +800,7 @@ impl<'a> Lexer<'a> {
                             self.next();
                         }
                         _ => {
-                            self.errors.push(SyntaxError {
+                            self.error(SyntaxError {
                                 message: "Exponent expected".to_owned(),
                                 range: self.next_char_range(),
                             });
@@ -847,7 +847,7 @@ impl<'a> Lexer<'a> {
                     self.next();
                 }
                 Some('8' | '9') => {
-                    self.errors.push(SyntaxError {
+                    self.error(SyntaxError {
                         message: "Invalid octal digit, expected number from 0 to 7".to_owned(),
                         range: self.next_char_range(),
                     });
