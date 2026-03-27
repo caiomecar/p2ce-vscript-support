@@ -10,12 +10,23 @@ pub type ClassId = Idx<ClassData>;
 pub type EnumId = Idx<EnumData>;
 pub type FunctionId = Idx<FunctionData>;
 pub type ArrayId = Idx<ArrayData>;
+pub type StringId = Idx<Box<str>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Container {
     Table(TableId),
     Class(ClassId),
     Enum(EnumId),
+}
+
+impl From<Container> for SymbolKind {
+    fn from(value: Container) -> Self {
+        match value {
+            Container::Table(idx) => SymbolKind::Table(idx),
+            Container::Class(idx) => SymbolKind::Class(idx),
+            Container::Enum(idx) => SymbolKind::Enum(idx),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -104,6 +115,7 @@ pub struct Arenas {
     pub enums: Arena<EnumData>,
     pub functions: Arena<FunctionData>,
     pub arrays: Arena<ArrayData>,
+    pub strings: Arena<Box<str>>,
 }
 
 impl Arenas {
@@ -158,8 +170,8 @@ impl Arenas {
     pub fn expr_to_symbol_kind(&self, expr: &ExpressionKind) -> SymbolKind {
         match *expr {
             ExpressionKind::Literal(kind) => kind,
-            ExpressionKind::Symbol(symbol) => self.symbols[symbol].kind,
-            ExpressionKind::Parent(_, _) | ExpressionKind::Unknown => SymbolKind::Unknown,
+            ExpressionKind::Symbol(_, symbol) => self.symbols[symbol].kind,
+            _ => SymbolKind::Unknown,
         }
     }
 }
