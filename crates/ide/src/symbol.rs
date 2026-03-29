@@ -5,8 +5,9 @@ use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, Tab
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Symbol {
-    pub kind: Type,
     pub name: String,
+    pub typ: Type,
+    pub kind: SymbolKind,
     pub range: TextRange,
 }
 
@@ -29,6 +30,24 @@ pub enum Type {
     Function(FunctionId),
     Generator(FunctionId),
     Thread(FunctionId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    Local,
+    Constant,
+    Enum,
+    EnumMember,
+    Property,
+}
+
+impl SymbolKind {
+    pub fn is_modifiable(self) -> bool {
+        match self {
+            SymbolKind::Local | SymbolKind::Property => true,
+            _ => false,
+        }
+    }
 }
 
 impl std::fmt::Display for Type {

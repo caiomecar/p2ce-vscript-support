@@ -10,7 +10,7 @@ use crate::{
 pub use db::{Database, File, line_index, parse, source_symbol};
 use rustc_hash::FxHashSet;
 use sq_3_parser::{TextRange, TextSize};
-pub use symbol::{Symbol, Type};
+pub use symbol::{Symbol, SymbolKind, Type};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -65,7 +65,7 @@ impl SourceSymbol {
 
         {
             let mut filter = |idx: SymbolId| {
-                let symbol = &self.arenas.symbols[idx];
+                let symbol = &self.arenas[idx];
 
                 if symbol.range.end() >= offset || !taken_names.insert(symbol.name.clone()) {
                     return None;
@@ -85,7 +85,7 @@ impl SourceSymbol {
 
             // Consts second
             items.extend(
-                self.arenas.tables[self.const_table]
+                self.arenas[self.const_table]
                     .get_members(&self.arenas)
                     .into_iter()
                     .filter_map(&mut filter),
@@ -98,7 +98,7 @@ impl SourceSymbol {
             let enclosing_function = last_scope.execution_range;
 
             let mut filter_function = |idx: SymbolId| {
-                let symbol = &self.arenas.symbols[idx];
+                let symbol = &self.arenas[idx];
 
                 if enclosing_function.contains_range(symbol.range) && symbol.range.end() >= offset
                     || !taken_names.insert(symbol.name.clone())
@@ -119,7 +119,7 @@ impl SourceSymbol {
 
             // Root fourth
             items.extend(
-                self.arenas.tables[self.root_table]
+                self.arenas[self.root_table]
                     .get_members(&self.arenas)
                     .into_iter()
                     .filter_map(&mut filter_function),
@@ -133,25 +133,14 @@ impl SourceSymbol {
         self.range_kind.get(&text_range).cloned()
     }
 
-    pub fn type_at(&self, text_range: TextRange) -> Option<Type> {
-        Some(self.arenas.expr_to_type(self.range_kind.get(&text_range)?))
+    pub fn type_at(&self, text_range: TextRange) -> Type {
+        self.arenas
+            .expr_to_type(self.range_kind.get(&text_range).cloned())
     }
 
-    pub fn members_of_kind(&self, kind: Type) -> Option<Vec<&Symbol>> {
-        let members = match kind {
-            Type::Table(id) => self.arenas.tables[id].get_members(&self.arenas),
-            Type::Class(id) => self.arenas.classes[id].get_members(),
-            Type::Instance(id) => self.arenas.classes[id].get_members(),
-            Type::Enum(id) => self.arenas.enums[id].get_members(),
-            _ => return None,
-        };
-
-        Some(
-            members
-                .into_iter()
-                .map(|idx| &self.arenas.symbols[idx])
-                .collect(),
-        )
+    pub fn members_of_type(&self, kind: Type) -> Vec<&Symbol> {
+        let members = self.arenas.get_type_members(kind);
+        members.into_iter().map(|idx| &self.arenas[idx]).collect()
     }
 
     pub fn diagnostics(&self) -> &[Diagnostic] {

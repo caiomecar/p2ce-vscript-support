@@ -122,46 +122,46 @@ pub struct ArrayData {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Arenas {
-    pub symbols: Arena<Symbol>,
-    pub tables: Arena<TableData>,
-    pub classes: Arena<ClassData>,
-    pub enums: Arena<EnumData>,
-    pub functions: Arena<FunctionData>,
-    pub arrays: Arena<ArrayData>,
-    pub strings: Arena<Box<str>>,
+    symbols: Arena<Symbol>,
+    tables: Arena<TableData>,
+    classes: Arena<ClassData>,
+    enums: Arena<EnumData>,
+    functions: Arena<FunctionData>,
+    arrays: Arena<ArrayData>,
+    strings: Arena<Box<str>>,
 }
 
 impl Arenas {
     pub fn add_container_member(&mut self, container: Container, name: String, member: SymbolId) {
         match container {
-            Container::Table(id) => self.tables[id].add_member(name, member),
-            Container::Class(id) => self.classes[id].add_member(name, member),
-            Container::Enum(id) => self.enums[id].add_member(name, member),
+            Container::Table(id) => self[id].add_member(name, member),
+            Container::Class(id) => self[id].add_member(name, member),
+            Container::Enum(id) => self[id].add_member(name, member),
         }
     }
 
     pub fn get_container_members(&self, container: Container) -> Vec<SymbolId> {
         match container {
-            Container::Table(id) => self.tables[id].get_members(self),
-            Container::Class(id) => self.classes[id].get_members(),
-            Container::Enum(id) => self.enums[id].get_members(),
+            Container::Table(id) => self[id].get_members(self),
+            Container::Class(id) => self[id].get_members(),
+            Container::Enum(id) => self[id].get_members(),
         }
     }
 
-    pub fn get_kind_members(&self, kind: Type) -> Vec<SymbolId> {
-        match kind {
-            Type::Table(id) => self.tables[id].get_members(self),
-            Type::Class(id) => self.classes[id].get_members(),
-            Type::Instance(id) => self.classes[id].get_members(),
-            Type::Enum(id) => self.enums[id].get_members(),
+    pub fn get_type_members(&self, typ: Type) -> Vec<SymbolId> {
+        match typ {
+            Type::Table(id) => self[id].get_members(self),
+            Type::Class(id) => self[id].get_members(),
+            Type::Instance(id) => self[id].get_members(),
+            Type::Enum(id) => self[id].get_members(),
             _ => Vec::new(),
         }
     }
 
     pub fn clone_type(&mut self, kind: Type) -> Type {
         match kind {
-            Type::Table(id) => Type::Table(self.tables.alloc(self.tables[id].clone())),
-            Type::Class(id) => Type::Class(self.classes.alloc(self.classes[id].clone())),
+            Type::Table(id) => Type::Table(self.alloc(self[id].clone())),
+            Type::Class(id) => Type::Class(self.alloc(self[id].clone())),
             _ => kind,
         }
     }
@@ -171,18 +171,57 @@ impl Arenas {
         let mut members = symbol.members.clone();
 
         for value in members.values_mut() {
-            let symbol = self.symbols[*value].clone();
-            *value = self.symbols.alloc(symbol);
+            let symbol = self[*value].clone();
+            *value = self.alloc(symbol);
         }
 
         members
     }
 
-    pub fn expr_to_type(&self, expr: &ExpressionKind) -> Type {
-        match *expr {
-            ExpressionKind::Literal(kind) => kind,
-            ExpressionKind::Symbol(_, symbol) => self.symbols[symbol].kind,
-            _ => Type::Unknown,
+    pub fn expr_to_type(&self, expr: Option<ExpressionKind>) -> Type {
+        match expr {
+            Some(ExpressionKind::Literal(kind)) => kind,
+            Some(ExpressionKind::Symbol(symbol)) => self[symbol].typ,
+            None => Type::Unknown,
         }
     }
+}
+
+pub trait ArenaAlloc<T> {
+    fn alloc(&mut self, value: T) -> Idx<T>;
+}
+
+macro_rules! impl_arenas_index {
+    ($($field:ident: $data:ty),* $(,)?) => {
+        $(
+            impl std::ops::Index<Idx<$data>> for Arenas {
+                type Output = $data;
+                fn index(&self, id: Idx<$data>) -> &$data {
+                    &self.$field[id]
+                }
+            }
+
+            impl std::ops::IndexMut<Idx<$data>> for Arenas {
+                fn index_mut(&mut self, id: Idx<$data>) -> &mut $data {
+                    &mut self.$field[id]
+                }
+            }
+
+            impl ArenaAlloc<$data> for Arenas {
+                fn alloc(&mut self, value: $data) -> Idx<$data> {
+                    self.$field.alloc(value)
+                }
+            }
+        )*
+    };
+}
+
+impl_arenas_index! {
+    symbols:   Symbol,
+    tables:    TableData,
+    classes:   ClassData,
+    enums:     EnumData,
+    functions: FunctionData,
+    arrays:    ArrayData,
+    strings:   Box<str>,
 }

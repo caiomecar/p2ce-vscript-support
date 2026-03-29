@@ -1,7 +1,7 @@
 mod conversions;
 
 use anyhow::Result;
-use ide::{Database, File, Type, line_index, parse, source_symbol};
+use ide::{Database, File, SymbolKind, Type, line_index, parse, source_symbol};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::Request as _;
@@ -142,11 +142,10 @@ fn handle_request(
 
             let symbols = if let Some(member) = member_access {
                 // get the object (abc) — the part before the dot
-                if let Some(kind) = member
-                    .object()
-                    .and_then(|obj| source_symbol.type_at(obj.syntax().text_range()))
-                {
-                    source_symbol.members_of_kind(kind).unwrap_or_default()
+                if let Some(obj) = member.object() {
+                    let type_ = source_symbol.type_at(obj.syntax().text_range());
+
+                    source_symbol.members_of_type(type_)
                 } else {
                     Vec::new()
                 }
@@ -159,11 +158,17 @@ fn handle_request(
                 .filter_map(|&symbol| {
                     Some(CompletionItem {
                         label: symbol.name.clone(),
-                        kind: Some(match symbol.kind {
+                        kind: Some(match symbol.typ {
                             Type::Enum(_) => CompletionItemKind::ENUM,
                             Type::Function(_) => CompletionItemKind::FUNCTION,
                             Type::Class(_) => CompletionItemKind::CLASS,
-                            _ => CompletionItemKind::VARIABLE,
+                            _ => match symbol.kind {
+                                SymbolKind::Local => CompletionItemKind::VARIABLE,
+                                SymbolKind::Constant => CompletionItemKind::CONSTANT,
+                                SymbolKind::Property => CompletionItemKind::PROPERTY,
+                                SymbolKind::Enum => CompletionItemKind::ENUM,
+                                SymbolKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
+                            },
                         }),
                         ..Default::default()
                     })
