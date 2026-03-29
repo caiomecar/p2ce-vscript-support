@@ -120,15 +120,48 @@ pub struct ArrayData {
     pub kind: Type,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Arenas {
-    symbols: Arena<Symbol>,
-    tables: Arena<TableData>,
-    classes: Arena<ClassData>,
-    enums: Arena<EnumData>,
-    functions: Arena<FunctionData>,
-    arrays: Arena<ArrayData>,
-    strings: Arena<Box<str>>,
+pub trait ArenaAlloc<T> {
+    fn alloc(&mut self, value: T) -> Idx<T>;
+}
+
+macro_rules! impl_arenas {
+    ($($field:ident: $data:ty),* $(,)?) => {
+        #[derive(Debug, Default, PartialEq, Eq)]
+        pub struct Arenas {
+            $($field: Arena<$data>,)*
+        }
+
+        $(
+            impl std::ops::Index<Idx<$data>> for Arenas {
+                type Output = $data;
+                fn index(&self, id: Idx<$data>) -> &$data {
+                    &self.$field[id]
+                }
+            }
+
+            impl std::ops::IndexMut<Idx<$data>> for Arenas {
+                fn index_mut(&mut self, id: Idx<$data>) -> &mut $data {
+                    &mut self.$field[id]
+                }
+            }
+
+            impl ArenaAlloc<$data> for Arenas {
+                fn alloc(&mut self, value: $data) -> Idx<$data> {
+                    self.$field.alloc(value)
+                }
+            }
+        )*
+    };
+}
+
+impl_arenas! {
+    symbols:   Symbol,
+    tables:    TableData,
+    classes:   ClassData,
+    enums:     EnumData,
+    functions: FunctionData,
+    arrays:    ArrayData,
+    strings:   Box<str>,
 }
 
 impl Arenas {
@@ -185,43 +218,4 @@ impl Arenas {
             None => Type::Unknown,
         }
     }
-}
-
-pub trait ArenaAlloc<T> {
-    fn alloc(&mut self, value: T) -> Idx<T>;
-}
-
-macro_rules! impl_arenas_index {
-    ($($field:ident: $data:ty),* $(,)?) => {
-        $(
-            impl std::ops::Index<Idx<$data>> for Arenas {
-                type Output = $data;
-                fn index(&self, id: Idx<$data>) -> &$data {
-                    &self.$field[id]
-                }
-            }
-
-            impl std::ops::IndexMut<Idx<$data>> for Arenas {
-                fn index_mut(&mut self, id: Idx<$data>) -> &mut $data {
-                    &mut self.$field[id]
-                }
-            }
-
-            impl ArenaAlloc<$data> for Arenas {
-                fn alloc(&mut self, value: $data) -> Idx<$data> {
-                    self.$field.alloc(value)
-                }
-            }
-        )*
-    };
-}
-
-impl_arenas_index! {
-    symbols:   Symbol,
-    tables:    TableData,
-    classes:   ClassData,
-    enums:     EnumData,
-    functions: FunctionData,
-    arrays:    ArrayData,
-    strings:   Box<str>,
 }
