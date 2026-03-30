@@ -247,7 +247,7 @@ mod tests {
     fn return_statement_with_value() {
         let stmt = first_stmt("function f() { return 42 }");
         let Stmt::Function(f) = stmt else { panic!() };
-        let Stmt::Block(body) = f.body().unwrap() else {
+        let FunctionBody::Stmt(Stmt::Block(body)) = f.body().unwrap() else {
             panic!()
         };
         let Stmt::Return(r) = body.statements().next().unwrap() else {
@@ -260,7 +260,7 @@ mod tests {
     fn return_statement_empty() {
         let stmt = first_stmt("function f() { return }");
         let Stmt::Function(f) = stmt else { panic!() };
-        let Stmt::Block(body) = f.body().unwrap() else {
+        let FunctionBody::Stmt(Stmt::Block(body)) = f.body().unwrap() else {
             panic!()
         };
         let Stmt::Return(r) = body.statements().next().unwrap() else {
@@ -273,7 +273,7 @@ mod tests {
     fn yield_statement() {
         let stmt = first_stmt("function f() { yield 1 }");
         let Stmt::Function(f) = stmt else { panic!() };
-        let Stmt::Block(body) = f.body().unwrap() else {
+        let FunctionBody::Stmt(Stmt::Block(body)) = f.body().unwrap() else {
             panic!()
         };
         let Stmt::Yield(y) = body.statements().next().unwrap() else {

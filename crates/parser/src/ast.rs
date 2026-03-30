@@ -129,6 +129,16 @@ pub trait IsFunction: AstNode<Language = SquirrelLanguage> {
     fn parameter_list(&self) -> Option<ParameterList> {
         support::child(self.syntax())
     }
+
+    fn body(&self) -> Option<FunctionBody> {
+        support::child(self.syntax()).map(FunctionBody::Stmt)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum FunctionBody {
+    Stmt(Stmt),
+    Expr(Expr),
 }
 
 pub trait IsClass: AstNode<Language = SquirrelLanguage> {
@@ -392,14 +402,11 @@ impl TableLiteralExpression {
 
 ast_node!(FunctionExpression, FunctionExpression);
 impl IsFunction for FunctionExpression {}
-impl HasBody for FunctionExpression {}
 
 ast_node!(LambdaExpression, LambdaExpression);
-impl IsFunction for LambdaExpression {}
-
-impl LambdaExpression {
-    pub fn body(&self) -> Option<Expr> {
-        support::child(&self.0)
+impl IsFunction for LambdaExpression {
+    fn body(&self) -> Option<FunctionBody> {
+        support::child(self.syntax()).map(FunctionBody::Expr)
     }
 }
 
@@ -619,7 +626,6 @@ ast_node!(LocalFunctionDeclaration, LocalFunctionDeclaration);
 impl HasDoc for LocalFunctionDeclaration {}
 impl HasName for LocalFunctionDeclaration {}
 impl IsFunction for LocalFunctionDeclaration {}
-impl HasBody for LocalFunctionDeclaration {}
 
 ast_node!(ReturnStatement, ReturnStatement);
 
@@ -643,7 +649,6 @@ ast_node!(BreakStatement, BreakStatement);
 ast_node!(FunctionStatement, FunctionStatement);
 impl HasDoc for FunctionStatement {}
 impl IsFunction for FunctionStatement {}
-impl HasBody for FunctionStatement {}
 
 impl FunctionStatement {
     pub fn name(&self) -> Option<QualifiedName> {
@@ -818,13 +823,11 @@ ast_enum!(MemberName {
 ast_node!(Constructor, Constructor);
 impl HasDoc for Constructor {}
 impl IsFunction for Constructor {}
-impl HasBody for Constructor {}
 
 ast_node!(Method, Method);
 impl HasDoc for Method {}
 impl HasName for Method {}
 impl IsFunction for Method {}
-impl HasBody for Method {}
 
 ast_enum!(Member {
     Property(Property),
