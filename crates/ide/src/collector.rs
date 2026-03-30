@@ -73,6 +73,7 @@ struct DeferredFunction {
 enum AssignmentLeftHandSide {
     CanCreate {
         parent: Type,
+        range: TextRange,
         new_key: Box<str>,
     },
     // Parent doesn't exist for locals
@@ -84,6 +85,7 @@ enum AssignmentLeftHandSide {
     },
     NonStringKey {
         parent: Type,
+        range: TextRange,
         key: NullableExprKind,
     },
     Invalid(NullableExprKind),
@@ -149,6 +151,12 @@ pub struct Collector {
 impl Collector {
     pub fn symbol_from_source_file(file: SourceFile) -> SourceSymbol {
         let mut arenas = Arenas::default();
+        // Source table is not always the root table, it depends on which entity
+        // was the script executed. script_execute and non-edict entities execute stuff
+        // in the root while edict entities with 'vscripts' keyvalue will have their
+        // script scope as the execution context
+        // This should also drive whether 'self' is present in the scope
+        // TODO: Get source file's jsdoc and determine
         let source_table = arenas.alloc(TableData::default());
         let root_table = arenas.alloc(TableData::default());
         let const_table = arenas.alloc(TableData::default());
@@ -877,21 +885,12 @@ impl Collector {
         let class_data = self.class_data(stmt);
         let id = self.arenas.alloc(class_data);
 
-        let name = match stmt.name() {
-            Some(Expr::Name(name)) => name.text(),
-            _ => None,
-        };
-
-        if let Some(name) = name {
-            let symbol = self.arenas.alloc(Symbol {
-                typ: Type::Class(id),
-                name: name.clone(),
-                kind: SymbolKind::Property,
-                range: stmt.syntax().text_range(),
-            });
-            self.arenas
-                .add_container_member(self.container, name, symbol);
-        }
+        let name = stmt.name().and_then(|n| self.assignment_lhs(&n));
+        self.do_new_slot(
+            name,
+            Some(ExpressionKind::Literal(Type::Class(id))),
+            stmt.syntax().text_range(),
+        );
 
         let save_symbol = self.container;
         self.container = Container::Class(id);
@@ -1685,6 +1684,7 @@ impl Collector {
 
                 Some(AssignmentLeftHandSide::CanCreate {
                     parent: self.container.into(),
+                    range: expr.syntax().text_range(),
                     new_key: text.into_boxed_str(),
                 })
             }
@@ -1700,6 +1700,7 @@ impl Collector {
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
+                                range: expr.syntax().text_range(),
                                 new_key: text.into_boxed_str(),
                             },
                             |id| AssignmentLeftHandSide::Exists {
@@ -1717,6 +1718,7 @@ impl Collector {
                 let Type::String(Some(id)) = self.arenas.expr_to_type(index_kind) else {
                     return Some(AssignmentLeftHandSide::NonStringKey {
                         parent: obj,
+                        range: expr.syntax().text_range(),
                         key: index_kind,
                     });
                 };
@@ -1730,6 +1732,7 @@ impl Collector {
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
+                                range: expr.syntax().text_range(),
                                 new_key: text.into(),
                             },
                             |id| AssignmentLeftHandSide::Exists {
@@ -1752,6 +1755,7 @@ impl Collector {
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
                             parent: Type::Table(self.root_table),
+                            range: expr.syntax().text_range(),
                             new_key: text.into_boxed_str(),
                         },
                         |id| AssignmentLeftHandSide::Exists {
@@ -1808,28 +1812,30 @@ impl Collector {
             | BinaryOperator::ModuloAssign => {
                 let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
                 let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
-                self.arithmetic_assign_operator(
-                    left_kind,
-                    right_kind,
-                    operator,
-                    expr.syntax().text_range(),
-                )
+                self.arithmetic_assign_operator(left_kind, right_kind, operator)
             }
         }
     }
 
-    fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
-        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
-        let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
+    // Also used by class statement
+    fn do_new_slot(
+        &mut self,
+        left_kind: Option<AssignmentLeftHandSide>,
+        right_kind: NullableExprKind,
+        expr_range: TextRange,
+    ) -> NullableExprKind {
         match left_kind {
-            Some(AssignmentLeftHandSide::CanCreate { parent, new_key }) => {
+            Some(AssignmentLeftHandSide::CanCreate {
+                parent,
+                new_key,
+                range,
+            }) => {
                 let arguments = vec![
                     Some(ExpressionKind::Literal(Type::String(None))),
                     right_kind,
                 ];
-                let Some(container) =
-                    self.call_new_slot(parent, &arguments, expr.syntax().text_range())
-                else {
+
+                let Some(container) = self.call_new_slot(parent, &arguments, range) else {
                     return right_kind;
                 };
 
@@ -1837,15 +1843,14 @@ impl Collector {
                     typ: self.arenas.expr_to_type(right_kind),
                     name: new_key.to_string(),
                     kind: SymbolKind::Property,
-                    range: expr.syntax().text_range(),
+                    range: expr_range,
                 });
 
                 self.arenas
                     .add_container_member(container, new_key.into_string(), symbol);
 
                 if let Some(right_kind) = right_kind {
-                    self.expr_kinds
-                        .insert(expr.lhs().unwrap().syntax().text_range(), right_kind);
+                    self.expr_kinds.insert(range, right_kind);
                 }
             }
             Some(AssignmentLeftHandSide::Exists {
@@ -1858,10 +1863,7 @@ impl Collector {
                         Some(ExpressionKind::Literal(Type::String(None))),
                         right_kind,
                     ];
-                    if self
-                        .call_new_slot(parent, &arguments, expr.syntax().text_range())
-                        .is_none()
-                    {
+                    if self.call_new_slot(parent, &arguments, range).is_none() {
                         return right_kind;
                     }
                 }
@@ -1877,7 +1879,7 @@ impl Collector {
                     // is illegal
                     self.diagnostics.push(Diagnostic {
                         message: "Cannot create a new slot with the same name as a local or constant due to the resolution precedence. Prepend variable name with `this.` if you wish to do that".to_owned(),
-                        range: expr.syntax().text_range(),
+                        range,
                         severity: DiagnosticSeverity::Error,
                     });
                     return right_kind;
@@ -1896,13 +1898,19 @@ impl Collector {
                     self.expr_kinds.insert(range, right_kind.unwrap());
                 }
             }
-            Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
+            Some(AssignmentLeftHandSide::NonStringKey { parent, key, range }) => {
                 let arguments = vec![key, right_kind];
-                self.call_new_slot(parent, &arguments, expr.syntax().text_range());
+                self.call_new_slot(parent, &arguments, range);
             }
             _ => {}
         }
         right_kind
+    }
+
+    fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
+        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+        let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
+        self.do_new_slot(left_kind, right_kind, expr.syntax().text_range())
     }
 
     fn assign_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
@@ -1910,12 +1918,12 @@ impl Collector {
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
 
         match left_kind {
-            Some(AssignmentLeftHandSide::CanCreate { parent, .. }) => {
+            Some(AssignmentLeftHandSide::CanCreate { parent, range, .. }) => {
                 let arguments = vec![
                     Some(ExpressionKind::Literal(Type::String(None))),
                     right_kind,
                 ];
-                self.call_set(parent, &arguments, expr.syntax().text_range());
+                self.call_set(parent, &arguments, range);
             }
             Some(AssignmentLeftHandSide::Exists {
                 parent,
@@ -1926,7 +1934,7 @@ impl Collector {
                     let name = &self.arenas[symbol].name;
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
-                        range: expr.syntax().text_range(),
+                        range,
                         severity: DiagnosticSeverity::Error,
                     });
                     return right_kind;
@@ -1937,7 +1945,7 @@ impl Collector {
                     right_kind,
                 ];
                 if let Some(parent) = parent
-                    && !self.call_set(parent, &arguments, expr.syntax().text_range())
+                    && !self.call_set(parent, &arguments, range)
                 {
                     return right_kind;
                 }
@@ -1950,9 +1958,9 @@ impl Collector {
                     self.expr_kinds.insert(range, right_kind.unwrap());
                 }
             }
-            Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
+            Some(AssignmentLeftHandSide::NonStringKey { parent, key, range }) => {
                 let arguments = vec![key, right_kind];
-                self.call_set(parent, &arguments, expr.syntax().text_range());
+                self.call_set(parent, &arguments, range);
             }
 
             _ => {}
@@ -2137,15 +2145,14 @@ impl Collector {
         left_kind: Option<AssignmentLeftHandSide>,
         right_kind: NullableExprKind,
         operator: BinaryOperator,
-        error_range: TextRange,
     ) -> Option<ExpressionKind> {
         match left_kind {
-            Some(AssignmentLeftHandSide::CanCreate { parent, .. }) => {
+            Some(AssignmentLeftHandSide::CanCreate { parent, range, .. }) => {
                 let Some(typ) = self.call_arithmetic(
                     Some(ExpressionKind::Literal(Type::String(None))),
                     right_kind,
                     operator,
-                    error_range,
+                    range,
                 ) else {
                     return right_kind;
                 };
@@ -2154,7 +2161,7 @@ impl Collector {
                     Some(ExpressionKind::Literal(Type::String(None))),
                     Some(ExpressionKind::Literal(typ)),
                 ];
-                self.call_set(parent, &arguments, error_range);
+                self.call_set(parent, &arguments, range);
             }
             Some(AssignmentLeftHandSide::Exists {
                 parent,
@@ -2165,7 +2172,7 @@ impl Collector {
                     Some(ExpressionKind::Symbol(symbol)),
                     right_kind,
                     operator,
-                    error_range,
+                    range,
                 ) else {
                     return right_kind;
                 };
@@ -2174,7 +2181,7 @@ impl Collector {
                     let name = &self.arenas[symbol].name;
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
-                        range: error_range,
+                        range,
                         severity: DiagnosticSeverity::Error,
                     });
                     return right_kind;
@@ -2186,7 +2193,7 @@ impl Collector {
                 ];
 
                 if let Some(parent) = parent
-                    && !self.call_set(parent, &arguments, error_range)
+                    && !self.call_set(parent, &arguments, range)
                 {
                     return right_kind;
                 }
@@ -2199,13 +2206,13 @@ impl Collector {
                     self.expr_kinds.insert(range, right_kind.unwrap());
                 }
             }
-            Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
-                let Some(typ) = self.call_arithmetic(key, right_kind, operator, error_range) else {
+            Some(AssignmentLeftHandSide::NonStringKey { parent, key, range }) => {
+                let Some(typ) = self.call_arithmetic(key, right_kind, operator, range) else {
                     return right_kind;
                 };
 
                 let arguments = vec![key, Some(ExpressionKind::Literal(typ))];
-                self.call_set(parent, &arguments, error_range);
+                self.call_set(parent, &arguments, range);
             }
 
             _ => {}
@@ -2301,23 +2308,13 @@ impl Collector {
     fn prefix_increment_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
         let increment = Some(ExpressionKind::Literal(Type::Integer));
-        self.arithmetic_assign_operator(
-            operand,
-            increment,
-            BinaryOperator::AddAssign,
-            expr.syntax().text_range(),
-        )
+        self.arithmetic_assign_operator(operand, increment, BinaryOperator::AddAssign)
     }
 
     fn prefix_decrement_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
         let increment = Some(ExpressionKind::Literal(Type::Integer));
-        self.arithmetic_assign_operator(
-            operand,
-            increment,
-            BinaryOperator::SubtractAssign,
-            expr.syntax().text_range(),
-        )
+        self.arithmetic_assign_operator(operand, increment, BinaryOperator::SubtractAssign)
     }
 
     fn postfix_update_expression(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
@@ -2331,41 +2328,35 @@ impl Collector {
     fn postfix_increment_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
         let increment = Some(ExpressionKind::Literal(Type::Integer));
-        self.arithmetic_assign_operator(
-            operand.clone(),
-            increment,
-            BinaryOperator::AddAssign,
-            expr.syntax().text_range(),
-        );
+        self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::AddAssign);
         operand?.into()
     }
 
     fn postfix_decrement_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
         let increment = Some(ExpressionKind::Literal(Type::Integer));
-        self.arithmetic_assign_operator(
-            operand.clone(),
-            increment,
-            BinaryOperator::SubtractAssign,
-            expr.syntax().text_range(),
-        );
+        self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::SubtractAssign);
         operand?.into()
     }
 
     fn delete_expression(&mut self, expr: &DeleteExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
         match operand {
-            Some(AssignmentLeftHandSide::CanCreate { parent, .. })
-            | Some(AssignmentLeftHandSide::NonStringKey { parent, .. }) => {
-                self.call_delete(parent, None, expr.syntax().text_range());
+            Some(AssignmentLeftHandSide::CanCreate { parent, range, .. })
+            | Some(AssignmentLeftHandSide::NonStringKey { parent, range, .. }) => {
+                self.call_delete(parent, None, range);
                 return operand?.into();
             }
-            Some(AssignmentLeftHandSide::Exists { parent, symbol, .. }) => {
+            Some(AssignmentLeftHandSide::Exists {
+                parent,
+                symbol,
+                range,
+            }) => {
                 if let Some(parent) = parent {
                     self.call_delete(
                         parent,
                         Some(ExpressionKind::Literal(Type::String(None))),
-                        expr.syntax().text_range(),
+                        range,
                     );
 
                     return Some(ExpressionKind::Literal(self.arenas[symbol].typ));
@@ -2382,7 +2373,7 @@ impl Collector {
                     // is illegal
                     self.diagnostics.push(Diagnostic {
                         message: "Cannot delete a variable with the same name as a local or constant due to the resolution precedence. Prepend variable name with `this.` if you wish to do that".to_owned(),
-                        range: expr.syntax().text_range(),
+                        range,
                         severity: DiagnosticSeverity::Error,
                     });
                 }
