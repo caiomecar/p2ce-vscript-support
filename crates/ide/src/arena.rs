@@ -2,7 +2,7 @@ use la_arena::{Arena, Idx};
 use rustc_hash::FxHashSet;
 
 use crate::{
-    collector::ExpressionKind,
+    collector::{ExpressionKind, NullableExprKind},
     symbol::{Symbol, SymbolTable, Type},
 };
 
@@ -219,7 +219,7 @@ impl Arenas {
         members
     }
 
-    pub fn expr_to_type(&self, expr: Option<ExpressionKind>) -> Type {
+    pub fn expr_to_type(&self, expr: NullableExprKind) -> Type {
         match expr {
             Some(ExpressionKind::Literal(kind)) => kind,
             Some(ExpressionKind::Symbol(symbol)) => self[symbol].typ,

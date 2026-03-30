@@ -51,7 +51,7 @@ impl Scope {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AssignmentLeftHandSide {
     CanCreate {
         parent: Type,
@@ -60,13 +60,26 @@ pub enum AssignmentLeftHandSide {
     // Parent doesn't exist for locals
     Exists {
         parent: Option<Type>,
+        // For saving the new type in case it is updated
+        range: TextRange,
         symbol: SymbolId,
     },
     NonStringKey {
         parent: Type,
         key: NullableExprKind,
     },
-    Invalid,
+    Invalid(NullableExprKind),
+}
+
+impl From<AssignmentLeftHandSide> for NullableExprKind {
+    fn from(value: AssignmentLeftHandSide) -> Self {
+        match value {
+            AssignmentLeftHandSide::CanCreate { .. } => None,
+            AssignmentLeftHandSide::Exists { symbol, .. } => Some(ExpressionKind::Symbol(symbol)),
+            AssignmentLeftHandSide::NonStringKey { .. } => None,
+            AssignmentLeftHandSide::Invalid(kind) => kind,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +90,7 @@ pub enum ExpressionKind {
     Symbol(SymbolId),
 }
 
-type NullableExprKind = Option<ExpressionKind>;
+pub type NullableExprKind = Option<ExpressionKind>;
 
 pub enum MetamethodErrors {
     No,
@@ -1180,8 +1193,8 @@ impl Collector {
             Expr::Binary(expr) => self.binary_expression(expr),
             Expr::Conditional(expr) => Some(self.conditional_expression(expr)),
             Expr::PrefixUnary(expr) => self.prefix_unary_expression(expr),
-            Expr::PrefixUpdate(expr) => todo!(),
-            Expr::PostfixUpdate(expr) => todo!(),
+            Expr::PrefixUpdate(expr) => self.prefix_update_expression(expr),
+            Expr::PostfixUpdate(expr) => self.postfix_update_expression(expr),
             Expr::Delete(expr) => todo!(),
             Expr::TypeOf(expr) => todo!(),
             Expr::Resume(expr) => self.resume_expression(expr),
@@ -1555,17 +1568,24 @@ impl Collector {
                     &text,
                 );
 
-                let consts = || {
-                    self.find_symbol(
-                        self.arenas[self.const_table].get_members(&self.arenas),
-                        offset,
-                        &text,
-                    )
-                };
-
-                if let Some(symbol) = locals.or_else(consts) {
+                if let Some(symbol) = locals {
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: None,
+                        range: expr.syntax().text_range(),
+                        symbol,
+                    });
+                }
+
+                let consts = self.find_symbol(
+                    self.arenas[self.const_table].get_members(&self.arenas),
+                    offset,
+                    &text,
+                );
+
+                if let Some(symbol) = consts {
+                    return Some(AssignmentLeftHandSide::Exists {
+                        parent: Some(Type::Table(self.const_table)),
+                        range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
@@ -1579,6 +1599,7 @@ impl Collector {
                 if let Some(symbol) = members {
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(self.container.into()),
+                        range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
@@ -1592,6 +1613,7 @@ impl Collector {
                 if let Some(symbol) = root {
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(Type::Table(self.root_table)),
+                        range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
@@ -1617,6 +1639,7 @@ impl Collector {
                             },
                             |id| AssignmentLeftHandSide::Exists {
                                 parent: Some(obj),
+                                range: expr.syntax().text_range(),
                                 symbol: id,
                             },
                         ),
@@ -1646,6 +1669,7 @@ impl Collector {
                             },
                             |id| AssignmentLeftHandSide::Exists {
                                 parent: Some(obj),
+                                range: expr.syntax().text_range(),
                                 symbol: id,
                             },
                         ),
@@ -1667,15 +1691,13 @@ impl Collector {
                         },
                         |id| AssignmentLeftHandSide::Exists {
                             parent: None,
+                            range: expr.syntax().text_range(),
                             symbol: id,
                         },
                     ),
                 )
             }
-            _ => {
-                self.collect_expr(&expr);
-                Some(AssignmentLeftHandSide::Invalid)
-            }
+            _ => Some(AssignmentLeftHandSide::Invalid(self.collect_expr(expr))),
         }
     }
 
@@ -1718,12 +1740,20 @@ impl Collector {
             | BinaryOperator::SubtractAssign
             | BinaryOperator::MultiplyAssign
             | BinaryOperator::DivideAssign
-            | BinaryOperator::ModuloAssign => self.arithmetic_assign_operator(expr, operator),
+            | BinaryOperator::ModuloAssign => {
+                let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+                let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
+                self.arithmetic_assign_operator(
+                    left_kind,
+                    right_kind,
+                    operator,
+                    expr.syntax().text_range(),
+                )
+            }
         }
     }
 
     fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
-        // Do this manually so we can pass produce_parent_kind
         let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
         match left_kind {
@@ -1753,7 +1783,11 @@ impl Collector {
                         .insert(expr.lhs().unwrap().syntax().text_range(), right_kind);
                 }
             }
-            Some(AssignmentLeftHandSide::Exists { parent, symbol }) => {
+            Some(AssignmentLeftHandSide::Exists {
+                parent,
+                symbol,
+                range,
+            }) => {
                 if let Some(parent) = parent {
                     let arguments = vec![
                         Some(ExpressionKind::Literal(Type::String(None))),
@@ -1794,18 +1828,14 @@ impl Collector {
                 {
                     symbol.typ = typ;
 
-                    self.expr_kinds.insert(
-                        expr.lhs().unwrap().syntax().text_range(),
-                        right_kind.unwrap(),
-                    );
+                    self.expr_kinds.insert(range, right_kind.unwrap());
                 }
             }
             Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
                 let arguments = vec![key, right_kind];
                 self.call_new_slot(parent, &arguments, expr.syntax().text_range());
             }
-            Some(AssignmentLeftHandSide::Invalid) => {}
-            None => {}
+            _ => {}
         }
         right_kind
     }
@@ -1822,7 +1852,11 @@ impl Collector {
                 ];
                 self.call_set(parent, &arguments, expr.syntax().text_range());
             }
-            Some(AssignmentLeftHandSide::Exists { parent, symbol }) => {
+            Some(AssignmentLeftHandSide::Exists {
+                parent,
+                symbol,
+                range,
+            }) => {
                 if !self.arenas[symbol].kind.is_modifiable() {
                     let name = &self.arenas[symbol].name;
                     self.diagnostics.push(Diagnostic {
@@ -1848,10 +1882,7 @@ impl Collector {
                 if self.arenas[symbol].typ.should_substitute() && !typ.should_substitute() {
                     self.arenas[symbol].typ = typ;
 
-                    self.expr_kinds.insert(
-                        expr.lhs().unwrap().syntax().text_range(),
-                        right_kind.unwrap(),
-                    );
+                    self.expr_kinds.insert(range, right_kind.unwrap());
                 }
             }
             Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
@@ -1859,7 +1890,7 @@ impl Collector {
                 self.call_set(parent, &arguments, expr.syntax().text_range());
             }
 
-            Some(AssignmentLeftHandSide::Invalid) | None => {}
+            _ => {}
         }
         right_kind
     }
@@ -2035,20 +2066,21 @@ impl Collector {
         Some(ExpressionKind::Literal(result))
     }
 
+    // This signature is so weird because it is also used by increment / decrement operators
     fn arithmetic_assign_operator(
         &mut self,
-        expr: &BinaryExpression,
+        left_kind: Option<AssignmentLeftHandSide>,
+        right_kind: NullableExprKind,
         operator: BinaryOperator,
+        error_range: TextRange,
     ) -> Option<ExpressionKind> {
-        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
-        let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
         match left_kind {
             Some(AssignmentLeftHandSide::CanCreate { parent, .. }) => {
                 let Some(typ) = self.call_arithmetic(
                     Some(ExpressionKind::Literal(Type::String(None))),
                     right_kind,
                     operator,
-                    expr.syntax().text_range(),
+                    error_range,
                 ) else {
                     return right_kind;
                 };
@@ -2057,14 +2089,18 @@ impl Collector {
                     Some(ExpressionKind::Literal(Type::String(None))),
                     Some(ExpressionKind::Literal(typ)),
                 ];
-                self.call_set(parent, &arguments, expr.syntax().text_range());
+                self.call_set(parent, &arguments, error_range);
             }
-            Some(AssignmentLeftHandSide::Exists { parent, symbol }) => {
+            Some(AssignmentLeftHandSide::Exists {
+                parent,
+                symbol,
+                range,
+            }) => {
                 let Some(typ) = self.call_arithmetic(
                     Some(ExpressionKind::Symbol(symbol)),
                     right_kind,
                     operator,
-                    expr.syntax().text_range(),
+                    error_range,
                 ) else {
                     return right_kind;
                 };
@@ -2073,7 +2109,7 @@ impl Collector {
                     let name = &self.arenas[symbol].name;
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
-                        range: expr.syntax().text_range(),
+                        range: error_range,
                         severity: DiagnosticSeverity::Error,
                     });
                     return right_kind;
@@ -2085,7 +2121,7 @@ impl Collector {
                 ];
 
                 if let Some(parent) = parent
-                    && !self.call_set(parent, &arguments, expr.syntax().text_range())
+                    && !self.call_set(parent, &arguments, error_range)
                 {
                     return right_kind;
                 }
@@ -2095,24 +2131,19 @@ impl Collector {
                 if self.arenas[symbol].typ.should_substitute() && !typ.should_substitute() {
                     self.arenas[symbol].typ = typ;
 
-                    self.expr_kinds.insert(
-                        expr.lhs().unwrap().syntax().text_range(),
-                        right_kind.unwrap(),
-                    );
+                    self.expr_kinds.insert(range, right_kind.unwrap());
                 }
             }
             Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
-                let Some(typ) =
-                    self.call_arithmetic(key, right_kind, operator, expr.syntax().text_range())
-                else {
+                let Some(typ) = self.call_arithmetic(key, right_kind, operator, error_range) else {
                     return right_kind;
                 };
 
                 let arguments = vec![key, Some(ExpressionKind::Literal(typ))];
-                self.call_set(parent, &arguments, expr.syntax().text_range());
+                self.call_set(parent, &arguments, error_range);
             }
 
-            Some(AssignmentLeftHandSide::Invalid) | None => {}
+            _ => {}
         }
         right_kind
     }
@@ -2194,6 +2225,67 @@ impl Collector {
         ExpressionKind::Literal(Type::Boolean)
     }
 
+    fn prefix_update_expression(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
+        let (operator, _) = expr.operator()?;
+        match operator {
+            PrefixUpdateOperator::Increment => self.prefix_increment_operator(expr),
+            PrefixUpdateOperator::Decrement => self.prefix_decrement_operator(expr),
+        }
+    }
+
+    fn prefix_increment_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
+        let operand = self.assignment_lhs(&expr.operand()?);
+        let increment = Some(ExpressionKind::Literal(Type::Integer));
+        self.arithmetic_assign_operator(
+            operand,
+            increment,
+            BinaryOperator::AddAssign,
+            expr.syntax().text_range(),
+        )
+    }
+
+    fn prefix_decrement_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
+        let operand = self.assignment_lhs(&expr.operand()?);
+        let increment = Some(ExpressionKind::Literal(Type::Integer));
+        self.arithmetic_assign_operator(
+            operand,
+            increment,
+            BinaryOperator::SubtractAssign,
+            expr.syntax().text_range(),
+        )
+    }
+
+    fn postfix_update_expression(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
+        let (operator, _) = expr.operator()?;
+        match operator {
+            PostfixUpdateOperator::Increment => self.postfix_increment_operator(expr),
+            PostfixUpdateOperator::Decrement => self.postfix_decrement_operator(expr),
+        }
+    }
+
+    fn postfix_increment_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
+        let operand = self.assignment_lhs(&expr.operand()?);
+        let increment = Some(ExpressionKind::Literal(Type::Integer));
+        self.arithmetic_assign_operator(
+            operand.clone(),
+            increment,
+            BinaryOperator::AddAssign,
+            expr.syntax().text_range(),
+        );
+        operand?.into()
+    }
+
+    fn postfix_decrement_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
+        let operand = self.assignment_lhs(&expr.operand()?);
+        let increment = Some(ExpressionKind::Literal(Type::Integer));
+        self.arithmetic_assign_operator(
+            operand.clone(),
+            increment,
+            BinaryOperator::SubtractAssign,
+            expr.syntax().text_range(),
+        );
+        operand?.into()
+    }
     fn resume_expression(&mut self, expr: &ResumeExpression) -> NullableExprKind {
         let typ = self.expr_type(&expr.operand()?);
 
