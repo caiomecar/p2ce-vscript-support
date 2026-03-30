@@ -1940,19 +1940,39 @@ impl Collector {
             | (Type::Integer | Type::Float, Type::Integer | Type::Float)
             | (Type::String(_), Type::String(_))
             | (Type::Boolean, Type::Boolean) => {}
-            _ => {
+            (Type::Table(_), Type::Table(_)) | (Type::Instance(_), Type::Instance(_)) => {
                 let arguments = vec![right_kind];
-                self.call_metamethod(
+                match self.call_metamethod(
                     left,
                     "_cmp",
                     &arguments,
                     expr.syntax().text_range(),
-                    MetamethodErrors::YesBinary {
-                        keyword: "comparing",
-                        right,
-                    },
-                );
+                    MetamethodErrors::No,
+                ) {
+                    Some(Type::Integer) | Some(Type::Unknown) => {}
+                    Some(_) => self.diagnostics.push(Diagnostic {
+                        message: "'_cmp' must return an integer".to_owned(),
+                        range: expr.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    }),
+                    None => {
+                        self.diagnostics.push(Diagnostic {
+                            message: if matches!(left, Type::Table(_)) {
+                                "Comparing classes with no '_cmp' delegate metamethod defined. The result is undetermenistic".to_owned()
+                            } else {
+                                "Comparing instances with no '_cmp' class metamethod defined. The result is undetermenistic".to_owned()
+                            },
+                            range: expr.syntax().text_range(),
+                            severity: DiagnosticSeverity::Warning
+                        });
+                    }
+                }
             }
+            _ => self.diagnostics.push(Diagnostic {
+                message: format!("'{left}' does not support comparison with '{right}'"),
+                range: expr.syntax().text_range(),
+                severity: DiagnosticSeverity::Error,
+            }),
         }
 
         ExpressionKind::Literal(if is_three_way {
