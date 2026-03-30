@@ -446,6 +446,33 @@ impl Collector {
         }
     }
 
+    fn call_delete(&mut self, typ: Type, index: NullableExprKind, error_range: TextRange) -> bool {
+        match typ {
+            Type::Class(_) => true,
+            Type::Table(_) => {
+                self.call_metamethod(
+                    typ,
+                    "_delslot",
+                    &vec![index],
+                    error_range,
+                    MetamethodErrors::No,
+                );
+                true
+            }
+            _ => self
+                .call_metamethod(
+                    typ,
+                    "_delslot",
+                    &vec![index],
+                    error_range,
+                    MetamethodErrors::Yes {
+                        keyword: "delete operator",
+                    },
+                )
+                .is_some(),
+        }
+    }
+
     fn call_set(
         &mut self,
         typ: Type,
@@ -535,7 +562,7 @@ impl Collector {
             Some(MemberName::Identifier(name)) => name.name().and_then(|n| n.text()),
             Some(MemberName::String(name)) => name
                 .token()
-                .and_then(|(_kind, token)| Some(unquote_string(token.text()))),
+                .map(|(_kind, token)| unquote_string(token.text())),
             Some(MemberName::Computed(name)) => {
                 let Some(expr) = name.expression() else {
                     return;
@@ -883,10 +910,7 @@ impl Collector {
             )
         };
 
-        let Some(expr_kind) = members
-            .or_else(root)
-            .and_then(|id| Some(ExpressionKind::Symbol(id)))
-        else {
+        let Some(expr_kind) = members.or_else(root).map(|id| ExpressionKind::Symbol(id)) else {
             self.collect_function(idx, stmt);
             return;
         };
@@ -914,7 +938,7 @@ impl Collector {
 
             let Some(expr_kind) = self
                 .find_symbol_function(self.arenas.get_container_members(container), offset, &text)
-                .and_then(|id| Some(ExpressionKind::Symbol(id)))
+                .map(|id| ExpressionKind::Symbol(id))
             else {
                 self.collect_function(idx, stmt);
                 return;
@@ -1195,10 +1219,10 @@ impl Collector {
             Expr::PrefixUnary(expr) => self.prefix_unary_expression(expr),
             Expr::PrefixUpdate(expr) => self.prefix_update_expression(expr),
             Expr::PostfixUpdate(expr) => self.postfix_update_expression(expr),
-            Expr::Delete(expr) => todo!(),
-            Expr::TypeOf(expr) => todo!(),
+            Expr::Delete(expr) => self.delete_expression(expr),
+            Expr::TypeOf(expr) => Some(self.type_of_expression(expr)),
             Expr::Resume(expr) => self.resume_expression(expr),
-            Expr::RawCall(expr) => todo!(),
+            Expr::RawCall(expr) => self.raw_call_expression(expr),
             Expr::File(_) => Some(ExpressionKind::Literal(Type::String(None))),
             Expr::Line(_) => Some(ExpressionKind::Literal(Type::Integer)),
             Expr::Parenthesised(expr) => self.parenthesised_expression(expr),
@@ -1799,12 +1823,12 @@ impl Collector {
                     {
                         return right_kind;
                     }
-                    // obj is None only if we resolved the flat name reference
-                } else if matches!(
+                }
+
+                if matches!(
                     self.arenas[symbol].kind,
                     SymbolKind::Local | SymbolKind::Constant | SymbolKind::Enum
                 ) {
-                    // the resolution precedence stuff like
                     // ```
                     // local a = 2
                     // a <- 1
@@ -2286,6 +2310,65 @@ impl Collector {
         );
         operand?.into()
     }
+
+    fn delete_expression(&mut self, expr: &DeleteExpression) -> NullableExprKind {
+        let operand = self.assignment_lhs(&expr.operand()?);
+        match operand {
+            Some(AssignmentLeftHandSide::CanCreate { parent, .. })
+            | Some(AssignmentLeftHandSide::NonStringKey { parent, .. }) => {
+                self.call_delete(parent, None, expr.syntax().text_range());
+                return operand?.into();
+            }
+            Some(AssignmentLeftHandSide::Exists { parent, symbol, .. }) => {
+                if let Some(parent) = parent {
+                    self.call_delete(
+                        parent,
+                        Some(ExpressionKind::Literal(Type::String(None))),
+                        expr.syntax().text_range(),
+                    );
+
+                    return Some(ExpressionKind::Literal(self.arenas[symbol].typ));
+                }
+
+                if matches!(
+                    self.arenas[symbol].kind,
+                    SymbolKind::Local | SymbolKind::Constant | SymbolKind::Enum
+                ) {
+                    // ```
+                    // local a = 2
+                    // delete a
+                    // ```
+                    // is illegal
+                    self.diagnostics.push(Diagnostic {
+                        message: "Cannot delete a variable with the same name as a local or constant due to the resolution precedence. Prepend variable name with `this.` if you wish to do that".to_owned(),
+                        range: expr.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    });
+                }
+
+                Some(ExpressionKind::Literal(self.arenas[symbol].typ))
+            }
+            _ => None,
+        }
+    }
+
+    fn type_of_expression(&mut self, expr: &TypeOfExpression) -> ExpressionKind {
+        let Some(operand) = expr.operand().map(|o| self.expr_type(&o)) else {
+            return ExpressionKind::Literal(Type::String(None));
+        };
+
+        ExpressionKind::Literal(
+            self.call_metamethod(
+                operand,
+                "_typeof",
+                &Vec::new(),
+                expr.syntax().text_range(),
+                MetamethodErrors::No,
+            )
+            .unwrap_or(Type::String(None)),
+        )
+    }
+
     fn resume_expression(&mut self, expr: &ResumeExpression) -> NullableExprKind {
         let typ = self.expr_type(&expr.operand()?);
 
@@ -2301,6 +2384,33 @@ impl Collector {
                 None
             }
         }
+    }
+
+    fn raw_call_expression(&mut self, expr: &RawCallExpression) -> NullableExprKind {
+        let mut arguments: Vec<_> = expr
+            .arguments()
+            .map(|arg| self.collect_expr(&arg))
+            .collect();
+
+        if arguments.len() < 2 {
+            self.diagnostics.push(Diagnostic {
+                message: "'rawcall' requires at least 2 parameters: function to call and context"
+                    .to_owned(),
+                range: expr.syntax().text_range(),
+                severity: DiagnosticSeverity::Error,
+            });
+            return None;
+        }
+
+        let function = arguments.remove(0);
+        let _context = arguments.remove(0);
+
+        let obj = self.arenas.expr_to_type(function);
+        Some(ExpressionKind::Literal(self.call_type(
+            obj,
+            &arguments,
+            expr.syntax().text_range(),
+        )?))
     }
 
     fn parenthesised_expression(&mut self, expr: &ParenthesisedExpression) -> NullableExprKind {
