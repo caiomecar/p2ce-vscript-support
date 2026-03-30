@@ -1179,12 +1179,12 @@ impl Collector {
             Expr::Clone(expr) => self.clone_expression(expr),
             Expr::Binary(expr) => self.binary_expression(expr),
             Expr::Conditional(expr) => Some(self.conditional_expression(expr)),
-            Expr::PrefixUnary(expr) => todo!(),
+            Expr::PrefixUnary(expr) => self.prefix_unary_expression(expr),
             Expr::PrefixUpdate(expr) => todo!(),
             Expr::PostfixUpdate(expr) => todo!(),
             Expr::Delete(expr) => todo!(),
             Expr::TypeOf(expr) => todo!(),
-            Expr::Resume(expr) => todo!(),
+            Expr::Resume(expr) => self.resume_expression(expr),
             Expr::RawCall(expr) => todo!(),
             Expr::File(_) => Some(ExpressionKind::Literal(Type::String(None))),
             Expr::Line(_) => Some(ExpressionKind::Literal(Type::Integer)),
@@ -2139,6 +2139,76 @@ impl Collector {
         } else {
             else_kind
         })
+    }
+
+    fn prefix_unary_expression(&mut self, expr: &PrefixUnaryExpression) -> NullableExprKind {
+        let (operator, _) = expr.operator()?;
+        match operator {
+            PrefixUnaryOperator::Negation => self.negation_operator(expr),
+            PrefixUnaryOperator::BitwiseNot => Some(self.bitwise_not_operator(expr)),
+            PrefixUnaryOperator::LogicalNot => Some(self.logical_not_operator(expr)),
+        }
+    }
+
+    fn negation_operator(&mut self, expr: &PrefixUnaryExpression) -> NullableExprKind {
+        let typ = self.expr_type(&expr.operand()?);
+
+        Some(ExpressionKind::Literal(match typ {
+            Type::Integer | Type::Float => typ,
+            _ => self.call_metamethod(
+                typ,
+                "_unm",
+                &Vec::new(),
+                expr.syntax().text_range(),
+                MetamethodErrors::Yes {
+                    keyword: "negation",
+                },
+            )?,
+        }))
+    }
+
+    fn bitwise_not_operator(&mut self, expr: &PrefixUnaryExpression) -> ExpressionKind {
+        let typ = if let Some(operand) = expr.operand() {
+            self.expr_type(&operand)
+        } else {
+            Type::Unknown
+        };
+
+        match typ {
+            Type::Integer | Type::Unknown => {}
+            _ => self.diagnostics.push(Diagnostic {
+                message: format!("'{typ}' does not support bitwise not operator"),
+                range: expr.syntax().text_range(),
+                severity: DiagnosticSeverity::Error,
+            }),
+        }
+
+        ExpressionKind::Literal(Type::Integer)
+    }
+
+    fn logical_not_operator(&mut self, expr: &PrefixUnaryExpression) -> ExpressionKind {
+        if let Some(operand) = expr.operand() {
+            self.collect_expr(&operand);
+        }
+
+        ExpressionKind::Literal(Type::Boolean)
+    }
+
+    fn resume_expression(&mut self, expr: &ResumeExpression) -> NullableExprKind {
+        let typ = self.expr_type(&expr.operand()?);
+
+        match typ {
+            Type::Unknown => None,
+            Type::Generator(id) => Some(ExpressionKind::Literal(self.arenas[id].yielding?)),
+            _ => {
+                self.diagnostics.push(Diagnostic {
+                    message: "Only generators can be resumed".to_owned(),
+                    range: expr.syntax().text_range(),
+                    severity: DiagnosticSeverity::Error,
+                });
+                None
+            }
+        }
     }
 
     fn parenthesised_expression(&mut self, expr: &ParenthesisedExpression) -> NullableExprKind {
