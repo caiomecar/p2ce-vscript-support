@@ -1,4 +1,4 @@
-use std::mem::discriminant;
+use std::{collections::VecDeque, mem::discriminant};
 
 use rustc_hash::FxHashMap;
 use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
@@ -12,7 +12,7 @@ use crate::{
     symbol::{Symbol, SymbolKind, SymbolTable, Type},
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scope {
     pub range: TextRange,
     pub locals: SymbolTable,
@@ -51,8 +51,26 @@ impl Scope {
     }
 }
 
+// This is needed to accommodate for the fact that symbols inside function
+// body can be defined after the function body itself, execution_range
+// only solves this for when we call symbols_at, at which point the whole
+// file is already process, however during the execution of the function
+// body only the symbols defined before it are visible to mirror this
+// behaviour in the actual analysis we save all state of the collector in
+// this struct and put this struct in the queue, once the direct source
+// file statements have been collected we run a loop over this queue
+// where we copy the state onto collector and run collect_stmt on the
+// function body.
+#[derive(Debug)]
+struct DeferredFunction {
+    idx: FunctionId,
+    body: FunctionBody,
+    execution_range: TextRange,
+    scope_stack: Vec<Scope>,
+}
+
 #[derive(Debug, Clone)]
-pub enum AssignmentLeftHandSide {
+enum AssignmentLeftHandSide {
     CanCreate {
         parent: Type,
         new_key: Box<str>,
@@ -92,7 +110,7 @@ pub enum ExpressionKind {
 
 pub type NullableExprKind = Option<ExpressionKind>;
 
-pub enum MetamethodErrors {
+enum MetamethodErrors {
     No,
     Yes { keyword: &'static str },
     YesBinary { keyword: &'static str, right: Type },
@@ -118,9 +136,12 @@ pub struct Collector {
     container: Container,
     const_table: TableId,
     root_table: TableId,
+
     scope_stack: Vec<Scope>,
     execution_range: TextRange,
     function: Option<FunctionId>,
+    deferred_functions: VecDeque<DeferredFunction>,
+
     expr_kinds: RangeKindMap,
     diagnostics: Vec<Diagnostic>,
 }
@@ -140,6 +161,7 @@ impl Collector {
             scope_stack: Vec::new(),
             execution_range: file.syntax().text_range(),
             function: None,
+            deferred_functions: VecDeque::new(),
             expr_kinds: FxHashMap::default(),
             diagnostics: Vec::new(),
         };
@@ -150,11 +172,26 @@ impl Collector {
             collector.collect_stmt(&stmt);
         }
 
-        let scope = collector.exit_scope().unwrap();
+        let file_scope = collector.exit_scope().unwrap();
+
+        while let Some(func) = collector.deferred_functions.pop_front() {
+            collector.execution_range = func.execution_range;
+            collector.function = Some(func.idx);
+            collector.scope_stack = func.scope_stack;
+            match func.body {
+                FunctionBody::Expr(expr) => {
+                    let typ = collector.expr_type(&expr);
+                    collector.arenas[func.idx].ret = typ;
+                }
+                FunctionBody::Stmt(stmt) => {
+                    collector.collect_stmt(&stmt);
+                }
+            }
+        }
 
         SourceSymbol::new(
             collector.diagnostics,
-            scope,
+            file_scope,
             collector.arenas,
             collector.const_table,
             collector.root_table,
@@ -240,11 +277,11 @@ impl Collector {
                         continue;
                     };
 
-                    let kind = self.expr_type(&expr);
+                    let typ = self.expr_type(&expr);
 
                     let index = self.arenas.alloc(Symbol {
                         name: name.clone(),
-                        typ: kind,
+                        typ,
                         kind: SymbolKind::Local,
                         range: var.syntax().text_range(),
                     });
@@ -603,15 +640,15 @@ impl Collector {
     // Lambdas are processed differently
     fn collect_function<T>(&mut self, idx: FunctionId, node: &T)
     where
-        T: IsFunction + HasBody,
+        T: IsFunction,
     {
         let save_function = self.function;
         self.function = Some(idx);
         let save_execution = self.execution_range;
-        self.execution_range = if let Some(body) = node.body() {
-            body.syntax().text_range()
-        } else {
-            TextRange::empty(node.syntax().text_range().end())
+        self.execution_range = match node.body() {
+            Some(FunctionBody::Expr(body)) => body.syntax().text_range(),
+            Some(FunctionBody::Stmt(body)) => body.syntax().text_range(),
+            None => TextRange::empty(node.syntax().text_range().end()),
         };
         self.enter_scope(self.execution_range);
 
@@ -620,7 +657,12 @@ impl Collector {
         }
 
         if let Some(body) = node.body() {
-            self.collect_stmt(&body);
+            self.deferred_functions.push_back(DeferredFunction {
+                idx,
+                body,
+                execution_range: self.execution_range,
+                scope_stack: self.scope_stack.clone(),
+            });
         }
 
         self.exit_scope();
@@ -2426,33 +2468,7 @@ impl Collector {
 
     fn lambda_expression(&mut self, expr: &LambdaExpression) -> ExpressionKind {
         let idx = self.arenas.alloc(FunctionData::default());
-
-        let save_function = self.function;
-        self.function = Some(idx);
-        let save_execution = self.execution_range;
-        self.execution_range = if let Some(body) = expr.body() {
-            body.syntax().text_range()
-        } else {
-            TextRange::empty(expr.syntax().text_range().end())
-        };
-        self.enter_scope(self.execution_range);
-
-        if let Some(param_list) = expr.parameter_list() {
-            self.collect_params(param_list.parameters());
-        }
-
-        let ret = if let Some(body) = expr.body() {
-            self.expr_type(&body)
-        } else {
-            Type::Unknown
-        };
-
-        self.arenas[idx].ret = ret;
-
-        self.exit_scope();
-        self.function = save_function;
-        self.execution_range = save_execution;
-
+        self.collect_function(idx, expr);
         ExpressionKind::Literal(Type::Function(idx))
     }
 }
