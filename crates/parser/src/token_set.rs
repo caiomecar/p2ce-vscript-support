@@ -208,8 +208,13 @@ pub(crate) const COMMON_STATEMENT_OR_EXPRESSION: TokenSet =
 
 pub(crate) const VARIABLE_RECOVERY: TokenSet = COMMON_STATEMENT_OR_EXPRESSION.union(INIT_OPERATORS);
 
-pub(crate) const PARAMETER_RECOVERY: TokenSet =
-    VARIABLE_RECOVERY.union(TokenSet::new(&[SyntaxKind::DotDotDot]));
+pub(crate) const PARAMETER_RECOVERY: TokenSet = VARIABLE_RECOVERY.union(TokenSet::new(&[
+    SyntaxKind::CloseParenthesis,
+    SyntaxKind::DotDotDot,
+]));
+
+pub(crate) const CATCH_RECOVERY: TokenSet =
+    VARIABLE_RECOVERY.union(TokenSet::new(&[SyntaxKind::CloseParenthesis]));
 
 pub(crate) const NAME_QUALIFIER: TokenSet =
     TokenSet::new(&[SyntaxKind::Dot, SyntaxKind::ColonColon]);
@@ -217,7 +222,6 @@ pub(crate) const NAME_QUALIFIER: TokenSet =
 // if we see an equals sign we can parse it as nameless param
 pub(crate) const FUNCTION_NAME_RECOVERY: TokenSet = PARAMETER_RECOVERY.union(TokenSet::new(&[
     SyntaxKind::OpenParenthesis,
-    SyntaxKind::CloseParenthesis,
     SyntaxKind::OpenBracket,
     SyntaxKind::CloseBracket,
     SyntaxKind::Dot,

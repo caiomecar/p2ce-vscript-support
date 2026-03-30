@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::{SyntaxError, SyntaxKind, lexer::Token, token_set::*};
 use rowan::{TextRange, TextSize};
 
@@ -67,7 +65,7 @@ impl BinaryOperatorPrecedence {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MemberObject {
     // Table is also used for attributes
     Table,
@@ -76,11 +74,18 @@ enum MemberObject {
     PostCallInitialiser,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ParsingObjectSeparator {
     None,
     Comma,
     Semicolon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VariableDeclaration {
+    Local,
+    Parameter,
+    Catch,
 }
 
 pub fn parse(tokens: Vec<Token>) -> (Vec<Event>, Vec<SyntaxError>) {
@@ -359,7 +364,7 @@ impl Parser {
         set.contains(self.token())
     }
 
-    fn expected_but_got(&self, expected: impl Display) -> String {
+    fn expected_but_got(&self, expected: &str) -> String {
         format!("Expected {}, but got {}", expected, self.token().text())
     }
 
@@ -393,7 +398,7 @@ impl Parser {
     }
 
     /// Recovery set is just what we don't want to skip over
-    fn error_with_recovery(&mut self, message: impl Display, recovery: TokenSet) {
+    fn error_with_recovery(&mut self, message: &str, recovery: TokenSet) {
         if self.at_set(ALWAYS_RECOVER) || self.at_set(recovery) {
             self.error_at_token(self.expected_but_got(message));
             return;
@@ -415,7 +420,7 @@ impl Parser {
         self.expect_with_message(kind, kind.text())
     }
 
-    fn expect_with_message(&mut self, kind: SyntaxKind, message: impl Display) -> bool {
+    fn expect_with_message(&mut self, kind: SyntaxKind, message: &str) -> bool {
         if !self.try_bump(kind) {
             self.error_at_token(self.expected_but_got(message));
             false
@@ -462,7 +467,7 @@ impl Parser {
         m
     }
 
-    fn parse_name(&mut self, message: impl Display, recovery: Option<TokenSet>) -> Marker {
+    fn parse_name(&mut self, message: &str, recovery: Option<TokenSet>) -> Marker {
         if self.at_set(NAME) {
             return self.parse_guaranteed_name();
         }
@@ -531,7 +536,7 @@ impl Parser {
                     self.finish(m, SyntaxKind::VariedArgs);
                 } else {
                     self.parse_variable_declaration(
-                        /* is_init_allowed */ true,
+                        VariableDeclaration::Parameter,
                         "parameter name or '...'",
                     );
                 }
@@ -925,9 +930,13 @@ impl Parser {
     fn parse_conditional_expression(&mut self, m: Marker) {
         self.expect_or_panic(SyntaxKind::Question);
 
-        let then = self.start();
-        let expr = self.parse_expression();
-        self.finish_wrapper_or_drop(then, expr, SyntaxKind::ThenBranch);
+        if !self.at(SyntaxKind::Colon) {
+            let then = self.start();
+            let expr = self.parse_expression();
+            self.finish_wrapper_or_drop(then, expr, SyntaxKind::ThenBranch);
+        } else {
+            self.error_at_token(self.expected_but_got("expression"));
+        }
 
         if self.expect(SyntaxKind::Colon) || self.at_set(EXPRESSIONS) {
             let else_ = self.start();
@@ -1623,11 +1632,16 @@ impl Parser {
     }
 
     // Used in places where we expect an identifier and optionally an '=' sign
-    fn parse_variable_declaration(&mut self, is_init_allowed: bool, message: &str) {
+    fn parse_variable_declaration(&mut self, kind: VariableDeclaration, message: &str) {
         let m = self.start();
-        self.parse_name(message, Some(VARIABLE_RECOVERY));
+        let recovery = match kind {
+            VariableDeclaration::Local => VARIABLE_RECOVERY,
+            VariableDeclaration::Parameter => PARAMETER_RECOVERY,
+            VariableDeclaration::Catch => CATCH_RECOVERY,
+        };
+        self.parse_name(message, Some(recovery));
         if self.at_set(INIT_OPERATORS) {
-            if !is_init_allowed {
+            if kind == VariableDeclaration::Catch {
                 // We parse it anyways for better recovery
                 // Perhaps it shouldn't omit errors for parse_expression to not be misleading?
                 let err = self.start();
@@ -1670,12 +1684,9 @@ impl Parser {
             return;
         }
 
-        self.parse_variable_declaration(
-            /* is_init_allowed */ true,
-            "variable name or 'function'",
-        );
+        self.parse_variable_declaration(VariableDeclaration::Local, "variable name or 'function'");
         while self.try_bump(SyntaxKind::Comma) {
-            self.parse_variable_declaration(/* is_init_allowed */ true, "variable name");
+            self.parse_variable_declaration(VariableDeclaration::Local, "variable name");
         }
         self.finish(m, SyntaxKind::LocalVariableDeclaration);
     }
@@ -1840,7 +1851,7 @@ impl Parser {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::CatchKeyword);
         self.expect(SyntaxKind::OpenParenthesis);
-        self.parse_variable_declaration(/* is_init_allowed */ false, "error's name");
+        self.parse_variable_declaration(VariableDeclaration::Catch, "error's name");
         self.expect(SyntaxKind::CloseParenthesis);
         self.parse_statement(/* parse_end */ false);
         self.finish(m, SyntaxKind::CatchClause);
