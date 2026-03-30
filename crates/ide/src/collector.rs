@@ -6,8 +6,8 @@ use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
 use crate::{
     Diagnostic, DiagnosticSeverity, SourceSymbol,
     arena::{
-        ArenaAlloc, Arenas, ArrayData, ClassData, ClassId, Container, EnumData, FunctionData,
-        FunctionId, ParamsState, SymbolId, TableData, TableId,
+        ArenaAlloc, Arenas, ArrayData, ClassData, Container, EnumData, FunctionData, FunctionId,
+        ParamsState, SymbolId, TableData, TableId,
     },
     symbol::{Symbol, SymbolKind, SymbolTable, Type},
 };
@@ -52,31 +52,20 @@ impl Scope {
 }
 
 #[derive(Debug)]
-pub enum TableDelegateError {
-    NoDelegate,
-    NoMember,
-}
-
-#[derive(Debug)]
-pub enum NewSlotApplicable {
-    Table(TableId),
-    Class(ClassId),
-    Instance(ClassId),
-}
-
-impl From<NewSlotApplicable> for Container {
-    fn from(value: NewSlotApplicable) -> Self {
-        match value {
-            NewSlotApplicable::Table(id) => Container::Table(id),
-            NewSlotApplicable::Class(id) | NewSlotApplicable::Instance(id) => Container::Class(id),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum AssignmentLeftHandSide {
-    CanCreate(Type, Box<str>),
-    Exists(Option<Type>, SymbolId),
+    CanCreate {
+        parent: Type,
+        new_key: Box<str>,
+    },
+    // Parent doesn't exist for locals
+    Exists {
+        parent: Option<Type>,
+        symbol: SymbolId,
+    },
+    NonStringKey {
+        parent: Type,
+        key: NullableExprKind,
+    },
     Invalid,
 }
 
@@ -84,15 +73,16 @@ pub enum AssignmentLeftHandSide {
 pub enum ExpressionKind {
     // L value
     Literal(Type),
-    // R value with parent
+    // R value
     Symbol(SymbolId),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NameExpressionSettings {
-    Normal,
-    ProduceParent,
-    NoLocalsAndConsts,
+type NullableExprKind = Option<ExpressionKind>;
+
+pub enum MetamethodErrors {
+    No,
+    Yes { keyword: &'static str },
+    YesBinary { keyword: &'static str, right: Type },
 }
 
 pub type RangeKindMap = FxHashMap<TextRange, ExpressionKind>;
@@ -318,18 +308,207 @@ impl Collector {
         ClassData { inherits, members }
     }
 
-    fn get_delegate_member(&self, id: TableId, text: &str) -> Result<SymbolId, TableDelegateError> {
-        let table = &self.arenas[id];
-        let Some(delegate_idx) = table.delegate else {
-            return Err(TableDelegateError::NoDelegate);
+    fn call_metamethod(
+        &mut self,
+        typ: Type,
+        metamethod: &str,
+        arguments: &[NullableExprKind],
+        error_range: TextRange,
+        errors: MetamethodErrors,
+    ) -> Option<Type> {
+        match typ {
+            Type::Table(id) => {
+                let table = &self.arenas[id];
+                let Some(delegate_idx) = table.delegate else {
+                    match errors {
+                        MetamethodErrors::Yes { keyword }
+                        | MetamethodErrors::YesBinary { keyword, .. } => {
+                            self.diagnostics.push(Diagnostic {
+                                message: format!(
+                                    "'table' does not support {keyword}: no delegate assigned"
+                                ),
+                                range: error_range,
+                                severity: DiagnosticSeverity::Error,
+                            });
+                        }
+                        MetamethodErrors::No => {}
+                    }
+                    return None;
+                };
+
+                let members = &self.arenas[delegate_idx].members;
+                let Some(&member) = members.get(metamethod) else {
+                    match errors {
+                        MetamethodErrors::Yes { keyword }
+                        | MetamethodErrors::YesBinary { keyword, .. } => {
+                            self.diagnostics.push(Diagnostic {
+                                message: format!("'table' does not support {keyword}: delegate has no '{metamethod}' metamethod"),
+                                range: error_range,
+                                severity: DiagnosticSeverity::Error
+                            });
+                        }
+                        MetamethodErrors::No => {}
+                    }
+                    return None;
+                };
+
+                Some(self.call_type(self.arenas[member].typ, arguments, error_range)?)
+            }
+            Type::Instance(id) => {
+                let class = &self.arenas[id];
+                let Some(member) = class.get_member(metamethod) else {
+                    match errors {
+                        MetamethodErrors::Yes { keyword }
+                        | MetamethodErrors::YesBinary { keyword, .. } => {
+                            self.diagnostics.push(Diagnostic {
+                                message: format!("'instance' does not support {keyword}: class has no '{metamethod}' metamethod"),
+                                range: error_range,
+                                severity: DiagnosticSeverity::Error,
+                            });
+                        }
+                        MetamethodErrors::No => {}
+                    }
+                    return None;
+                };
+
+                Some(self.call_type(self.arenas[member].typ, arguments, error_range)?)
+            }
+            Type::Unknown => None,
+            _ => {
+                match errors {
+                    MetamethodErrors::Yes { keyword } => {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!("'{typ}' does not support {keyword}"),
+                            range: error_range,
+                            severity: DiagnosticSeverity::Error,
+                        });
+                    }
+                    MetamethodErrors::YesBinary {
+                        keyword,
+                        right: left,
+                    } => {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!("'{typ}' does not support {keyword} with '{left}'"),
+                            range: error_range,
+                            severity: DiagnosticSeverity::Error,
+                        });
+                    }
+                    MetamethodErrors::No => {}
+                }
+                None
+            }
+        }
+    }
+
+    fn call_new_slot(
+        &mut self,
+        typ: Type,
+        arguments: &[NullableExprKind],
+        error_range: TextRange,
+    ) -> Option<Container> {
+        match typ {
+            Type::Class(id) => Some(Container::Class(id)),
+            Type::Table(id) => {
+                self.call_metamethod(
+                    typ,
+                    "_newslot",
+                    arguments,
+                    error_range,
+                    MetamethodErrors::No,
+                );
+                Some(Container::Table(id))
+            }
+            _ => {
+                self.call_metamethod(
+                    typ,
+                    "_newslot",
+                    arguments,
+                    error_range,
+                    MetamethodErrors::Yes {
+                        keyword: "new slot operator",
+                    },
+                )?;
+                Some(Container::try_from(typ).unwrap())
+            }
+        }
+    }
+
+    fn call_set(
+        &mut self,
+        typ: Type,
+        arguments: &[NullableExprKind],
+        error_range: TextRange,
+    ) -> bool {
+        match typ {
+            Type::Table(_) => {
+                self.call_metamethod(typ, "_set", arguments, error_range, MetamethodErrors::No);
+                true
+            }
+            Type::Array(_) | Type::Class(_) => true,
+            Type::Instance(_) => {
+                self.call_metamethod(typ, "_set", arguments, error_range, MetamethodErrors::No);
+                true
+            }
+            _ => self
+                .call_metamethod(
+                    typ,
+                    "_set",
+                    arguments,
+                    error_range,
+                    MetamethodErrors::Yes {
+                        keyword: "equals operator",
+                    },
+                )
+                .is_some(),
+        }
+    }
+
+    fn call_arithmetic(
+        &mut self,
+        left: NullableExprKind,
+        right: NullableExprKind,
+        operator: BinaryOperator,
+        error_range: TextRange,
+    ) -> Option<Type> {
+        let left_type = self.arenas.expr_to_type(left);
+        let right_type = self.arenas.expr_to_type(right);
+        let (metamethod, keyword) = match operator {
+            BinaryOperator::Add | BinaryOperator::AddAssign => ("_add", "adding"),
+            BinaryOperator::Subtract | BinaryOperator::SubtractAssign => ("_sub", "subtracting"),
+            BinaryOperator::Multiply | BinaryOperator::MultiplyAssign => ("_mul", "multiplying"),
+            BinaryOperator::Divide | BinaryOperator::DivideAssign => ("_div", "dividing"),
+            BinaryOperator::Modulo | BinaryOperator::ModuloAssign => ("_mod", "modulo"),
+            _ => unreachable!(),
         };
 
-        let members = &self.arenas[delegate_idx].members;
-        let Some(member) = members.get(text) else {
-            return Err(TableDelegateError::NoMember);
-        };
+        match (left_type, right_type) {
+            // Add is special: strings
+            _ if operator == BinaryOperator::Add || operator == BinaryOperator::AddAssign => {
+                match (left_type, right_type) {
+                    (_, Type::String(_)) | (Type::String(_), _) => return Some(Type::String(None)),
+                    (Type::Integer, Type::Integer) => return Some(Type::Integer),
+                    (Type::Float | Type::Integer, Type::Float | Type::Integer) => {
+                        return Some(Type::Float);
+                    }
+                    _ => {}
+                }
+            }
+            (Type::Integer, Type::Integer) => return Some(Type::Integer),
+            (Type::Float | Type::Integer, Type::Float | Type::Integer) => return Some(Type::Float),
+            _ => {}
+        }
 
-        Ok(*member)
+        let arguments = vec![right];
+        self.call_metamethod(
+            left_type,
+            metamethod,
+            &arguments,
+            error_range,
+            MetamethodErrors::YesBinary {
+                keyword,
+                right: right_type,
+            },
+        )
     }
 
     fn collect_property(&mut self, property: &Property, default_value: Option<usize>) {
@@ -699,20 +878,23 @@ impl Collector {
             return;
         };
 
-        let kind = self.arenas.expr_to_type(Some(expr_kind));
+        let mut typ = self.arenas.expr_to_type(Some(expr_kind));
         let key = names[0].syntax().text_range();
         self.expr_kinds.insert(key, expr_kind);
 
-        let mut container = match self.to_new_slot_applicable(kind, key) {
-            Some(applicable) => applicable.into(),
-            _ => {
-                self.collect_function(idx, stmt);
-                return;
-            }
-        };
-
         for segment in &names[1..] {
             let Some(text) = segment.text() else {
+                self.collect_function(idx, stmt);
+                return;
+            };
+
+            let arguments = vec![
+                Some(ExpressionKind::Literal(Type::String(None))),
+                Some(ExpressionKind::Literal(Type::Unknown)),
+            ];
+
+            let Some(container) = self.call_new_slot(typ, &arguments, stmt.syntax().text_range())
+            else {
                 self.collect_function(idx, stmt);
                 return;
             };
@@ -725,18 +907,21 @@ impl Collector {
                 return;
             };
 
-            let kind = self.arenas.expr_to_type(Some(expr_kind));
+            typ = self.arenas.expr_to_type(Some(expr_kind));
             let key = segment.syntax().text_range();
             self.expr_kinds.insert(key, expr_kind);
-
-            container = match self.to_new_slot_applicable(kind, key) {
-                Some(applicable) => applicable.into(),
-                _ => {
-                    self.collect_function(idx, stmt);
-                    return;
-                }
-            };
         }
+
+        let arguments = vec![
+            Some(ExpressionKind::Literal(Type::String(None))),
+            Some(ExpressionKind::Literal(Type::Function(idx))),
+        ];
+
+        let Some(container) = self.call_new_slot(typ, &arguments, stmt.syntax().text_range())
+        else {
+            self.collect_function(idx, stmt);
+            return;
+        };
 
         let symbol = self.arenas.alloc(Symbol {
             name: final_name.clone(),
@@ -978,7 +1163,7 @@ impl Collector {
         self.arenas.expr_to_type(kind)
     }
 
-    fn collect_expr(&mut self, expr: &Expr) -> Option<ExpressionKind> {
+    fn collect_expr(&mut self, expr: &Expr) -> NullableExprKind {
         let kind = match expr {
             Expr::Literal(expr) => self.literal_expression(expr),
             Expr::TableLiteral(expr) => Some(self.table_literal_expression(expr)),
@@ -1014,7 +1199,7 @@ impl Collector {
         kind
     }
 
-    fn literal_expression(&mut self, expr: &LiteralExpression) -> Option<ExpressionKind> {
+    fn literal_expression(&mut self, expr: &LiteralExpression) -> NullableExprKind {
         let (kind, token) = expr.token()?;
 
         Some(match kind {
@@ -1111,7 +1296,7 @@ impl Collector {
         })
     }
 
-    fn name_expression(&mut self, expr: &Name) -> Option<ExpressionKind> {
+    fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
         let text = expr.text()?;
         let offset = expr.syntax().text_range().end();
         let locals = self.find_symbol(
@@ -1160,7 +1345,7 @@ impl Collector {
         })
     }
 
-    fn root_access_expression(&mut self, expr: &RootAccessExpression) -> Option<ExpressionKind> {
+    fn root_access_expression(&mut self, expr: &RootAccessExpression) -> NullableExprKind {
         let text = expr.name()?.text()?;
         let offset = expr.syntax().text_range().end();
         Some(ExpressionKind::Symbol(self.find_symbol_function(
@@ -1197,10 +1382,7 @@ impl Collector {
         }
     }
 
-    fn member_access_expression(
-        &mut self,
-        expr: &MemberAccessExpression,
-    ) -> Option<ExpressionKind> {
+    fn member_access_expression(&mut self, expr: &MemberAccessExpression) -> NullableExprKind {
         let obj = self.expr_type(&expr.object()?);
         let text = expr.member_part()?.name()?.text()?;
 
@@ -1212,10 +1394,7 @@ impl Collector {
         ))
     }
 
-    fn element_access_expression(
-        &mut self,
-        expr: &ElementAccessExpression,
-    ) -> Option<ExpressionKind> {
+    fn element_access_expression(&mut self, expr: &ElementAccessExpression) -> NullableExprKind {
         let obj = self.expr_type(&expr.object()?);
         let index = expr.index()?.expression()?;
         let Type::String(Some(id)) = self.expr_type(&index) else {
@@ -1231,160 +1410,122 @@ impl Collector {
         ))
     }
 
-    fn call_symbol_kind(&mut self, expr: &CallExpression, kind: Type) -> Option<ExpressionKind> {
-        match kind {
+    fn call_type(
+        &mut self,
+        callable: Type,
+        arguments: &[NullableExprKind],
+        error_range: TextRange,
+    ) -> Option<Type> {
+        match callable {
             Type::Function(id) => {
-                let mut last_count = 0;
                 let is_variadic = matches!(&self.arenas[id].params_state, ParamsState::VarArgs(_));
-                for (count, expr) in expr.arguments().enumerate() {
-                    let argument_kind = self.collect_expr(&expr);
+                for (count, argument_kind) in arguments.iter().cloned().enumerate() {
+                    let Some(&param) = self.arenas[id].params.get(count) else {
+                        if !is_variadic {
+                            self.diagnostics.push(Diagnostic {
+                                message: "Passing more parameters than possible".to_owned(),
+                                range: error_range,
+                                severity: DiagnosticSeverity::Error,
+                            });
+                        }
+                        continue;
+                    };
 
-                    let param = self.arenas[id].params.get(count);
-                    match param {
-                        Some(param) => {
-                            let symbol = &self.arenas[*param];
-                            match (self.arenas.expr_to_type(argument_kind), symbol.typ) {
-                                (Type::Unknown, required_kind) => {
-                                    // If passed in parameter has type of unknown
-                                    // we can coerce it to be the type of a required parameter
-                                    if let Some(ExpressionKind::Symbol(id)) = argument_kind {
-                                        if required_kind != Type::Unknown {
-                                            self.arenas[id].typ = required_kind;
-                                        }
-                                    }
-                                }
-
-                                (Type::Null, _)
-                                | (_, Type::Null)
-                                | (_, Type::Unknown)
-                                | (Type::Integer | Type::Float, Type::Integer | Type::Float) => {}
-
-                                (passed, required) => {
-                                    if discriminant(&passed) != discriminant(&required) {
-                                        self.diagnostics.push(Diagnostic {
-                                            message: format!("Expected parameter of type '{required}', but got '{passed}'"),
-                                            range: expr.syntax().text_range(),
-                                            severity: DiagnosticSeverity::Warning,
-                                        });
-                                    }
-                                }
+                    match (
+                        self.arenas.expr_to_type(argument_kind),
+                        self.arenas[param].typ,
+                    ) {
+                        (Type::Unknown | Type::Null, required_kind) => {
+                            // If passed in parameter has type of unknown
+                            // we can coerce it to be the type of a required parameter
+                            if let Some(ExpressionKind::Symbol(id)) = argument_kind
+                                && !required_kind.should_substitute()
+                            {
+                                self.arenas[id].typ = required_kind;
                             }
                         }
-                        None if !is_variadic => self.diagnostics.push(Diagnostic {
-                            message: "Passing more parameters than possible".to_owned(),
-                            range: expr.syntax().text_range(),
-                            severity: DiagnosticSeverity::Error,
-                        }),
-                        None => {}
+                        (passed, Type::Unknown | Type::Null) => {
+                            self.arenas[param].typ = passed;
+                        }
+
+                        (Type::Integer | Type::Float, Type::Integer | Type::Float) => {}
+
+                        (passed, required) => {
+                            if discriminant(&passed) != discriminant(&required) {
+                                self.diagnostics.push(Diagnostic {
+                                    message: format!("Expected parameter of type '{required}', but got '{passed}'"),
+                                    range: error_range,
+                                    severity: DiagnosticSeverity::Warning,
+                                });
+                            }
+                        }
                     }
-                    last_count = count;
                 }
 
                 let enough_parameters = match self.arenas[id].params_state {
-                    ParamsState::NoDefault => last_count == self.arenas[id].params.len(),
-                    ParamsState::Default(from) | ParamsState::VarArgs(from) => last_count >= from,
+                    ParamsState::NoDefault => arguments.len() == self.arenas[id].params.len(),
+                    ParamsState::Default(from) | ParamsState::VarArgs(from) => {
+                        arguments.len() >= from
+                    }
                 };
 
                 if !enough_parameters {
                     self.diagnostics.push(Diagnostic {
                         message: "Insufficient number of parameters passed".to_owned(),
-                        range: expr.syntax().text_range(),
+                        range: error_range,
                         severity: DiagnosticSeverity::Error,
                     });
                 }
 
-                return Some(ExpressionKind::Literal(
-                    if self.arenas[id].yielding.is_some() {
-                        Type::Generator(id)
-                    } else {
-                        self.arenas.clone_type(self.arenas[id].ret)
-                    },
-                ));
+                Some(if self.arenas[id].yielding.is_some() {
+                    Type::Generator(id)
+                } else {
+                    self.arenas.clone_type(self.arenas[id].ret)
+                })
             }
             Type::Class(id) => {
                 let class = &self.arenas[id];
                 if let Some(symbol) = class.get_member("constructor") {
-                    self.call_symbol_kind(expr, self.arenas[symbol].typ);
-                } else {
-                    let mut has_parameters = false;
-                    for expr in expr.arguments() {
-                        self.collect_expr(&expr);
-                        has_parameters = true;
-                    }
+                    self.call_type(self.arenas[symbol].typ, arguments, error_range);
+                } else if arguments.len() != 0 {
+                    self.diagnostics.push(Diagnostic {
+                        message: "Default constructor should have no parameters".to_owned(),
+                        range: error_range,
+                        severity: DiagnosticSeverity::Error,
+                    });
+                }
 
-                    if has_parameters {
-                        self.diagnostics.push(Diagnostic {
-                            message: "Default constructor should have no parameters".to_owned(),
-                            range: expr.syntax().text_range(),
-                            severity: DiagnosticSeverity::Error,
-                        });
-                    }
-                }
-                return Some(ExpressionKind::Literal(Type::Instance(id)));
+                Some(Type::Instance(id))
             }
-            Type::Table(id) => match self.get_delegate_member(id, "_call") {
-                Ok(id) => {
-                    let kind = self.arenas[id].typ;
-                    return self.call_symbol_kind(expr, kind);
-                }
-                Err(TableDelegateError::NoDelegate) => {
-                    self.diagnostics.push(Diagnostic {
-                        message: "'table' does not support calling: no delegate assigned"
-                            .to_owned(),
-                        range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
-                    });
-                }
-                Err(TableDelegateError::NoMember) => {
-                    self.diagnostics.push(Diagnostic {
-                        message:
-                            "'table' does not support calling: delegate has no '_call' metamethod"
-                                .to_owned(),
-                        range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
-                    });
-                }
-            },
-            Type::Instance(id) => {
-                let class = &self.arenas[id];
-                if let Some(member) = class.get_member("_call") {
-                    return self.call_symbol_kind(expr, self.arenas[member].typ);
-                } else {
-                    self.diagnostics.push(Diagnostic {
-                        message:
-                            "'instance' does not support calling: class does not define a '_call' metamethod"
-                                .to_owned(),
-                        range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
-                    });
-                }
-            }
-            Type::Unknown => {}
-            kind => {
-                self.diagnostics.push(Diagnostic {
-                    message: format!("'{kind}' is not callable"),
-                    range: expr.syntax().text_range(),
-                    severity: DiagnosticSeverity::Error,
-                });
-            }
+            _ => self.call_metamethod(
+                callable,
+                "_call",
+                arguments,
+                error_range,
+                MetamethodErrors::Yes { keyword: "calling" },
+            ),
         }
-
-        for expr in expr.arguments() {
-            self.collect_expr(&expr);
-        }
-        None
     }
 
-    fn call_expression(&mut self, expr: &CallExpression) -> Option<ExpressionKind> {
+    fn call_expression(&mut self, expr: &CallExpression) -> NullableExprKind {
         let obj = match expr.callee() {
             Some(expr) => self.expr_type(&expr),
             None => Type::Unknown,
         };
 
-        self.call_symbol_kind(expr, obj)
+        let arguments: Vec<_> = expr
+            .arguments()
+            .map(|arg| self.collect_expr(&arg))
+            .collect();
+
+        Some(ExpressionKind::Literal(self.call_type(
+            obj,
+            &arguments,
+            expr.syntax().text_range(),
+        )?))
     }
 
-    fn clone_expression(&mut self, expr: &CloneExpression) -> Option<ExpressionKind> {
+    fn clone_expression(&mut self, expr: &CloneExpression) -> NullableExprKind {
         let operand = expr.operand()?;
         let kind = self.expr_type(&operand);
         Some(ExpressionKind::Literal(self.arenas.clone_type(kind)))
@@ -1393,7 +1534,7 @@ impl Collector {
     fn extract_lhs_and_rhs(
         &mut self,
         expr: &BinaryExpression,
-    ) -> (Option<ExpressionKind>, Option<ExpressionKind>) {
+    ) -> (NullableExprKind, NullableExprKind) {
         let left = expr.lhs().and_then(|l| self.collect_expr(&l));
         let right = expr.rhs().and_then(|r| self.collect_expr(&r));
         (left, right)
@@ -1422,37 +1563,43 @@ impl Collector {
                     )
                 };
 
-                let members = || {
-                    self.find_symbol_function(
-                        self.arenas.get_container_members(self.container),
-                        offset,
-                        &text,
-                    )
-                };
+                if let Some(symbol) = locals.or_else(consts) {
+                    return Some(AssignmentLeftHandSide::Exists {
+                        parent: None,
+                        symbol,
+                    });
+                }
 
-                let root = || {
-                    self.find_symbol_function(
-                        self.arenas[self.root_table].get_members(&self.arenas),
-                        offset,
-                        &text,
-                    )
-                };
+                let members = self.find_symbol_function(
+                    self.arenas.get_container_members(self.container),
+                    offset,
+                    &text,
+                );
 
-                Some(
-                    locals
-                        .or_else(consts)
-                        .or_else(members)
-                        .or_else(root)
-                        .map_or_else(
-                            || {
-                                AssignmentLeftHandSide::CanCreate(
-                                    self.container.into(),
-                                    text.into_boxed_str(),
-                                )
-                            },
-                            |symbol| AssignmentLeftHandSide::Exists(None, symbol),
-                        ),
-                )
+                if let Some(symbol) = members {
+                    return Some(AssignmentLeftHandSide::Exists {
+                        parent: Some(self.container.into()),
+                        symbol,
+                    });
+                }
+
+                let root = self.find_symbol_function(
+                    self.arenas[self.root_table].get_members(&self.arenas),
+                    offset,
+                    &text,
+                );
+
+                if let Some(symbol) = root {
+                    return Some(AssignmentLeftHandSide::Exists {
+                        parent: Some(Type::Table(self.root_table)),
+                        symbol,
+                    });
+                }
+
+                Some(AssignmentLeftHandSide::CanCreate {
+                    parent: self.container.into(),
+                    new_key: text.into_boxed_str(),
+                })
             }
             Expr::MemberAccess(expr) => {
                 let obj = self.expr_type(&expr.object()?);
@@ -1464,16 +1611,26 @@ impl Collector {
                 Some(
                     self.find_symbol_function(members, offset, &text)
                         .map_or_else(
-                            || AssignmentLeftHandSide::CanCreate(obj, text.into_boxed_str()),
-                            |id| AssignmentLeftHandSide::Exists(Some(obj), id),
+                            || AssignmentLeftHandSide::CanCreate {
+                                parent: obj,
+                                new_key: text.into_boxed_str(),
+                            },
+                            |id| AssignmentLeftHandSide::Exists {
+                                parent: Some(obj),
+                                symbol: id,
+                            },
                         ),
                 )
             }
             Expr::ElementAccess(expr) => {
                 let obj = self.expr_type(&expr.object()?);
                 let index = expr.index()?.expression()?;
-                let Type::String(Some(id)) = self.expr_type(&index) else {
-                    return None;
+                let index_kind = self.collect_expr(&index);
+                let Type::String(Some(id)) = self.arenas.expr_to_type(index_kind) else {
+                    return Some(AssignmentLeftHandSide::NonStringKey {
+                        parent: obj,
+                        key: index_kind,
+                    });
                 };
 
                 let text = self.arenas[id].as_ref();
@@ -1483,8 +1640,14 @@ impl Collector {
                 Some(
                     self.find_symbol_function(members, offset, &text)
                         .map_or_else(
-                            || AssignmentLeftHandSide::CanCreate(obj, text.into()),
-                            |id| AssignmentLeftHandSide::Exists(Some(obj), id),
+                            || AssignmentLeftHandSide::CanCreate {
+                                parent: obj,
+                                new_key: text.into(),
+                            },
+                            |id| AssignmentLeftHandSide::Exists {
+                                parent: Some(obj),
+                                symbol: id,
+                            },
                         ),
                 )
             }
@@ -1498,13 +1661,14 @@ impl Collector {
                         &text,
                     )
                     .map_or_else(
-                        || {
-                            AssignmentLeftHandSide::CanCreate(
-                                Type::Table(self.root_table),
-                                text.into_boxed_str(),
-                            )
+                        || AssignmentLeftHandSide::CanCreate {
+                            parent: Type::Table(self.root_table),
+                            new_key: text.into_boxed_str(),
                         },
-                        |id| AssignmentLeftHandSide::Exists(None, id),
+                        |id| AssignmentLeftHandSide::Exists {
+                            parent: None,
+                            symbol: id,
+                        },
                     ),
                 )
             }
@@ -1515,11 +1679,11 @@ impl Collector {
         }
     }
 
-    fn binary_expression(&mut self, expr: &BinaryExpression) -> Option<ExpressionKind> {
+    fn binary_expression(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let (operator, _) = expr.operator()?;
         match operator {
             BinaryOperator::NewSlot => self.new_slot_operator(expr),
-            BinaryOperator::Assign => self.equals_operator(expr),
+            BinaryOperator::Assign => self.assign_operator(expr),
             BinaryOperator::Comma => self.comma_operator(expr),
             BinaryOperator::In => self.in_operator(expr),
             BinaryOperator::InstanceOf => Some(self.instance_of_operator(expr)),
@@ -1543,79 +1707,60 @@ impl Collector {
             BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => {
                 Some(self.logical_operator(expr))
             }
-            BinaryOperator::AddAssign | BinaryOperator::Add => todo!(),
-            BinaryOperator::SubtractAssign | BinaryOperator::Subtract => todo!(),
-            BinaryOperator::MultiplyAssign | BinaryOperator::Multiply => todo!(),
-            BinaryOperator::DivideAssign | BinaryOperator::Divide => todo!(),
-            BinaryOperator::ModuloAssign | BinaryOperator::Modulo => todo!(),
+
+            BinaryOperator::Add
+            | BinaryOperator::Subtract
+            | BinaryOperator::Multiply
+            | BinaryOperator::Divide
+            | BinaryOperator::Modulo => self.arithmetic_operator(expr, operator),
+
+            BinaryOperator::AddAssign
+            | BinaryOperator::SubtractAssign
+            | BinaryOperator::MultiplyAssign
+            | BinaryOperator::DivideAssign
+            | BinaryOperator::ModuloAssign => self.arithmetic_assign_operator(expr, operator),
         }
     }
 
-    fn to_new_slot_applicable(
-        &mut self,
-        kind: Type,
-        error_range: TextRange,
-    ) -> Option<NewSlotApplicable> {
-        Some(match kind {
-            Type::Table(id) => NewSlotApplicable::Table(id),
-            Type::Class(id) => NewSlotApplicable::Class(id),
-            Type::Instance(id) => {
-                let class = &self.arenas[id];
-                if class.get_member("_newslot").is_none() {
-                    self.diagnostics.push(Diagnostic {
-                        message: "'instance' does not support a new slot operator: class has no '_newslot' metamethod".to_owned(),
-                        range: error_range,
-                        severity: DiagnosticSeverity::Error,
-                    });
-                    return None;
-                }
-                NewSlotApplicable::Instance(id)
-            }
-            Type::Unknown => return None,
-            _ => {
-                self.diagnostics.push(Diagnostic {
-                    message: format!("'{kind}' does not support a new slot operator"),
-                    range: error_range,
-                    severity: DiagnosticSeverity::Error,
-                });
-                return None;
-            }
-        })
-    }
-
-    fn new_slot_operator(&mut self, expr: &BinaryExpression) -> Option<ExpressionKind> {
+    fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         // Do this manually so we can pass produce_parent_kind
         let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
         match left_kind {
-            Some(AssignmentLeftHandSide::CanCreate(parent, member)) => {
-                match self.to_new_slot_applicable(parent, expr.syntax().text_range()) {
-                    Some(applicable) => {
-                        let symbol = self.arenas.alloc(Symbol {
-                            typ: self.arenas.expr_to_type(right_kind),
-                            name: member.to_string(),
-                            kind: SymbolKind::Property,
-                            range: expr.syntax().text_range(),
-                        });
+            Some(AssignmentLeftHandSide::CanCreate { parent, new_key }) => {
+                let arguments = vec![
+                    Some(ExpressionKind::Literal(Type::String(None))),
+                    right_kind,
+                ];
+                let Some(container) =
+                    self.call_new_slot(parent, &arguments, expr.syntax().text_range())
+                else {
+                    return right_kind;
+                };
 
-                        self.arenas.add_container_member(
-                            applicable.into(),
-                            member.into_string(),
-                            symbol,
-                        );
+                let symbol = self.arenas.alloc(Symbol {
+                    typ: self.arenas.expr_to_type(right_kind),
+                    name: new_key.to_string(),
+                    kind: SymbolKind::Property,
+                    range: expr.syntax().text_range(),
+                });
 
-                        if let Some(right_kind) = right_kind {
-                            self.expr_kinds
-                                .insert(expr.lhs().unwrap().syntax().text_range(), right_kind);
-                        }
-                    }
-                    _ => {}
+                self.arenas
+                    .add_container_member(container, new_key.into_string(), symbol);
+
+                if let Some(right_kind) = right_kind {
+                    self.expr_kinds
+                        .insert(expr.lhs().unwrap().syntax().text_range(), right_kind);
                 }
             }
-            Some(AssignmentLeftHandSide::Exists(obj, symbol)) => {
-                if let Some(obj) = obj {
+            Some(AssignmentLeftHandSide::Exists { parent, symbol }) => {
+                if let Some(parent) = parent {
+                    let arguments = vec![
+                        Some(ExpressionKind::Literal(Type::String(None))),
+                        right_kind,
+                    ];
                     if self
-                        .to_new_slot_applicable(obj, expr.syntax().text_range())
+                        .call_new_slot(parent, &arguments, expr.syntax().text_range())
                         .is_none()
                     {
                         return right_kind;
@@ -1655,81 +1800,76 @@ impl Collector {
                     );
                 }
             }
-            _ => {}
+            Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
+                let arguments = vec![key, right_kind];
+                self.call_new_slot(parent, &arguments, expr.syntax().text_range());
+            }
+            Some(AssignmentLeftHandSide::Invalid) => {}
+            None => {}
         }
         right_kind
     }
 
-    fn equals_operator(&mut self, expr: &BinaryExpression) -> Option<ExpressionKind> {
+    fn assign_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
 
         match left_kind {
-            Some(AssignmentLeftHandSide::CanCreate(parent, _)) => match parent {
-                Type::Array(_) | Type::Class(_) | Type::Table(_) | Type::Instance(_) => {}
-                kind => {
+            Some(AssignmentLeftHandSide::CanCreate { parent, .. }) => {
+                let arguments = vec![
+                    Some(ExpressionKind::Literal(Type::String(None))),
+                    right_kind,
+                ];
+                self.call_set(parent, &arguments, expr.syntax().text_range());
+            }
+            Some(AssignmentLeftHandSide::Exists { parent, symbol }) => {
+                if !self.arenas[symbol].kind.is_modifiable() {
+                    let name = &self.arenas[symbol].name;
                     self.diagnostics.push(Diagnostic {
-                        message: format!("'{kind}' does not support an equals operator"),
+                        message: format!("Symbol '{name}' is not modifiable"),
                         range: expr.syntax().text_range(),
                         severity: DiagnosticSeverity::Error,
                     });
+                    return right_kind;
                 }
-            },
-            Some(AssignmentLeftHandSide::Exists(obj, symbol)) => {
-                match obj {
-                    Some(Type::Array(_)) => {}
 
-                    None
-                    | Some(Type::Class(_))
-                    | Some(Type::Table(_))
-                    | Some(Type::Instance(_)) => {
-                        if !self.arenas[symbol].kind.is_modifiable() {
-                            let name = &self.arenas[symbol].name;
-                            self.diagnostics.push(Diagnostic {
-                                message: format!("Symbol '{name}' is not modifiable"),
-                                range: expr.syntax().text_range(),
-                                severity: DiagnosticSeverity::Error,
-                            });
-                            return right_kind;
-                        }
-                        let typ = self.arenas.expr_to_type(right_kind);
+                let arguments = vec![
+                    Some(ExpressionKind::Literal(Type::String(None))),
+                    right_kind,
+                ];
+                if let Some(parent) = parent
+                    && !self.call_set(parent, &arguments, expr.syntax().text_range())
+                {
+                    return right_kind;
+                }
 
-                        let symbol = &mut self.arenas[symbol];
+                let typ = self.arenas.expr_to_type(right_kind);
 
-                        // Update symbol kind if it's null or unknown
-                        if matches!(symbol.typ, Type::Unknown | Type::Null)
-                            && !matches!(typ, Type::Unknown | Type::Null)
-                        {
-                            symbol.typ = typ;
+                if self.arenas[symbol].typ.should_substitute() && !typ.should_substitute() {
+                    self.arenas[symbol].typ = typ;
 
-                            self.expr_kinds.insert(
-                                expr.lhs().unwrap().syntax().text_range(),
-                                right_kind.unwrap(),
-                            );
-                        }
-                    }
-
-                    Some(kind) => {
-                        self.diagnostics.push(Diagnostic {
-                            message: format!("'{kind}' does not support an equals operator"),
-                            range: expr.syntax().text_range(),
-                            severity: DiagnosticSeverity::Error,
-                        });
-                    }
+                    self.expr_kinds.insert(
+                        expr.lhs().unwrap().syntax().text_range(),
+                        right_kind.unwrap(),
+                    );
                 }
             }
+            Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
+                let arguments = vec![key, right_kind];
+                self.call_set(parent, &arguments, expr.syntax().text_range());
+            }
 
-            _ => {}
+            Some(AssignmentLeftHandSide::Invalid) | None => {}
         }
         right_kind
     }
 
-    fn comma_operator(&mut self, expr: &BinaryExpression) -> Option<ExpressionKind> {
+    fn comma_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let (_left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
         right_kind
     }
 
-    fn in_operator(&mut self, expr: &BinaryExpression) -> Option<ExpressionKind> {
+    fn in_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
         let right = self.arenas.expr_to_type(right_kind);
 
@@ -1795,62 +1935,23 @@ impl Collector {
         let right = self.arenas.expr_to_type(right_kind);
 
         match (left, right) {
-            (Type::Null, _)
-            | (_, Type::Null)
-            | (Type::Unknown, _)
-            | (_, Type::Unknown)
+            (Type::Unknown | Type::Null, _)
+            | (_, Type::Unknown | Type::Null)
             | (Type::Integer | Type::Float, Type::Integer | Type::Float)
             | (Type::String(_), Type::String(_))
             | (Type::Boolean, Type::Boolean) => {}
-            // (SymbolKind::Table(id), _) => match self.get_delegate_member(id, "_cmp") {
-            //     Ok(id) => {
-            //         self.call_symbol_kind(expr, self.arenas[id].kind)
-            //         //
-            //     }
-            //     Err(TableDelegateError::NoDelegate) => {
-            //         self.diagnostics.push(Diagnostic {
-            //             message: "Table is uncomparable: no delegate assigned".to_owned(),
-            //             range: operator.text_range(),
-            //             severity: DiagnosticSeverity::Error,
-            //         });
-            //     }
-            //     Err(TableDelegateError::NoMember) => {
-            //         self.diagnostics.push(Diagnostic {
-            //             message: "Table is uncomparable: delegate has no '_cmp' metamethod".to_owned(),
-            //             range: operator.text_range(),
-            //             severity: DiagnosticSeverity::Error,
-            //         });
-            //     }
-            // },
-
-            // (SymbolKind::Instance(id), _) => match self.get_class_method(id, "_cmp") {
-            //     Ok(id) => {
-            //         let func = &self.arenas[id];
-            //     }
-            //     Err(ClassMethodError::NoMember) => {
-            //         self.diagnostics.push(Diagnostic {
-            //             message:
-            //                 "Instance is uncomparable: class does not define a '_cmp' metamethod"
-            //                     .to_owned(),
-            //             range: operator.text_range(),
-            //             severity: DiagnosticSeverity::Error,
-            //         });
-            //     }
-            //     Err(ClassMethodError::NotAMethod) => {
-            //         self.diagnostics.push(Diagnostic {
-            //             message: "Instance is uncomparable: class's '_call' member is not a method"
-            //                 .to_owned(),
-            //             range: operator.text_range(),
-            //             severity: DiagnosticSeverity::Error,
-            //         });
-            //     }
-            // },
             _ => {
-                self.diagnostics.push(Diagnostic {
-                    message: format!("Cannot compare '{left}' to '{right}'"),
-                    range: expr.syntax().text_range(),
-                    severity: DiagnosticSeverity::Error,
-                });
+                let arguments = vec![right_kind];
+                self.call_metamethod(
+                    left,
+                    "_cmp",
+                    &arguments,
+                    expr.syntax().text_range(),
+                    MetamethodErrors::YesBinary {
+                        keyword: "comparing",
+                        right,
+                    },
+                );
             }
         }
 
@@ -1867,45 +1968,26 @@ impl Collector {
         let right = self.arenas.expr_to_type(right_kind);
 
         match (left, right) {
-            (Type::Integer, Type::Integer) => {
-                return ExpressionKind::Literal(Type::Integer);
-            }
-            (_, Type::Unknown) => {
-                if left == Type::Integer {
-                    match right_kind {
-                        Some(ExpressionKind::Symbol(symbol)) => {
-                            self.arenas[symbol].typ = Type::Integer;
-                        }
-                        _ => {}
-                    }
-                    return ExpressionKind::Literal(Type::Integer);
-                }
-                if left == Type::Unknown {
-                    return ExpressionKind::Literal(Type::Integer);
+            (Type::Integer, Type::Integer) => {}
+            (Type::Unknown | Type::Null, Type::Unknown | Type::Null) => {}
+            (Type::Integer, Type::Unknown | Type::Null) => {
+                if let Some(ExpressionKind::Symbol(symbol)) = right_kind {
+                    self.arenas[symbol].typ = Type::Integer;
                 }
             }
-            (Type::Unknown, _) => {
-                if right == Type::Integer {
-                    match left_kind {
-                        Some(ExpressionKind::Symbol(symbol)) => {
-                            self.arenas[symbol].typ = Type::Integer;
-                        }
-                        _ => {}
-                    }
-                    return ExpressionKind::Literal(Type::Integer);
-                }
-                if right == Type::Unknown {
-                    return ExpressionKind::Literal(Type::Integer);
+            (Type::Unknown | Type::Null, Type::Integer) => {
+                if let Some(ExpressionKind::Symbol(symbol)) = left_kind {
+                    self.arenas[symbol].typ = Type::Integer;
                 }
             }
-            _ => {}
+            _ => {
+                self.diagnostics.push(Diagnostic {
+                    message: format!("'{left}' does not support bitwise operator with '{right}'"),
+                    range: expr.syntax().text_range(),
+                    severity: DiagnosticSeverity::Error,
+                });
+            }
         }
-
-        self.diagnostics.push(Diagnostic {
-            message: format!("Bitwise operator between '{left}' and '{right}' is not supported"),
-            range: expr.syntax().text_range(),
-            severity: DiagnosticSeverity::Error,
-        });
 
         ExpressionKind::Literal(Type::Integer)
     }
@@ -1915,7 +1997,104 @@ impl Collector {
         let left = self.arenas.expr_to_type(left_kind);
         let right = self.arenas.expr_to_type(right_kind);
 
-        ExpressionKind::Literal(if left == Type::Unknown { right } else { left })
+        ExpressionKind::Literal(if left.should_substitute() {
+            right
+        } else {
+            left
+        })
+    }
+
+    fn arithmetic_operator(
+        &mut self,
+        expr: &BinaryExpression,
+        operator: BinaryOperator,
+    ) -> Option<ExpressionKind> {
+        let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
+        let result =
+            self.call_arithmetic(left_kind, right_kind, operator, expr.syntax().text_range())?;
+        Some(ExpressionKind::Literal(result))
+    }
+
+    fn arithmetic_assign_operator(
+        &mut self,
+        expr: &BinaryExpression,
+        operator: BinaryOperator,
+    ) -> Option<ExpressionKind> {
+        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+        let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
+        match left_kind {
+            Some(AssignmentLeftHandSide::CanCreate { parent, .. }) => {
+                let Some(typ) = self.call_arithmetic(
+                    Some(ExpressionKind::Literal(Type::String(None))),
+                    right_kind,
+                    operator,
+                    expr.syntax().text_range(),
+                ) else {
+                    return right_kind;
+                };
+
+                let arguments = vec![
+                    Some(ExpressionKind::Literal(Type::String(None))),
+                    Some(ExpressionKind::Literal(typ)),
+                ];
+                self.call_set(parent, &arguments, expr.syntax().text_range());
+            }
+            Some(AssignmentLeftHandSide::Exists { parent, symbol }) => {
+                let Some(typ) = self.call_arithmetic(
+                    Some(ExpressionKind::Symbol(symbol)),
+                    right_kind,
+                    operator,
+                    expr.syntax().text_range(),
+                ) else {
+                    return right_kind;
+                };
+
+                if !self.arenas[symbol].kind.is_modifiable() {
+                    let name = &self.arenas[symbol].name;
+                    self.diagnostics.push(Diagnostic {
+                        message: format!("Symbol '{name}' is not modifiable"),
+                        range: expr.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    });
+                    return right_kind;
+                }
+
+                let arguments = vec![
+                    Some(ExpressionKind::Literal(Type::String(None))),
+                    Some(ExpressionKind::Literal(typ)),
+                ];
+
+                if let Some(parent) = parent
+                    && !self.call_set(parent, &arguments, expr.syntax().text_range())
+                {
+                    return right_kind;
+                }
+
+                let typ = self.arenas.expr_to_type(right_kind);
+
+                if self.arenas[symbol].typ.should_substitute() && !typ.should_substitute() {
+                    self.arenas[symbol].typ = typ;
+
+                    self.expr_kinds.insert(
+                        expr.lhs().unwrap().syntax().text_range(),
+                        right_kind.unwrap(),
+                    );
+                }
+            }
+            Some(AssignmentLeftHandSide::NonStringKey { parent, key }) => {
+                let Some(typ) =
+                    self.call_arithmetic(key, right_kind, operator, expr.syntax().text_range())
+                else {
+                    return right_kind;
+                };
+
+                let arguments = vec![key, Some(ExpressionKind::Literal(typ))];
+                self.call_set(parent, &arguments, expr.syntax().text_range());
+            }
+
+            Some(AssignmentLeftHandSide::Invalid) | None => {}
+        }
+        right_kind
     }
 
     fn conditional_expression(&mut self, expr: &ConditionalExpression) -> ExpressionKind {
@@ -1942,10 +2121,7 @@ impl Collector {
         })
     }
 
-    fn parenthesised_expression(
-        &mut self,
-        expr: &ParenthesisedExpression,
-    ) -> Option<ExpressionKind> {
+    fn parenthesised_expression(&mut self, expr: &ParenthesisedExpression) -> NullableExprKind {
         let expr = expr.inner()?;
         self.collect_expr(&expr)
     }

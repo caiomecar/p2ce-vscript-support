@@ -32,6 +32,12 @@ pub enum Type {
     Thread(FunctionId),
 }
 
+impl Type {
+    pub fn should_substitute(&self) -> bool {
+        matches!(self, Type::Unknown | Type::Null)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     Local,

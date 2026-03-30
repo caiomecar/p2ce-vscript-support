@@ -1,4 +1,5 @@
 use la_arena::{Arena, Idx};
+use rustc_hash::FxHashSet;
 
 use crate::{
     collector::ExpressionKind,
@@ -36,6 +37,7 @@ impl TryFrom<Type> for Container {
         Ok(match value {
             Type::Table(idx) => Container::Table(idx),
             Type::Class(idx) => Container::Class(idx),
+            Type::Instance(idx) => Container::Class(idx),
             Type::Enum(idx) => Container::Enum(idx),
             _ => return Err(()),
         })
@@ -52,7 +54,13 @@ impl TableData {
     pub fn get_members(&self, arenas: &Arenas) -> Vec<SymbolId> {
         let mut result: Vec<SymbolId> = self.members.values().copied().collect();
         if let Some(delegate) = self.delegate {
-            result.extend(arenas.tables[delegate].get_members(arenas));
+            let taken_names: FxHashSet<&str> = self.members.keys().map(|s| s.as_str()).collect();
+            result.extend(
+                arenas[delegate]
+                    .get_members(arenas)
+                    .into_iter()
+                    .filter(|id| !taken_names.contains(arenas[*id].name.as_str())),
+            );
         }
 
         result
