@@ -477,7 +477,7 @@ impl Collector {
             BinaryOperator::Subtract | BinaryOperator::SubtractAssign => ("_sub", "subtracting"),
             BinaryOperator::Multiply | BinaryOperator::MultiplyAssign => ("_mul", "multiplying"),
             BinaryOperator::Divide | BinaryOperator::DivideAssign => ("_div", "dividing"),
-            BinaryOperator::Modulo | BinaryOperator::ModuloAssign => ("_mod", "modulo"),
+            BinaryOperator::Modulo | BinaryOperator::ModuloAssign => ("_modulo", "modulo"),
             _ => unreachable!(),
         };
 
