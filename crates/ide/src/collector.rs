@@ -116,7 +116,7 @@ enum MetamethodErrors {
     YesBinary { keyword: &'static str, right: Type },
 }
 
-pub type RangeKindMap = FxHashMap<TextRange, ExpressionKind>;
+pub type RangeExprKindMap = FxHashMap<TextRange, ExpressionKind>;
 
 fn unquote_string(input: &str) -> String {
     if let Some(stripped) = input.strip_prefix("@\"") {
@@ -142,20 +142,20 @@ pub struct Collector {
     function: Option<FunctionId>,
     deferred_functions: VecDeque<DeferredFunction>,
 
-    expr_kinds: RangeKindMap,
+    expr_kinds: RangeExprKindMap,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl Collector {
     pub fn symbol_from_source_file(file: SourceFile) -> SourceSymbol {
         let mut arenas = Arenas::default();
-        let container = Container::Table(arenas.alloc(TableData::default()));
+        let source_table = arenas.alloc(TableData::default());
         let root_table = arenas.alloc(TableData::default());
         let const_table = arenas.alloc(TableData::default());
 
         let mut collector = Self {
             arenas,
-            container,
+            container: Container::Table(source_table),
             const_table,
             root_table,
             scope_stack: Vec::new(),
@@ -172,11 +172,13 @@ impl Collector {
             collector.collect_stmt(&stmt);
         }
 
-        let file_scope = collector.exit_scope().unwrap();
+        assert_eq!(collector.scope_stack.len(), 1);
+        let source_scope = collector.exit_scope().unwrap();
 
         while let Some(func) = collector.deferred_functions.pop_front() {
             collector.execution_range = func.execution_range;
             collector.function = Some(func.idx);
+            collector.container = func.scope_stack.last().unwrap().container;
             collector.scope_stack = func.scope_stack;
             match func.body {
                 FunctionBody::Expr(expr) => {
@@ -189,18 +191,15 @@ impl Collector {
             }
         }
 
-        SourceSymbol::new(
-            collector.diagnostics,
-            file_scope,
-            collector.arenas,
-            collector.const_table,
-            collector.root_table,
-            match collector.container {
-                Container::Table(id) => id,
-                _ => unreachable!(),
-            },
-            collector.expr_kinds,
-        )
+        SourceSymbol {
+            arenas: collector.arenas,
+            const_table,
+            root_table,
+            source_table,
+            source_scope,
+            expr_kinds: collector.expr_kinds,
+            diagnostics: collector.diagnostics,
+        }
     }
 
     fn current_scope(&mut self) -> &mut Scope {

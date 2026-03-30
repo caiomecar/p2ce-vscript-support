@@ -5,7 +5,7 @@ mod symbol;
 
 use crate::{
     arena::{Arenas, SymbolId, TableId},
-    collector::{ExpressionKind, RangeKindMap, Scope},
+    collector::{ExpressionKind, RangeExprKindMap, Scope},
 };
 pub use db::{Database, File, line_index, parse, source_symbol};
 use rustc_hash::FxHashSet;
@@ -27,39 +27,18 @@ pub enum DiagnosticSeverity {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SourceSymbol {
-    diagnostics: Vec<Diagnostic>,
-    scope: Scope,
     arenas: Arenas,
     const_table: TableId,
     root_table: TableId,
     source_table: TableId,
-    range_kind: RangeKindMap,
+    source_scope: Scope,
+    expr_kinds: RangeExprKindMap,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl SourceSymbol {
-    pub(crate) fn new(
-        diagnostics: Vec<Diagnostic>,
-        scope: Scope,
-        arenas: Arenas,
-        const_table: TableId,
-        root_table: TableId,
-        source_table: TableId,
-        range_kind: RangeKindMap,
-    ) -> SourceSymbol {
-        dbg!(&range_kind);
-        Self {
-            diagnostics,
-            scope,
-            arenas,
-            const_table,
-            root_table,
-            source_table,
-            range_kind,
-        }
-    }
-
     pub fn symbols_at(&self, offset: TextSize) -> Vec<&Symbol> {
-        let stack = self.scope.stack_at(offset);
+        let stack = self.source_scope.stack_at(offset);
         let mut taken_names = FxHashSet::default();
         let mut items = Vec::new();
 
@@ -130,12 +109,12 @@ impl SourceSymbol {
     }
 
     pub fn expr_kind_at(&self, text_range: TextRange) -> Option<ExpressionKind> {
-        self.range_kind.get(&text_range).cloned()
+        self.expr_kinds.get(&text_range).cloned()
     }
 
     pub fn type_at(&self, text_range: TextRange) -> Type {
         self.arenas
-            .expr_to_type(self.range_kind.get(&text_range).cloned())
+            .expr_to_type(self.expr_kinds.get(&text_range).cloned())
     }
 
     pub fn members_of_type(&self, kind: Type) -> Vec<&Symbol> {
