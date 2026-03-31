@@ -50,9 +50,23 @@ fn main() -> Result<()> {
 }
 
 fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
-    let _init: InitializeParams = serde_json::from_value(params)?;
+    let init: InitializeParams = serde_json::from_value(params)?;
     let mut db = Database::default();
     let mut docs: FxHashMap<Url, File> = FxHashMap::default();
+
+    if let Some(options) = init.initialization_options {
+        if let Some(path) = options["stdlibPath"].as_str() {
+            eprintln!("{}", path);
+            let texts: Vec<String> = std::fs::read_dir(path)
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("nut"))
+                .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+                .collect();
+            db.init_stdlibs(texts);
+        }
+    }
 
     for msg in &connection.receiver {
         match msg {
@@ -143,19 +157,18 @@ fn handle_request(
             let symbols = if let Some(member) = member_access {
                 // get the object (abc) — the part before the dot
                 if let Some(obj) = member.object() {
-                    let type_ = source_symbol.type_at(obj.syntax().text_range());
-
-                    source_symbol.members_of_type(type_)
+                    let typ = source_symbol.type_at(db, obj.syntax().text_range());
+                    source_symbol.members_of_type(db, typ)
                 } else {
                     Vec::new()
                 }
             } else {
-                source_symbol.symbols_at(offset)
+                source_symbol.symbols_at(db, offset)
             };
 
             let items: Vec<CompletionItem> = symbols
                 .iter()
-                .filter_map(|&symbol| {
+                .filter_map(|symbol| {
                     Some(CompletionItem {
                         label: symbol.name.clone(),
                         kind: Some(match symbol.typ {
@@ -170,6 +183,7 @@ fn handle_request(
                                 SymbolKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
                             },
                         }),
+
                         ..Default::default()
                     })
                 })

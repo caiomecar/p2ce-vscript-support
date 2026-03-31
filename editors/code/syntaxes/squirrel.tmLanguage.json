@@ -1322,18 +1322,8 @@
           "match": "(?<![_A-Za-z])in\\b"
         },
         {
-          "match": "(?<![_A-Za-z])(instanceof)(?:\\s+|\\s*(::)\\s*)([_A-Za-z]\\w*)\\b",
-          "captures": {
-            "1": {
-              "name": "keyword.operator.expression.instanceof.squirrel"
-            },
-            "2": {
-              "name": "storage.modifier.global.squirrel"
-            },
-            "3": {
-              "name": "entity.name.type.class.squirrel"
-            }
-          }
+          "name": "keyword.operator.expression.instanceof.squirrel",
+          "match": "(?<![_A-Za-z])instanceof\\b"
         },
         {
           "name": "keyword.operator.expression.typeof.squirrel",

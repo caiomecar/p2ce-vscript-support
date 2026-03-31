@@ -1,14 +1,16 @@
+use la_arena::Idx;
+use rustc_hash::{FxHashMap, FxHashSet};
+use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
 use std::{collections::VecDeque, mem::discriminant};
 
-use rustc_hash::FxHashMap;
-use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
-
 use crate::{
-    Diagnostic, DiagnosticSeverity, SourceSymbol,
+    Diagnostic, DiagnosticSeverity, File, GetMembers, SourceSymbol,
     arena::{
-        ArenaAlloc, Arenas, ArrayData, ClassData, Container, EnumData, FunctionData, FunctionId,
-        ParamsState, SymbolId, TableData, TableId,
+        ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
+        FunctionData, FunctionId, ParamsState, SourceArena, StringId, SymbolId, TableData, TableId,
     },
+    db::Db,
+    source_symbol,
     symbol::{Symbol, SymbolKind, SymbolTable, Type},
 };
 
@@ -26,7 +28,7 @@ impl Scope {
         Self {
             range,
             container,
-            locals: SymbolTable::default(),
+            locals: FxHashMap::default(),
             children: Vec::new(),
             execution_range,
         }
@@ -63,7 +65,7 @@ impl Scope {
 // function body.
 #[derive(Debug)]
 struct DeferredFunction {
-    idx: FunctionId,
+    idx: Idx<FunctionData>,
     body: FunctionBody,
     execution_range: TextRange,
     scope_stack: Vec<Scope>,
@@ -110,6 +112,12 @@ pub enum ExpressionKind {
     Symbol(SymbolId),
 }
 
+enum FindSymbol {
+    Any,
+    OnlyBefore(TextSize),
+    BeforeIfInExecutionRange(TextSize),
+}
+
 pub type NullableExprKind = Option<ExpressionKind>;
 
 enum MetamethodErrors {
@@ -133,24 +141,29 @@ fn unquote_string(input: &str) -> String {
         input.to_string()
     }
 }
-pub struct Collector {
-    arenas: Arenas,
-    container: Container,
-    const_table: TableId,
-    root_table: TableId,
+
+pub struct Collector<'db> {
+    db: &'db dyn Db,
+    file: File,
+    imports: FxHashMap<Container, Vec<File>>,
+
+    arena: SourceArena,
+    const_table: Idx<TableData>,
+    root_table: Idx<TableData>,
 
     scope_stack: Vec<Scope>,
+    container: Container,
     execution_range: TextRange,
-    function: Option<FunctionId>,
+    function: Option<Idx<FunctionData>>,
     deferred_functions: VecDeque<DeferredFunction>,
 
     expr_kinds: RangeExprKindMap,
     diagnostics: Vec<Diagnostic>,
 }
 
-impl Collector {
-    pub fn symbol_from_source_file(file: SourceFile) -> SourceSymbol {
-        let mut arenas = Arenas::default();
+impl<'db> Collector<'db> {
+    pub fn symbol_from_source_file(db: &'db dyn Db, file: File, node: SourceFile) -> SourceSymbol {
+        let mut arenas = SourceArena::default();
         // Source table is not always the root table, it depends on which entity
         // was the script executed. script_execute and non-edict entities execute stuff
         // in the root while edict entities with 'vscripts' keyvalue will have their
@@ -158,16 +171,22 @@ impl Collector {
         // This should also drive whether 'self' is present in the scope
         // TODO: Get source file's jsdoc and determine
         let source_table = arenas.alloc(TableData::default());
+        let container = Container::Table(source_table);
         let root_table = arenas.alloc(TableData::default());
         let const_table = arenas.alloc(TableData::default());
+        let mut imports = FxHashMap::default();
+        imports.insert(container, db.stdlibs().to_vec());
 
         let mut collector = Self {
-            arenas,
-            container: Container::Table(source_table),
+            db,
+            file,
+            imports,
+            container,
+            arena: arenas,
             const_table,
             root_table,
             scope_stack: Vec::new(),
-            execution_range: file.syntax().text_range(),
+            execution_range: node.syntax().text_range(),
             function: None,
             deferred_functions: VecDeque::new(),
             expr_kinds: FxHashMap::default(),
@@ -176,7 +195,7 @@ impl Collector {
 
         collector.enter_scope(collector.execution_range);
 
-        for stmt in file.statements() {
+        for stmt in node.statements() {
             collector.collect_stmt(&stmt);
         }
 
@@ -191,7 +210,7 @@ impl Collector {
             match func.body {
                 FunctionBody::Expr(expr) => {
                     let typ = collector.expr_type(&expr);
-                    collector.arenas[func.idx].ret = typ;
+                    collector.arena[func.idx].ret = typ;
                 }
                 FunctionBody::Stmt(stmt) => {
                     collector.collect_stmt(&stmt);
@@ -200,13 +219,100 @@ impl Collector {
         }
 
         SourceSymbol {
-            arenas: collector.arenas,
+            imports: collector.imports,
+            file,
+            arena: collector.arena,
             const_table,
             root_table,
             source_table,
             source_scope,
             expr_kinds: collector.expr_kinds,
             diagnostics: collector.diagnostics,
+        }
+    }
+
+    fn get<T>(&self, id: T) -> &T::Data
+    where
+        T: ArenaId,
+        SourceArena: std::ops::Index<Idx<T::Data>, Output = T::Data>,
+    {
+        if id.file() != self.file {
+            return id.get_data(self.db);
+        }
+
+        &self.arena[id.idx()]
+    }
+
+    fn get_mut<T>(&mut self, id: T) -> Option<&mut T::Data>
+    where
+        T: ArenaId,
+        SourceArena: std::ops::IndexMut<Idx<T::Data>, Output = T::Data>,
+    {
+        if id.file() != self.file {
+            return None;
+        }
+
+        Some(&mut self.arena[id.idx()])
+    }
+
+    fn symbol(&mut self, symbol: Symbol) -> SymbolId {
+        SymbolId::new(self.file, self.arena.alloc(symbol))
+    }
+
+    fn function(&mut self) -> FunctionId {
+        FunctionId::new(self.file, self.arena.alloc(FunctionData::default()))
+    }
+
+    fn class(&mut self, class: &impl IsClass) -> ClassId {
+        let expr = class.extends().and_then(|e| e.expression());
+
+        let inherits = if let Some(expr) = expr {
+            match self.expr_type(&expr) {
+                Type::Class(id) => Some(id),
+                Type::Unknown => None,
+                kind => {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!("Trying to inherit from {kind}"),
+                        range: expr.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    });
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let members = match inherits {
+            Some(id) => self.clone_members(id),
+            None => SymbolTable::default(),
+        };
+
+        ClassId::new(self.file, self.arena.alloc(ClassData { inherits, members }))
+    }
+
+    fn array(&mut self, array: ArrayData) -> ArrayId {
+        ArrayId::new(self.file, self.arena.alloc(array))
+    }
+
+    fn clone_members(&self, superclass: ClassId) -> SymbolTable {
+        let symbol = self.get(superclass);
+        let members = symbol.members.clone();
+
+        members
+    }
+
+    fn clone_type(&mut self, typ: Type) -> Type {
+        match typ {
+            Type::Table(id) => {
+                let new = TableId::new(self.file, self.arena.alloc(self.get(id).clone()));
+                Type::Table(new)
+            }
+            Type::Class(id) => {
+                let new = ClassId::new(self.file, self.arena.alloc(self.get(id).clone()));
+                Type::Class(new)
+            }
+            _ => typ,
         }
     }
 
@@ -229,6 +335,64 @@ impl Collector {
             None
         } else {
             Some(finished)
+        }
+    }
+
+    fn get_local_members(&self) -> Vec<SymbolId> {
+        self.scope_stack
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.locals.values().copied())
+            .collect()
+    }
+
+    fn get_const_members(&self) -> Vec<SymbolId> {
+        self.arena[self.const_table].get_members()
+    }
+
+    fn get_root_members(&self) -> Vec<SymbolId> {
+        self.arena[self.root_table].get_members()
+    }
+
+    fn get_current_container_members(&self) -> Vec<SymbolId> {
+        self.get_container_members(self.container)
+    }
+
+    fn get_container_members(&self, container: Container) -> Vec<SymbolId> {
+        match container {
+            Container::Table(idx) => self.arena[idx].get_members(),
+            Container::Class(idx) => self.arena[idx].get_members(),
+            Container::Enum(idx) => self.arena[idx].get_members(),
+        }
+    }
+
+    fn get_type_members(&self, typ: Type) -> Vec<SymbolId> {
+        match typ {
+            Type::Table(id) => self.get(id).get_members(),
+            Type::Class(id) => self.get(id).get_members(),
+            Type::Enum(id) => self.get(id).get_members(),
+            Type::Instance(id) => self.get(id).get_members(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn add_current_container_member(&mut self, name: String, symbol: SymbolId) {
+        self.add_container_member(self.container, name, symbol);
+    }
+
+    fn add_container_member(&mut self, container: Container, name: String, symbol: SymbolId) {
+        match container {
+            Container::Table(idx) => self.arena[idx].add_member(name, symbol),
+            Container::Class(idx) => self.arena[idx].add_member(name, symbol),
+            Container::Enum(idx) => self.arena[idx].add_member(name, symbol),
+        }
+    }
+
+    fn expr_to_type(&self, expr: NullableExprKind) -> Type {
+        match expr {
+            Some(ExpressionKind::Literal(kind)) => kind,
+            Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ,
+            None => Type::Unknown,
         }
     }
 
@@ -272,29 +436,29 @@ impl Collector {
                             ParamsState::NoDefault => {}
                         }
 
-                        let index = self.arenas.alloc(Symbol {
+                        let symbol = self.symbol(Symbol {
                             name: name.clone(),
                             typ: Type::Null,
                             kind: SymbolKind::Local,
                             range: var.syntax().text_range(),
                         });
 
-                        self.current_scope().locals.insert(name, index);
-                        self.arenas[function].params.push(index);
+                        self.current_scope().locals.insert(name, symbol);
+                        self.arena[function].params.push(symbol);
                         continue;
                     };
 
                     let typ = self.expr_type(&expr);
 
-                    let index = self.arenas.alloc(Symbol {
+                    let symbol = self.symbol(Symbol {
                         name: name.clone(),
                         typ,
                         kind: SymbolKind::Local,
                         range: var.syntax().text_range(),
                     });
 
-                    self.current_scope().locals.insert(name, index);
-                    self.arenas[function].params.push(index);
+                    self.current_scope().locals.insert(name, symbol);
+                    self.arena[function].params.push(symbol);
                     match params_state {
                         ParamsState::NoDefault => {
                             params_state = ParamsState::Default(count);
@@ -334,35 +498,7 @@ impl Collector {
             };
         }
 
-        self.arenas[function].params_state = params_state;
-    }
-
-    fn class_data(&mut self, class: &impl IsClass) -> ClassData {
-        let expr = class.extends().and_then(|e| e.expression());
-
-        let inherits = if let Some(expr) = expr {
-            match self.expr_type(&expr) {
-                Type::Class(id) => Some(id),
-                Type::Unknown => None,
-                kind => {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to inherit from {kind}"),
-                        range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
-                    });
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        let members = match inherits {
-            Some(id) => self.arenas.clone_members(id),
-            None => SymbolTable::default(),
-        };
-
-        ClassData { inherits, members }
+        self.arena[function].params_state = params_state;
     }
 
     fn call_metamethod(
@@ -375,7 +511,7 @@ impl Collector {
     ) -> Option<Type> {
         match typ {
             Type::Table(id) => {
-                let table = &self.arenas[id];
+                let table = self.get(id);
                 let Some(delegate_idx) = table.delegate else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
@@ -393,7 +529,7 @@ impl Collector {
                     return None;
                 };
 
-                let members = &self.arenas[delegate_idx].members;
+                let members = &self.get(delegate_idx).members;
                 let Some(&member) = members.get(metamethod) else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
@@ -409,10 +545,10 @@ impl Collector {
                     return None;
                 };
 
-                Some(self.call_type(self.arenas[member].typ, arguments, error_range)?)
+                Some(self.call_type(self.get(member).typ, arguments, error_range)?)
             }
             Type::Instance(id) => {
-                let class = &self.arenas[id];
+                let class = self.get(id);
                 let Some(member) = class.get_member(metamethod) else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
@@ -428,7 +564,7 @@ impl Collector {
                     return None;
                 };
 
-                Some(self.call_type(self.arenas[member].typ, arguments, error_range)?)
+                Some(self.call_type(self.get(member).typ, arguments, error_range)?)
             }
             Type::Unknown => None,
             _ => {
@@ -464,7 +600,7 @@ impl Collector {
         error_range: TextRange,
     ) -> Option<Container> {
         match typ {
-            Type::Class(id) => Some(Container::Class(id)),
+            Type::Class(id) => Some(Container::Class(id.idx())),
             Type::Table(id) => {
                 self.call_metamethod(
                     typ,
@@ -473,7 +609,7 @@ impl Collector {
                     error_range,
                     MetamethodErrors::No,
                 );
-                Some(Container::Table(id))
+                Some(Container::Table(id.idx()))
             }
             _ => {
                 self.call_metamethod(
@@ -554,8 +690,8 @@ impl Collector {
         operator: BinaryOperator,
         error_range: TextRange,
     ) -> Option<Type> {
-        let left_type = self.arenas.expr_to_type(left);
-        let right_type = self.arenas.expr_to_type(right);
+        let left_type = self.expr_to_type(left);
+        let right_type = self.expr_to_type(right);
         let (metamethod, keyword) = match operator {
             BinaryOperator::Add | BinaryOperator::AddAssign => ("_add", "adding"),
             BinaryOperator::Subtract | BinaryOperator::SubtractAssign => ("_sub", "subtracting"),
@@ -620,7 +756,7 @@ impl Collector {
                             return;
                         };
 
-                        Some(self.arenas[id].to_string())
+                        Some(self.get(id).to_string())
                     }
                     _ => None,
                 }
@@ -630,7 +766,7 @@ impl Collector {
             return;
         };
 
-        let index = self.arenas.alloc(Symbol {
+        let symbol = self.symbol(Symbol {
             name: name.clone(),
             typ: kind,
             kind: if default_value.is_some() {
@@ -640,12 +776,12 @@ impl Collector {
             },
             range: property.syntax().text_range(),
         });
-        self.arenas
-            .add_container_member(self.container, name, index);
+
+        self.add_current_container_member(name, symbol);
     }
 
     // Lambdas are processed differently
-    fn collect_function<T>(&mut self, idx: FunctionId, node: &T)
+    fn collect_function<T>(&mut self, idx: Idx<FunctionData>, node: &T)
     where
         T: IsFunction,
     {
@@ -681,33 +817,31 @@ impl Collector {
         match member {
             Member::Property(property) => self.collect_property(property, None),
             Member::Method(method) => {
-                let idx = self.arenas.alloc(FunctionData::default());
+                let function = self.function();
                 if let Some(name) = method.name().and_then(|n| n.text()) {
-                    let symbol = self.arenas.alloc(Symbol {
+                    let symbol = self.symbol(Symbol {
                         name: name.clone(),
-                        typ: Type::Function(idx),
+                        typ: Type::Function(function),
                         kind: SymbolKind::Property,
                         range: method.syntax().text_range(),
                     });
-                    self.arenas
-                        .add_container_member(self.container, name, symbol);
+                    self.add_current_container_member(name, symbol);
                 }
-                self.collect_function(idx, method);
+                self.collect_function(function.idx(), method);
             }
             Member::Constructor(constructor) => {
-                let idx = self.arenas.alloc(FunctionData::default());
+                let function = self.function();
 
-                let symbol = self.arenas.alloc(Symbol {
+                let symbol = self.symbol(Symbol {
                     name: "constructor".to_owned(),
-                    typ: Type::Function(idx),
+                    typ: Type::Function(function),
                     kind: SymbolKind::Property,
                     range: constructor.syntax().text_range(),
                 });
 
-                self.arenas
-                    .add_container_member(self.container, "constructor".to_owned(), symbol);
+                self.add_current_container_member("constructor".to_owned(), symbol);
 
-                self.collect_function(idx, constructor);
+                self.collect_function(function.idx(), constructor);
             }
         }
     }
@@ -750,43 +884,42 @@ impl Collector {
             };
 
             let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
-                let index = self.arenas.alloc(Symbol {
+                let id = self.symbol(Symbol {
                     name: name.clone(),
                     typ: Type::Null,
                     kind: SymbolKind::Local,
                     range: var.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, index);
+                self.current_scope().locals.insert(name, id);
                 continue;
             };
 
             let typ = self.expr_type(&expr);
-
-            let index = self.arenas.alloc(Symbol {
+            let id = self.symbol(Symbol {
                 name: name.clone(),
                 typ,
                 kind: SymbolKind::Local,
                 range: var.syntax().text_range(),
             });
 
-            self.current_scope().locals.insert(name, index);
+            self.current_scope().locals.insert(name, id);
         }
     }
 
     fn local_function(&mut self, decl: &LocalFunctionDeclaration) {
-        let idx = self.arenas.alloc(FunctionData::default());
+        let id = self.function();
         if let Some(name) = decl.name().and_then(|n| n.text()) {
-            let symbol = self.arenas.alloc(Symbol {
+            let symbol = self.symbol(Symbol {
                 name: name.clone(),
-                typ: Type::Function(idx),
+                typ: Type::Function(id),
                 kind: SymbolKind::Local,
                 range: decl.syntax().text_range(),
             });
 
             self.current_scope().locals.insert(name, symbol);
         }
-        self.collect_function(idx, decl);
+        self.collect_function(id.idx(), decl);
     }
     fn block_statement(&mut self, stmt: &BlockStatement) {
         self.enter_scope(stmt.syntax().text_range());
@@ -806,13 +939,13 @@ impl Collector {
             return;
         };
 
-        let index = self.arenas.alloc(Symbol {
+        let symbol = self.symbol(Symbol {
             name: name.clone(),
             typ,
             kind: SymbolKind::Constant,
             range: stmt.syntax().text_range(),
         });
-        self.arenas[self.const_table].add_member(name, index);
+        self.arena[self.const_table].add_member(name, symbol);
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
@@ -829,35 +962,35 @@ impl Collector {
 
         let (key_type, value_type) = match iterable {
             Type::Array(id) => {
-                let array = &self.arenas[id];
-                (Type::Integer, array.kind)
+                let array = self.get(id);
+                (Type::Integer, array.typ)
             }
             _ => (Type::String(None), Type::Unknown),
         };
 
         if let Some(key) = stmt.key() {
             if let Some(name) = key.name().and_then(|n| n.text()) {
-                let index = self.arenas.alloc(Symbol {
+                let symbol = self.symbol(Symbol {
                     name: name.clone(),
                     typ: key_type,
                     kind: SymbolKind::Local,
                     range: key.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, index);
+                self.current_scope().locals.insert(name, symbol);
             }
         }
 
         if let Some(value) = stmt.value() {
             if let Some(name) = value.name().and_then(|n| n.text()) {
-                let index = self.arenas.alloc(Symbol {
+                let symbol = self.symbol(Symbol {
                     name: name.clone(),
                     typ: value_type,
                     kind: SymbolKind::Local,
                     range: value.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, index);
+                self.current_scope().locals.insert(name, symbol);
             }
         }
 
@@ -882,18 +1015,17 @@ impl Collector {
     }
 
     fn class_statement(&mut self, stmt: &ClassStatement) {
-        let class_data = self.class_data(stmt);
-        let id = self.arenas.alloc(class_data);
+        let class = self.class(stmt);
 
         let name = stmt.name().and_then(|n| self.assignment_lhs(&n));
         self.do_new_slot(
             name,
-            Some(ExpressionKind::Literal(Type::Class(id))),
+            Some(ExpressionKind::Literal(Type::Class(class))),
             stmt.syntax().text_range(),
         );
 
         let save_symbol = self.container;
-        self.container = Container::Class(id);
+        self.container = Container::Class(class.idx());
         for member in stmt.members() {
             self.collect_member(&member);
         }
@@ -901,67 +1033,66 @@ impl Collector {
     }
 
     fn function_statement(&mut self, stmt: &FunctionStatement) {
-        let idx = self.arenas.alloc(FunctionData::default());
+        let function = self.function();
 
         let Some(qualified_name) = stmt.name() else {
-            self.collect_function(idx, stmt);
+            self.collect_function(function.idx(), stmt);
             return;
         };
 
         let mut names: Vec<Name> = qualified_name.names().collect();
 
         let Some(final_name) = names.pop().and_then(|n| n.text()) else {
-            self.collect_function(idx, stmt);
+            self.collect_function(function.idx(), stmt);
             return;
         };
 
         if names.is_empty() {
             // Plain `function abc()`: declare in current container
-            let symbol = self.arenas.alloc(Symbol {
+            let symbol = self.symbol(Symbol {
                 name: final_name.clone(),
-                typ: Type::Function(idx),
+                typ: Type::Function(function),
                 kind: SymbolKind::Property,
                 range: stmt.syntax().text_range(),
             });
-            self.arenas
-                .add_container_member(self.container, final_name, symbol);
+            self.add_current_container_member(final_name, symbol);
 
-            self.collect_function(idx, stmt);
+            self.collect_function(function.idx(), stmt);
             return;
         }
         let Some(text) = names[0].text() else {
-            self.collect_function(idx, stmt);
+            self.collect_function(function.idx(), stmt);
             return;
         };
 
         let offset = qualified_name.syntax().text_range().end();
 
-        let members = self.find_symbol_function(
-            self.arenas.get_container_members(self.container),
-            offset,
+        let members = self.find_symbol(
+            self.get_current_container_members(),
+            FindSymbol::BeforeIfInExecutionRange(offset),
             &text,
         );
 
         let root = || {
-            self.find_symbol_function(
-                self.arenas[self.root_table].get_members(&self.arenas),
-                offset,
+            self.find_symbol(
+                self.get_root_members(),
+                FindSymbol::BeforeIfInExecutionRange(offset),
                 &text,
             )
         };
 
         let Some(expr_kind) = members.or_else(root).map(|id| ExpressionKind::Symbol(id)) else {
-            self.collect_function(idx, stmt);
+            self.collect_function(function.idx(), stmt);
             return;
         };
 
-        let mut typ = self.arenas.expr_to_type(Some(expr_kind));
+        let mut typ = self.expr_to_type(Some(expr_kind));
         let key = names[0].syntax().text_range();
         self.expr_kinds.insert(key, expr_kind);
 
         for segment in &names[1..] {
             let Some(text) = segment.text() else {
-                self.collect_function(idx, stmt);
+                self.collect_function(function.idx(), stmt);
                 return;
             };
 
@@ -972,63 +1103,66 @@ impl Collector {
 
             let Some(container) = self.call_new_slot(typ, &arguments, stmt.syntax().text_range())
             else {
-                self.collect_function(idx, stmt);
+                self.collect_function(function.idx(), stmt);
                 return;
             };
 
             let Some(expr_kind) = self
-                .find_symbol_function(self.arenas.get_container_members(container), offset, &text)
+                .find_symbol(
+                    self.get_container_members(container),
+                    FindSymbol::BeforeIfInExecutionRange(offset),
+                    &text,
+                )
                 .map(|id| ExpressionKind::Symbol(id))
             else {
-                self.collect_function(idx, stmt);
+                self.collect_function(function.idx(), stmt);
                 return;
             };
 
-            typ = self.arenas.expr_to_type(Some(expr_kind));
+            typ = self.expr_to_type(Some(expr_kind));
             let key = segment.syntax().text_range();
             self.expr_kinds.insert(key, expr_kind);
         }
 
         let arguments = vec![
             Some(ExpressionKind::Literal(Type::String(None))),
-            Some(ExpressionKind::Literal(Type::Function(idx))),
+            Some(ExpressionKind::Literal(Type::Function(function))),
         ];
 
         let Some(container) = self.call_new_slot(typ, &arguments, stmt.syntax().text_range())
         else {
-            self.collect_function(idx, stmt);
+            self.collect_function(function.idx(), stmt);
             return;
         };
 
-        let symbol = self.arenas.alloc(Symbol {
+        let symbol = self.symbol(Symbol {
             name: final_name.clone(),
-            typ: Type::Function(idx),
+            typ: Type::Function(function),
             kind: SymbolKind::Property,
             range: stmt.syntax().text_range(),
         });
 
-        self.arenas
-            .add_container_member(container, final_name, symbol);
+        self.add_container_member(container, final_name, symbol);
 
-        self.collect_function(idx, stmt);
+        self.collect_function(function.idx(), stmt);
     }
 
     fn enum_statement(&mut self, stmt: &EnumStatement) {
-        let idx = self.arenas.alloc(EnumData::default());
+        let enum_ = EnumId::new(self.file, self.arena.alloc(EnumData::default()));
 
         if let Some(name) = stmt.name().and_then(|n| n.text()) {
-            let symbol = self.arenas.alloc(Symbol {
+            let symbol = self.symbol(Symbol {
                 name: name.clone(),
-                typ: Type::Enum(idx),
+                typ: Type::Enum(enum_),
                 kind: SymbolKind::Enum,
                 range: stmt.syntax().text_range(),
             });
 
-            self.arenas[self.const_table].add_member(name, symbol);
+            self.arena[self.const_table].add_member(name, symbol);
         }
 
         let save_symbol = self.container;
-        self.container = Container::Enum(idx);
+        self.container = Container::Enum(enum_.idx());
         for (value, property) in stmt.members().enumerate() {
             self.collect_property(&property, Some(value));
         }
@@ -1150,14 +1284,14 @@ impl Collector {
             return;
         };
 
-        if !matches!(self.arenas[function].ret, Type::Unknown | Type::Null) {
+        if !matches!(self.arena[function].ret, Type::Unknown | Type::Null) {
             return;
         }
 
         match kind {
             None | Some(Type::Unknown) => {}
             Some(kind) => {
-                self.arenas[function].ret = kind;
+                self.arena[function].ret = kind;
             }
         }
     }
@@ -1178,8 +1312,8 @@ impl Collector {
             return;
         };
 
-        if self.arenas[function].yielding.is_none() {
-            self.arenas[function].yielding = Some(kind);
+        if self.arena[function].yielding.is_none() {
+            self.arena[function].yielding = Some(kind);
         }
     }
 
@@ -1202,14 +1336,14 @@ impl Collector {
 
         if let Some(binding) = catch.binding() {
             if let Some(name) = binding.name().and_then(|n| n.text()) {
-                let index = self.arenas.alloc(Symbol {
+                let symbol = self.symbol(Symbol {
                     typ: Type::String(None),
                     name: name.clone(),
                     kind: SymbolKind::Local,
                     range: binding.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, index);
+                self.current_scope().locals.insert(name, symbol);
             };
         }
 
@@ -1230,14 +1364,14 @@ impl Collector {
             return;
         };
 
-        if self.arenas[function].throwing.is_none() {
-            self.arenas[function].throwing = Some(kind);
+        if self.arena[function].throwing.is_none() {
+            self.arena[function].throwing = Some(kind);
         }
     }
 
     fn expr_type(&mut self, expr: &Expr) -> Type {
         let kind = self.collect_expr(expr);
-        self.arenas.expr_to_type(kind)
+        self.expr_to_type(kind)
     }
 
     fn collect_expr(&mut self, expr: &Expr) -> NullableExprKind {
@@ -1284,10 +1418,13 @@ impl Collector {
             LiteralExpressionKind::Character => ExpressionKind::Literal(Type::Integer),
             LiteralExpressionKind::Float => ExpressionKind::Literal(Type::Float),
             LiteralExpressionKind::String | LiteralExpressionKind::VerbatimString => {
-                let id = self
-                    .arenas
-                    .alloc(unquote_string(token.text()).into_boxed_str());
-                ExpressionKind::Literal(Type::String(Some(id)))
+                let string = StringId::new(
+                    self.file,
+                    self.arena
+                        .alloc(unquote_string(token.text()).into_boxed_str()),
+                );
+
+                ExpressionKind::Literal(Type::String(Some(string)))
             }
             LiteralExpressionKind::Null => ExpressionKind::Literal(Type::Null),
             LiteralExpressionKind::True => ExpressionKind::Literal(Type::Boolean),
@@ -1296,47 +1433,44 @@ impl Collector {
     }
 
     fn table_literal_expression(&mut self, expr: &TableLiteralExpression) -> ExpressionKind {
-        let id = self.arenas.alloc(TableData::default());
+        let table = TableId::new(self.file, self.arena.alloc(TableData::default()));
         let save_symbol = self.container;
-        self.container = Container::Table(id);
+        self.container = Container::Table(table.idx());
         for member in expr.members() {
             self.collect_member(&member);
         }
         self.container = save_symbol;
 
-        ExpressionKind::Literal(Type::Table(id))
+        ExpressionKind::Literal(Type::Table(table))
     }
 
     fn class_expression(&mut self, expr: &ClassExpression) -> ExpressionKind {
-        let class_data = self.class_data(expr);
-        let id = self.arenas.alloc(class_data);
+        let class = self.class(expr);
 
         let save_symbol = self.container;
-        self.container = Container::Class(id);
+        self.container = Container::Class(class.idx());
         for member in expr.members() {
             self.collect_member(&member);
         }
         self.container = save_symbol;
 
-        ExpressionKind::Literal(Type::Class(id))
+        ExpressionKind::Literal(Type::Class(class))
     }
 
     fn array_literal_expression(&mut self, expr: &ArrayLiteralExpression) -> ExpressionKind {
-        let mut kinds = expr.elements().map(|element| self.expr_type(&element));
+        let mut types = expr.elements().map(|element| self.expr_type(&element));
 
-        let Some(kind) = kinds.next() else {
-            return ExpressionKind::Literal(Type::Array(self.arenas.alloc(ArrayData {
-                kind: Type::Unknown,
-            })));
+        let Some(typ) = types.next() else {
+            return ExpressionKind::Literal(Type::Array(
+                self.array(ArrayData { typ: Type::Unknown }),
+            ));
         };
 
         ExpressionKind::Literal(
-            if kinds.all(|k| std::mem::discriminant(&k) == std::mem::discriminant(&kind)) {
-                Type::Array(self.arenas.alloc(ArrayData { kind }))
+            if types.all(|t| std::mem::discriminant(&t) == std::mem::discriminant(&typ)) {
+                Type::Array(self.array(ArrayData { typ }))
             } else {
-                Type::Array(self.arenas.alloc(ArrayData {
-                    kind: Type::Unknown,
-                }))
+                Type::Array(self.array(ArrayData { typ: Type::Unknown }))
             },
         )
     }
@@ -1344,98 +1478,180 @@ impl Collector {
     fn find_symbol(
         &self,
         iter: impl IntoIterator<Item = SymbolId>,
-        offset: TextSize,
+        settings: FindSymbol,
         text: &str,
     ) -> Option<SymbolId> {
-        iter.into_iter().find(|idx| {
-            let symbol = &self.arenas[*idx];
-            if symbol.range.end() >= offset || text != symbol.name {
-                return false;
-            }
-            true
-        })
-    }
-
-    fn find_symbol_function(
-        &self,
-        iter: impl IntoIterator<Item = SymbolId>,
-        offset: TextSize,
-        text: &str,
-    ) -> Option<SymbolId> {
-        iter.into_iter().find(|idx| {
-            let symbol = &self.arenas[*idx];
-            if self.execution_range.contains_range(symbol.range) && symbol.range.end() >= offset
-                || text != symbol.name
-            {
-                return false;
-            }
-            true
-        })
+        match settings {
+            FindSymbol::Any => iter.into_iter().find(|symbol| {
+                let symbol = self.get(*symbol);
+                text == symbol.name
+            }),
+            FindSymbol::OnlyBefore(offset) => iter.into_iter().find(|symbol| {
+                let symbol = self.get(*symbol);
+                symbol.range.end() < offset && text == symbol.name
+            }),
+            FindSymbol::BeforeIfInExecutionRange(offset) => iter.into_iter().find(|symbol| {
+                let symbol = self.get(*symbol);
+                (!self.execution_range.contains_range(symbol.range) || symbol.range.end() < offset)
+                    && text == symbol.name
+            }),
+        }
     }
 
     fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
         let text = expr.text()?;
         let offset = expr.syntax().text_range().end();
-        let locals = self.find_symbol(
-            self.scope_stack
-                .iter()
-                .rev()
-                .flat_map(|scope| scope.locals.values().copied()),
-            offset,
+        if let Some(symbol) = self.find_symbol(
+            self.get_local_members(),
+            FindSymbol::OnlyBefore(offset),
             &text,
-        );
+        ) {
+            return Some(ExpressionKind::Symbol(symbol));
+        }
 
-        let consts = || {
-            self.find_symbol(
-                self.arenas[self.const_table].get_members(&self.arenas),
-                offset,
-                &text,
-            )
-        };
+        if let Some(symbol) = self.find_symbol(
+            self.get_const_members(),
+            FindSymbol::OnlyBefore(offset),
+            &text,
+        ) {
+            return Some(ExpressionKind::Symbol(symbol));
+        }
 
-        let members = || {
-            self.find_symbol_function(
-                self.arenas.get_container_members(self.container),
-                offset,
-                &text,
-            )
-        };
+        let mut already_included = FxHashSet::default();
+        already_included.insert(self.file);
+        for imports in self.imports.values() {
+            for import in imports {
+                let source_symbol = source_symbol(self.db, *import);
+                let Some(symbol) = self.find_symbol(
+                    source_symbol.get_members(
+                        self.db,
+                        self.file,
+                        &mut already_included,
+                        GetMembers::Const,
+                    ),
+                    FindSymbol::Any,
+                    &text,
+                ) else {
+                    continue;
+                };
 
-        let root = || {
-            self.find_symbol_function(
-                self.arenas[self.root_table].get_members(&self.arenas),
-                offset,
-                &text,
-            )
-        };
+                return Some(ExpressionKind::Symbol(symbol));
+            }
+        }
 
-        Some(ExpressionKind::Symbol(
-            locals.or_else(consts).or_else(members).or_else(root)?,
-        ))
+        if let Some(symbol) = self.find_symbol(
+            self.get_current_container_members(),
+            FindSymbol::BeforeIfInExecutionRange(offset),
+            &text,
+        ) {
+            return Some(ExpressionKind::Symbol(symbol));
+        }
+
+        let mut already_included = FxHashSet::default();
+        already_included.insert(self.file);
+        if let Some(imports) = self.imports.get(&self.container) {
+            for import in imports {
+                let source_symbol = source_symbol(self.db, *import);
+                let Some(symbol) = self.find_symbol(
+                    source_symbol.get_members(
+                        self.db,
+                        self.file,
+                        &mut already_included,
+                        GetMembers::Source,
+                    ),
+                    FindSymbol::Any,
+                    &text,
+                ) else {
+                    continue;
+                };
+
+                return Some(ExpressionKind::Symbol(symbol));
+            }
+        }
+
+        if let Some(symbol) = self.find_symbol(
+            self.get_root_members(),
+            FindSymbol::BeforeIfInExecutionRange(offset),
+            &text,
+        ) {
+            return Some(ExpressionKind::Symbol(symbol));
+        }
+
+        let mut already_included = FxHashSet::default();
+        already_included.insert(self.file);
+        for imports in self.imports.values() {
+            for import in imports {
+                let source_symbol = source_symbol(self.db, *import);
+
+                let Some(symbol) = self.find_symbol(
+                    source_symbol.get_members(
+                        self.db,
+                        self.file,
+                        &mut already_included,
+                        GetMembers::Root,
+                    ),
+                    FindSymbol::Any,
+                    &text,
+                ) else {
+                    continue;
+                };
+
+                return Some(ExpressionKind::Symbol(symbol));
+            }
+        }
+
+        None
     }
 
     fn this_expression(&self, _expr: &ThisExpression) -> ExpressionKind {
         ExpressionKind::Literal(match self.container {
-            Container::Class(id) => Type::Class(id),
-            Container::Table(id) => Type::Table(id),
-            Container::Enum(id) => Type::Enum(id),
+            Container::Class(idx) => Type::Class(ClassId::new(self.file, idx)),
+            Container::Table(idx) => Type::Table(TableId::new(self.file, idx)),
+            Container::Enum(idx) => Type::Enum(EnumId::new(self.file, idx)),
         })
     }
 
     fn root_access_expression(&mut self, expr: &RootAccessExpression) -> NullableExprKind {
         let text = expr.name()?.text()?;
         let offset = expr.syntax().text_range().end();
-        Some(ExpressionKind::Symbol(self.find_symbol_function(
-            self.arenas[self.root_table].get_members(&self.arenas),
-            offset,
+
+        if let Some(symbol) = self.find_symbol(
+            self.get_root_members(),
+            FindSymbol::BeforeIfInExecutionRange(offset),
             &text,
-        )?))
+        ) {
+            return Some(ExpressionKind::Symbol(symbol));
+        }
+
+        let mut already_included = FxHashSet::default();
+        already_included.insert(self.file);
+        for imports in self.imports.values() {
+            for import in imports {
+                let source_symbol = source_symbol(self.db, *import);
+                let Some(symbol) = self.find_symbol(
+                    source_symbol.get_members(
+                        self.db,
+                        self.file,
+                        &mut already_included,
+                        GetMembers::Root,
+                    ),
+                    FindSymbol::Any,
+                    &text,
+                ) else {
+                    continue;
+                };
+
+                return Some(ExpressionKind::Symbol(symbol));
+            }
+        }
+
+        None
     }
 
     fn base_expression(&mut self, expr: &BaseExpression) -> ExpressionKind {
         match self.container {
             Container::Class(id) => {
-                let class = &self.arenas[id];
+                let class = &self.arena[id];
                 if let Some(inherits) = class.inherits {
                     ExpressionKind::Literal(Type::Class(inherits))
                 } else {
@@ -1463,12 +1679,38 @@ impl Collector {
         let obj = self.expr_type(&expr.object()?);
         let text = expr.member_part()?.name()?.text()?;
 
-        let members = self.arenas.get_type_members(obj);
+        let members = self.get_type_members(obj);
 
         let offset = expr.syntax().text_range().end();
-        Some(ExpressionKind::Symbol(
-            self.find_symbol_function(members, offset, &text)?,
-        ))
+        if let Some(symbol) =
+            self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
+        {
+            return Some(ExpressionKind::Symbol(symbol));
+        };
+
+        Container::try_from(obj).ok().and_then(|c| {
+            let mut already_included = FxHashSet::default();
+            already_included.insert(self.file);
+            let imports = self.imports.get(&c)?;
+            for import in imports {
+                let source_symbol = source_symbol(self.db, *import);
+                let Some(symbol) = self.find_symbol(
+                    source_symbol.get_members(
+                        self.db,
+                        self.file,
+                        &mut already_included,
+                        GetMembers::Source,
+                    ),
+                    FindSymbol::Any,
+                    &text,
+                ) else {
+                    continue;
+                };
+
+                return Some(ExpressionKind::Symbol(symbol));
+            }
+            None
+        })
     }
 
     fn element_access_expression(&mut self, expr: &ElementAccessExpression) -> NullableExprKind {
@@ -1478,13 +1720,39 @@ impl Collector {
             return None;
         };
 
-        let text = self.arenas[id].as_ref();
-        let members = self.arenas.get_type_members(obj);
+        let text = self.get(id).as_ref();
+        let members = self.get_type_members(obj);
 
         let offset = expr.syntax().text_range().end();
-        Some(ExpressionKind::Symbol(
-            self.find_symbol_function(members, offset, &text)?,
-        ))
+        if let Some(symbol) =
+            self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
+        {
+            return Some(ExpressionKind::Symbol(symbol));
+        };
+
+        Container::try_from(obj).ok().and_then(|c| {
+            let mut already_included = FxHashSet::default();
+            already_included.insert(self.file);
+            let imports = self.imports.get(&c)?;
+            for import in imports {
+                let source_symbol = source_symbol(self.db, *import);
+                let Some(symbol) = self.find_symbol(
+                    source_symbol.get_members(
+                        self.db,
+                        self.file,
+                        &mut already_included,
+                        GetMembers::Source,
+                    ),
+                    FindSymbol::Any,
+                    &text,
+                ) else {
+                    continue;
+                };
+
+                return Some(ExpressionKind::Symbol(symbol));
+            }
+            None
+        })
     }
 
     fn call_type(
@@ -1495,9 +1763,9 @@ impl Collector {
     ) -> Option<Type> {
         match callable {
             Type::Function(id) => {
-                let is_variadic = matches!(&self.arenas[id].params_state, ParamsState::VarArgs(_));
+                let is_variadic = matches!(self.get(id).params_state, ParamsState::VarArgs(_));
                 for (count, argument_kind) in arguments.iter().cloned().enumerate() {
-                    let Some(&param) = self.arenas[id].params.get(count) else {
+                    let Some(&param) = self.get(id).params.get(count) else {
                         if !is_variadic {
                             self.diagnostics.push(Diagnostic {
                                 message: "Passing more parameters than possible".to_owned(),
@@ -1508,21 +1776,22 @@ impl Collector {
                         continue;
                     };
 
-                    match (
-                        self.arenas.expr_to_type(argument_kind),
-                        self.arenas[param].typ,
-                    ) {
+                    match (self.expr_to_type(argument_kind), self.get(param).typ) {
                         (Type::Unknown | Type::Null, required_kind) => {
                             // If passed in parameter has type of unknown
                             // we can coerce it to be the type of a required parameter
                             if let Some(ExpressionKind::Symbol(id)) = argument_kind
                                 && !required_kind.should_substitute()
                             {
-                                self.arenas[id].typ = required_kind;
+                                if let Some(symbol) = self.get_mut(id) {
+                                    symbol.typ = required_kind;
+                                }
                             }
                         }
                         (passed, Type::Unknown | Type::Null) => {
-                            self.arenas[param].typ = passed;
+                            if let Some(symbol) = self.get_mut(param) {
+                                symbol.typ = passed;
+                            }
                         }
 
                         (Type::Integer | Type::Float, Type::Integer | Type::Float) => {}
@@ -1539,8 +1808,8 @@ impl Collector {
                     }
                 }
 
-                let enough_parameters = match self.arenas[id].params_state {
-                    ParamsState::NoDefault => arguments.len() == self.arenas[id].params.len(),
+                let enough_parameters = match self.get(id).params_state {
+                    ParamsState::NoDefault => arguments.len() == self.get(id).params.len(),
                     ParamsState::Default(from) | ParamsState::VarArgs(from) => {
                         arguments.len() >= from
                     }
@@ -1554,16 +1823,16 @@ impl Collector {
                     });
                 }
 
-                Some(if self.arenas[id].yielding.is_some() {
+                Some(if self.get(id).yielding.is_some() {
                     Type::Generator(id)
                 } else {
-                    self.arenas.clone_type(self.arenas[id].ret)
+                    self.clone_type(self.get(id).ret)
                 })
             }
             Type::Class(id) => {
-                let class = &self.arenas[id];
+                let class = self.get(id);
                 if let Some(symbol) = class.get_member("constructor") {
-                    self.call_type(self.arenas[symbol].typ, arguments, error_range);
+                    self.call_type(self.get(symbol).typ, arguments, error_range);
                 } else if arguments.len() != 0 {
                     self.diagnostics.push(Diagnostic {
                         message: "Default constructor should have no parameters".to_owned(),
@@ -1605,7 +1874,7 @@ impl Collector {
     fn clone_expression(&mut self, expr: &CloneExpression) -> NullableExprKind {
         let operand = expr.operand()?;
         let kind = self.expr_type(&operand);
-        Some(ExpressionKind::Literal(self.arenas.clone_type(kind)))
+        Some(ExpressionKind::Literal(self.clone_type(kind)))
     }
 
     fn extract_lhs_and_rhs(
@@ -1624,11 +1893,8 @@ impl Collector {
                 let offset = expr.syntax().text_range().end();
 
                 let locals = self.find_symbol(
-                    self.scope_stack
-                        .iter()
-                        .rev()
-                        .flat_map(|scope| scope.locals.values().copied()),
-                    offset,
+                    self.get_local_members(),
+                    FindSymbol::OnlyBefore(offset),
                     &text,
                 );
 
@@ -1641,49 +1907,49 @@ impl Collector {
                 }
 
                 let consts = self.find_symbol(
-                    self.arenas[self.const_table].get_members(&self.arenas),
-                    offset,
+                    self.get_const_members(),
+                    FindSymbol::OnlyBefore(offset),
                     &text,
                 );
 
                 if let Some(symbol) = consts {
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(Type::Table(self.const_table)),
+                        parent: Some(Type::Table(TableId::new(self.file, self.const_table))),
                         range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
 
-                let members = self.find_symbol_function(
-                    self.arenas.get_container_members(self.container),
-                    offset,
+                let members = self.find_symbol(
+                    self.get_current_container_members(),
+                    FindSymbol::BeforeIfInExecutionRange(offset),
                     &text,
                 );
 
                 if let Some(symbol) = members {
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(self.container.into()),
+                        parent: Some(self.container.to_type(self.file)),
                         range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
 
-                let root = self.find_symbol_function(
-                    self.arenas[self.root_table].get_members(&self.arenas),
-                    offset,
+                let root = self.find_symbol(
+                    self.get_root_members(),
+                    FindSymbol::BeforeIfInExecutionRange(offset),
                     &text,
                 );
 
                 if let Some(symbol) = root {
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(Type::Table(self.root_table)),
+                        parent: Some(Type::Table(TableId::new(self.file, self.root_table))),
                         range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
 
                 Some(AssignmentLeftHandSide::CanCreate {
-                    parent: self.container.into(),
+                    parent: self.container.to_type(self.file),
                     range: expr.syntax().text_range(),
                     new_key: text.into_boxed_str(),
                 })
@@ -1692,11 +1958,11 @@ impl Collector {
                 let obj = self.expr_type(&expr.object()?);
                 let text = expr.member_part()?.name()?.text()?;
 
-                let members = self.arenas.get_type_members(obj);
+                let members = self.get_type_members(obj);
 
                 let offset = expr.syntax().text_range().end();
                 Some(
-                    self.find_symbol_function(members, offset, &text)
+                    self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
@@ -1715,7 +1981,7 @@ impl Collector {
                 let obj = self.expr_type(&expr.object()?);
                 let index = expr.index()?.expression()?;
                 let index_kind = self.collect_expr(&index);
-                let Type::String(Some(id)) = self.arenas.expr_to_type(index_kind) else {
+                let Type::String(Some(id)) = self.expr_to_type(index_kind) else {
                     return Some(AssignmentLeftHandSide::NonStringKey {
                         parent: obj,
                         range: expr.syntax().text_range(),
@@ -1723,12 +1989,12 @@ impl Collector {
                     });
                 };
 
-                let text = self.arenas[id].as_ref();
-                let members = self.arenas.get_type_members(obj);
+                let text = self.get(id).as_ref();
+                let members = self.get_type_members(obj);
 
                 let offset = expr.syntax().text_range().end();
                 Some(
-                    self.find_symbol_function(members, offset, &text)
+                    self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
@@ -1747,14 +2013,14 @@ impl Collector {
                 let text = expr.name()?.text()?;
                 let offset = expr.syntax().text_range().end();
                 Some(
-                    self.find_symbol_function(
-                        self.arenas[self.root_table].get_members(&self.arenas),
-                        offset,
+                    self.find_symbol(
+                        self.get_root_members(),
+                        FindSymbol::BeforeIfInExecutionRange(offset),
                         &text,
                     )
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
-                            parent: Type::Table(self.root_table),
+                            parent: Type::Table(TableId::new(self.file, self.root_table)),
                             range: expr.syntax().text_range(),
                             new_key: text.into_boxed_str(),
                         },
@@ -1839,15 +2105,14 @@ impl Collector {
                     return right_kind;
                 };
 
-                let symbol = self.arenas.alloc(Symbol {
-                    typ: self.arenas.expr_to_type(right_kind),
+                let symbol = self.symbol(Symbol {
+                    typ: self.expr_to_type(right_kind),
                     name: new_key.to_string(),
                     kind: SymbolKind::Property,
                     range: expr_range,
                 });
 
-                self.arenas
-                    .add_container_member(container, new_key.into_string(), symbol);
+                self.add_container_member(container, new_key.into_string(), symbol);
 
                 if let Some(right_kind) = right_kind {
                     self.expr_kinds.insert(range, right_kind);
@@ -1869,7 +2134,7 @@ impl Collector {
                 }
 
                 if matches!(
-                    self.arenas[symbol].kind,
+                    self.get(symbol).kind,
                     SymbolKind::Local | SymbolKind::Constant | SymbolKind::Enum
                 ) {
                     // ```
@@ -1885,9 +2150,11 @@ impl Collector {
                     return right_kind;
                 }
 
-                let typ = self.arenas.expr_to_type(right_kind);
+                let typ = self.expr_to_type(right_kind);
 
-                let symbol = &mut self.arenas[symbol];
+                let Some(symbol) = self.get_mut(symbol) else {
+                    return right_kind;
+                };
 
                 // Update symbol kind if it's null or unknown
                 if matches!(symbol.typ, Type::Unknown | Type::Null)
@@ -1930,8 +2197,8 @@ impl Collector {
                 symbol,
                 range,
             }) => {
-                if !self.arenas[symbol].kind.is_modifiable() {
-                    let name = &self.arenas[symbol].name;
+                if !self.get(symbol).kind.is_modifiable() {
+                    let name = &self.get(symbol).name;
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
                         range,
@@ -1950,11 +2217,13 @@ impl Collector {
                     return right_kind;
                 }
 
-                let typ = self.arenas.expr_to_type(right_kind);
+                let typ = self.expr_to_type(right_kind);
+                let Some(symbol) = self.get_mut(symbol) else {
+                    return right_kind;
+                };
 
-                if self.arenas[symbol].typ.should_substitute() && !typ.should_substitute() {
-                    self.arenas[symbol].typ = typ;
-
+                if symbol.typ.should_substitute() && !typ.should_substitute() {
+                    symbol.typ = typ;
                     self.expr_kinds.insert(range, right_kind.unwrap());
                 }
             }
@@ -1975,11 +2244,11 @@ impl Collector {
 
     fn in_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let right = self.arenas.expr_to_type(right_kind);
+        let right = self.expr_to_type(right_kind);
 
         match right {
             Type::Array(_) => {
-                let left = self.arenas.expr_to_type(left_kind);
+                let left = self.expr_to_type(left_kind);
                 if !matches!(left, Type::Unknown | Type::Integer) {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to index into an array using '{left}' (only integers are applicable)"),
@@ -2002,8 +2271,8 @@ impl Collector {
 
     fn instance_of_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.arenas.expr_to_type(left_kind);
-        let right = self.arenas.expr_to_type(right_kind);
+        let left = self.expr_to_type(left_kind);
+        let right = self.expr_to_type(right_kind);
 
         match (left, right) {
             (Type::Unknown, Type::Class(_))
@@ -2035,8 +2304,8 @@ impl Collector {
         is_three_way: bool,
     ) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.arenas.expr_to_type(left_kind);
-        let right = self.arenas.expr_to_type(right_kind);
+        let left = self.expr_to_type(left_kind);
+        let right = self.expr_to_type(right_kind);
 
         match (left, right) {
             (Type::Unknown | Type::Null, _)
@@ -2088,20 +2357,24 @@ impl Collector {
 
     fn bitwise_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.arenas.expr_to_type(left_kind);
-        let right = self.arenas.expr_to_type(right_kind);
+        let left = self.expr_to_type(left_kind);
+        let right = self.expr_to_type(right_kind);
 
         match (left, right) {
             (Type::Integer, Type::Integer) => {}
             (Type::Unknown | Type::Null, Type::Unknown | Type::Null) => {}
             (Type::Integer, Type::Unknown | Type::Null) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = right_kind {
-                    self.arenas[symbol].typ = Type::Integer;
+                    if let Some(symbol) = self.get_mut(symbol) {
+                        symbol.typ = Type::Integer;
+                    }
                 }
             }
             (Type::Unknown | Type::Null, Type::Integer) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = left_kind {
-                    self.arenas[symbol].typ = Type::Integer;
+                    if let Some(symbol) = self.get_mut(symbol) {
+                        symbol.typ = Type::Integer;
+                    }
                 }
             }
             _ => {
@@ -2118,8 +2391,8 @@ impl Collector {
 
     fn logical_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.arenas.expr_to_type(left_kind);
-        let right = self.arenas.expr_to_type(right_kind);
+        let left = self.expr_to_type(left_kind);
+        let right = self.expr_to_type(right_kind);
 
         ExpressionKind::Literal(if left.should_substitute() {
             right
@@ -2177,8 +2450,8 @@ impl Collector {
                     return right_kind;
                 };
 
-                if !self.arenas[symbol].kind.is_modifiable() {
-                    let name = &self.arenas[symbol].name;
+                if !self.get(symbol).kind.is_modifiable() {
+                    let name = &self.get(symbol).name;
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
                         range,
@@ -2198,10 +2471,13 @@ impl Collector {
                     return right_kind;
                 }
 
-                let typ = self.arenas.expr_to_type(right_kind);
+                let typ = self.expr_to_type(right_kind);
+                let Some(symbol) = self.get_mut(symbol) else {
+                    return right_kind;
+                };
 
-                if self.arenas[symbol].typ.should_substitute() && !typ.should_substitute() {
-                    self.arenas[symbol].typ = typ;
+                if symbol.typ.should_substitute() && !typ.should_substitute() {
+                    symbol.typ = typ;
 
                     self.expr_kinds.insert(range, right_kind.unwrap());
                 }
@@ -2359,11 +2635,11 @@ impl Collector {
                         range,
                     );
 
-                    return Some(ExpressionKind::Literal(self.arenas[symbol].typ));
+                    return Some(ExpressionKind::Literal(self.get(symbol).typ));
                 }
 
                 if matches!(
-                    self.arenas[symbol].kind,
+                    self.get(symbol).kind,
                     SymbolKind::Local | SymbolKind::Constant | SymbolKind::Enum
                 ) {
                     // ```
@@ -2378,7 +2654,7 @@ impl Collector {
                     });
                 }
 
-                Some(ExpressionKind::Literal(self.arenas[symbol].typ))
+                Some(ExpressionKind::Literal(self.get(symbol).typ))
             }
             _ => None,
         }
@@ -2406,7 +2682,7 @@ impl Collector {
 
         match typ {
             Type::Unknown => None,
-            Type::Generator(id) => Some(ExpressionKind::Literal(self.arenas[id].yielding?)),
+            Type::Generator(id) => Some(ExpressionKind::Literal(self.get(id).yielding?)),
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message: "Only generators can be resumed".to_owned(),
@@ -2437,7 +2713,7 @@ impl Collector {
         let function = arguments.remove(0);
         let _context = arguments.remove(0);
 
-        let obj = self.arenas.expr_to_type(function);
+        let obj = self.expr_to_type(function);
         Some(ExpressionKind::Literal(self.call_type(
             obj,
             &arguments,
@@ -2451,14 +2727,14 @@ impl Collector {
     }
 
     fn function_expression(&mut self, expr: &FunctionExpression) -> ExpressionKind {
-        let idx = self.arenas.alloc(FunctionData::default());
-        self.collect_function(idx, expr);
-        ExpressionKind::Literal(Type::Function(idx))
+        let function = self.function();
+        self.collect_function(function.idx(), expr);
+        ExpressionKind::Literal(Type::Function(function))
     }
 
     fn lambda_expression(&mut self, expr: &LambdaExpression) -> ExpressionKind {
-        let idx = self.arenas.alloc(FunctionData::default());
-        self.collect_function(idx, expr);
-        ExpressionKind::Literal(Type::Function(idx))
+        let function = self.function();
+        self.collect_function(function.idx(), expr);
+        ExpressionKind::Literal(Type::Function(function))
     }
 }

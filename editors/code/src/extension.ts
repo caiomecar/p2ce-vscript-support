@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import {
+    ConnectionError,
     Executable,
     LanguageClient,
     LanguageClientOptions,
@@ -37,6 +38,9 @@ export function activate(context: vscode.ExtensionContext) {
         options: { env },
     };
 
+    const stdlibPath = inDebug() ?
+        path.join(context.extensionPath, "..", "..", "vscript_lib") :
+        path.join(context.extensionPath, "vscript_lib");
 
     const serverOptions: ServerOptions = {
         run,
@@ -47,6 +51,9 @@ export function activate(context: vscode.ExtensionContext) {
         documentSelector: [{ language: 'tf2vscript' }],
         synchronize: {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
+        },
+        initializationOptions: {
+            stdlibPath,
         }
     };
 
