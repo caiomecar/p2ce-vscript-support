@@ -984,7 +984,7 @@ impl Parser {
                 self.parse_prefix_unary_expression()
             }
             SyntaxKind::Plus => {
-                self.error_at_token("Leading plus is not supported".to_owned());
+                self.error_and_advance("Leading plus is not supported".to_owned());
                 self.parse_prefix_expression()
             }
             SyntaxKind::PlusPlus | SyntaxKind::MinusMinus => self.parse_prefix_update_expression(),
@@ -1284,6 +1284,9 @@ impl Parser {
     fn parse_function_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::FunctionKeyword);
+        if self.at_set(NAME) {
+            self.error_and_advance("Function expression must have no name".to_owned());
+        }
 
         self.parse_function_signature();
         self.parse_statement(/* parse_end */ false);
@@ -1657,7 +1660,13 @@ impl Parser {
                 self.parse_expression();
                 self.finish(m, SyntaxKind::Initialiser);
             }
+        } else if self.at_set(EXPRESSIONS) {
+            let m = self.start();
+            self.error_at_token("Expected '=' before expression".to_owned());
+            self.parse_expression();
+            self.finish(m, SyntaxKind::Initialiser);
         }
+
         self.finish(m, SyntaxKind::VariableDeclaration);
     }
 
