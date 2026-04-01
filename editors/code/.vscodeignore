@@ -3,9 +3,11 @@
 !package.json
 !README.md
 !LICENSE
-!out/server*
-!out/extension.js
-!logo.png
 !language-configuration.json
 !syntaxes/
+
+!logo.png
+
+!out/extension.js
+!server/
 !vscript_lib/
