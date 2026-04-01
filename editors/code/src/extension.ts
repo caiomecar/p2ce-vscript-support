@@ -22,7 +22,7 @@ function getLocalServerPath(): string {
         return path.join("..", "..", "target", "debug", isWindows ? "tf2-vscript-ls.exe" : "tf2-vscript-ls");
     }
 
-    return path.join("out", isWindows ? "server.exe" : "server");
+    return path.join("server", isWindows ? "tf2-vscript-ls.exe" : "tf2-vscript-ls");
 }
 
 export function activate(context: vscode.ExtensionContext) {

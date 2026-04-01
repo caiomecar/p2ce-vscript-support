@@ -40,22 +40,24 @@ jobs:
           toolchain: stable
           target: ${{ matrix.rust-target }}
 
-      - name: build rust
+      - name: Build Server
         run: cargo build --release --target ${{ matrix.rust-target }}
 
-      - name: Prepare Extension
+      - name: Move Server
         shell: bash
         run: |
-          mkdir -p editors/code/out
+          mkdir -p editors/code/server
           BIN=tf2-vscript-ls
-          OUT=server
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             BIN="$BIN.exe"
-            OUT="$OUT.exe"
           fi
 
-          cp target/${{ matrix.rust-target }}/release/$BIN editors/code/out/$OUT
+          cp target/${{ matrix.rust-target }}/release/$BIN editors/code/server/
+
+      - name: Move Standard Library
+        shell: bash
+        run: cp -r ./vscript_lib ./editors/code/vscript_lib
 
       - uses: actions/setup-node@v6.3.0
         with:
