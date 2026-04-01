@@ -53,7 +53,9 @@ export function activate(context: vscode.ExtensionContext) {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
         },
         initializationOptions: {
-            stdlibPath,
+            builtinsPath: path.join(stdlibPath, "builtins.nut"),
+            squirrelLibPath: path.join(stdlibPath, "squirrel.nut"),
+            vscriptLibPath: path.join(stdlibPath, "vscript.nut"),
         }
     };
 
