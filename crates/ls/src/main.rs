@@ -2,15 +2,16 @@ mod conversions;
 
 use anyhow::Result;
 use ide::{
-    Database, File, SymbolKind, Type, get_symbols_at, line_index, members_of_type, parse,
-    source_symbol, type_at,
+    Database, File, SymbolKind, Type, line_index, members_of_type, parse, source_symbol,
+    symbols_at, type_at,
 };
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::Request as _;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-}; // for METHOD consts
+};
+use serde::Deserialize; // for METHOD consts
 // for METHOD consts
 use lsp_types::{
     Diagnostic,
@@ -30,7 +31,17 @@ use lsp_types::{
 use salsa::Setter;
 
 use rustc_hash::FxHashMap;
-use sq_3_parser::{AstNode, ast}; // for METHOD consts
+use sq_3_parser::{AstNode, SyntaxKind, ast};
+
+#[derive(Deserialize)]
+struct InitOptions {
+    #[serde(rename = "builtinsPath")]
+    builtins: Option<String>,
+    #[serde(rename = "squirrelLibPath")]
+    squirrel_lib: Option<String>,
+    #[serde(rename = "vscriptLibPath")]
+    vscript_lib: Option<String>,
+}
 
 fn main() -> Result<()> {
     let (connection, io_threads) = Connection::stdio();
@@ -39,7 +50,10 @@ fn main() -> Result<()> {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
             TextDocumentSyncKind::INCREMENTAL,
         )),
-        completion_provider: Some(CompletionOptions::default()),
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![".".to_owned(), "[".to_owned()]),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -58,16 +72,21 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     let mut docs: FxHashMap<Url, File> = FxHashMap::default();
 
     if let Some(options) = init.initialization_options {
-        if let Some(path) = options["stdlibPath"].as_str() {
-            eprintln!("{}", path);
-            let texts: Vec<String> = std::fs::read_dir(path)
-                .into_iter()
-                .flatten()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("nut"))
-                .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
-                .collect();
-            db.init_stdlibs(texts);
+        let opts: InitOptions = serde_json::from_value(options).unwrap();
+
+        if let Some(path) = opts.builtins {
+            let text = std::fs::read_to_string(path).unwrap();
+            db.init_builtins(text);
+        }
+
+        if let Some(path) = opts.squirrel_lib {
+            let text = std::fs::read_to_string(path).unwrap();
+            db.init_squirrel_lib(text);
+        }
+
+        if let Some(path) = opts.vscript_lib {
+            let text = std::fs::read_to_string(path).unwrap();
+            db.init_vscript_lib(text);
         }
     }
 
@@ -147,24 +166,41 @@ fn handle_request(
             let offset =
                 conversions::test_size(line_index, params.text_document_position.position).unwrap();
 
-            let source_file = parse(db, file).syntax();
-            let token = source_file.token_at_offset(offset).left_biased();
+            let syntax = parse(db, file).syntax();
 
-            let member_access = token.and_then(|t| {
-                t.parent_ancestors()
-                    .find_map(|node| ast::MemberAccessExpression::cast(node))
+            // 1. Get meaningful token (prefer left, skip whitespace)
+            let token = syntax.token_at_offset(offset).left_biased().and_then(|t| {
+                if t.kind() == SyntaxKind::Whitespace {
+                    t.prev_token()
+                } else {
+                    Some(t)
+                }
             });
 
-            let symbols = if let Some(member) = member_access {
-                // get the object (abc) — the part before the dot
-                if let Some(obj) = member.object() {
-                    let typ = type_at(db, file, obj.syntax().text_range());
-                    members_of_type(db, typ)
+            // 2. Find enclosing member access
+            let member = token.and_then(|t| {
+                t.parent_ancestors()
+                    .find_map(|n| ast::MemberAccessExpression::cast(n))
+            });
+
+            // 3. Decide if we're in member access
+            let symbols = if let Some(member) = member {
+                let range = member.syntax().text_range();
+
+                if offset <= range.end() {
+                    // still inside or right after member access → show members
+                    if let Some(obj) = member.object() {
+                        let typ = type_at(db, file, obj.syntax().text_range());
+                        members_of_type(db, typ)
+                    } else {
+                        Vec::new()
+                    }
                 } else {
-                    Vec::new()
+                    // past the expression → normal completion
+                    symbols_at(db, file, offset)
                 }
             } else {
-                get_symbols_at(db, file, offset)
+                symbols_at(db, file, offset)
             };
 
             let items: Vec<CompletionItem> = symbols

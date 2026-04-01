@@ -1,4 +1,7 @@
+use std::cmp::Reverse;
+
 use la_arena::{Arena, Idx};
+use line_index::{TextRange, TextSize};
 
 use crate::{
     File,
@@ -58,17 +61,17 @@ arena_id!(StringId => Box<str>);
 // They cannot be shared between files
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Container {
-    Table(Idx<TableData>),
-    Class(Idx<ClassData>),
-    Enum(Idx<EnumData>),
+    Table(TableId),
+    Class(ClassId),
+    Enum(EnumId),
 }
 
-impl Container {
-    pub fn to_type(self, file: File) -> Type {
-        match self {
-            Container::Table(idx) => Type::Table(TableId::new(file, idx)),
-            Container::Class(idx) => Type::Class(ClassId::new(file, idx)),
-            Container::Enum(idx) => Type::Enum(EnumId::new(file, idx)),
+impl From<Container> for Type {
+    fn from(value: Container) -> Self {
+        match value {
+            Container::Table(idx) => Type::Table(idx),
+            Container::Class(idx) => Type::Class(idx),
+            Container::Enum(idx) => Type::Enum(idx),
         }
     }
 }
@@ -77,10 +80,10 @@ impl TryFrom<Type> for Container {
     type Error = ();
     fn try_from(value: Type) -> Result<Self, Self::Error> {
         Ok(match value {
-            Type::Table(id) => Container::Table(id.idx()),
-            Type::Class(id) => Container::Class(id.idx()),
-            Type::Instance(id) => Container::Class(id.idx()),
-            Type::Enum(id) => Container::Enum(id.idx()),
+            Type::Table(id) => Container::Table(id),
+            Type::Class(id) => Container::Class(id),
+            Type::Instance(id) => Container::Class(id),
+            Type::Enum(id) => Container::Enum(id),
             _ => return Err(()),
         })
     }
@@ -92,21 +95,6 @@ pub struct TableData {
 }
 
 impl TableData {
-    pub fn get_members(&self) -> Vec<SymbolId> {
-        let result: Vec<SymbolId> = self.members.values().copied().collect();
-        // if let Some(delegate) = self.delegate {
-        //     let taken_names: FxHashSet<&str> = self.members.keys().map(|s| s.as_str()).collect();
-        //     result.extend(
-        //         arenas[delegate.0]
-        //             .get_members(arenas)
-        //             .into_iter()
-        //             .filter(|id| !taken_names.contains(arenas[*id].name.as_str())),
-        //     );
-        // }
-
-        result
-    }
-
     pub fn add_member(&mut self, name: String, symbol: SymbolId) {
         self.members.insert(name, symbol);
     }
@@ -119,10 +107,6 @@ pub struct ClassData {
 }
 
 impl ClassData {
-    pub fn get_members(&self) -> Vec<SymbolId> {
-        self.members.values().copied().collect()
-    }
-
     pub fn add_member(&mut self, name: String, symbol: SymbolId) {
         self.members.insert(name, symbol);
     }
@@ -169,6 +153,15 @@ pub struct ArrayData {
     pub typ: Type,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scope {
+    pub range: TextRange,
+    pub locals: SymbolTable,
+    pub parent: Option<Idx<Scope>>,
+    pub container: Container,
+    pub execution_range: TextRange,
+}
+
 pub trait ArenaAlloc<T> {
     fn alloc(&mut self, value: T) -> Idx<T>;
 }
@@ -205,6 +198,7 @@ macro_rules! impl_source_arena {
 
 impl_source_arena! {
     symbols:   Symbol,
+    scopes:    Scope,
     tables:    TableData,
     classes:   ClassData,
     enums:     EnumData,
@@ -213,50 +207,17 @@ impl_source_arena! {
     strings:   Box<str>,
 }
 
-// impl SourceArena {
-//     pub fn add_container_member(&mut self, container: Container, name: String, member: SymbolId) {
-//         match container {
-//             Container::Table(id) => self[id].add_member(name, member),
-//             Container::Class(id) => self[id].add_member(name, member),
-//             Container::Enum(id) => self[id].add_member(name, member),
-//         }
-//     }
-
-//     pub fn get_container_members(&self, container: Container) -> Vec<SymbolId> {
-//         match container {
-//             Container::Table(id) => self[id].get_members(self),
-//             Container::Class(id) => self[id].get_members(),
-//             Container::Enum(id) => self[id].get_members(),
-//         }
-//     }
-
-//     pub fn get_type_members(&self, typ: Type) -> Vec<SymbolId> {
-//         match typ {
-//             Type::Table(id) => self[id].get_members(self),
-//             Type::Class(id) => self[id].get_members(),
-//             Type::Instance(id) => self[id].get_members(),
-//             Type::Enum(id) => self[id].get_members(),
-//             _ => Vec::new(),
-//         }
-//     }
-
-//     pub fn clone_type(&mut self, kind: Type) -> Type {
-//         match kind {
-//             Type::Table(id) => Type::Table(self.alloc(self[id].clone())),
-//             Type::Class(id) => Type::Class(self.alloc(self[id].clone())),
-//             _ => kind,
-//         }
-//     }
-
-//     pub fn clone_members(&mut self, superclass: ClassId) -> SymbolTable {
-//         let symbol = &self.classes[superclass];
-//         let mut members = symbol.members.clone();
-
-//         for value in members.values_mut() {
-//             let symbol = self[*value].clone();
-//             *value = self.alloc(symbol);
-//         }
-
-//         members
-//     }
-// }
+impl SourceArena {
+    pub fn scope_at(&self, offset: TextSize) -> Idx<Scope> {
+        self.scopes
+            .iter()
+            .filter(|(_, s)| s.range.contains_inclusive(offset))
+            // Since the range can be equal (e.g. when we have a function that creates a scope with the size of its body)
+            // the higher value of the index would serve as the tiebreaker since if range is equal then scope created later
+            // is guaranteed to be deeper
+            .min_by_key(|(i, s)| (s.range.len(), Reverse(*i)))
+            .map(|(i, _)| i)
+            .unwrap()
+        //.unwrap_or_default(Idx::from_raw(RawIdx::from(0 as u32)))
+    }
+}

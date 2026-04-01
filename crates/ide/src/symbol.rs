@@ -30,6 +30,7 @@ pub enum Type {
     Function(FunctionId),
     Generator(FunctionId),
     Thread(FunctionId),
+    Weakref,
 }
 
 impl Type {
@@ -73,6 +74,7 @@ impl std::fmt::Display for Type {
             Type::Function(_) => write!(f, "function"),
             Type::Generator(_) => write!(f, "generator"),
             Type::Thread(_) => write!(f, "thread"),
+            Type::Weakref => write!(f, "weakref"),
         }
     }
 }
