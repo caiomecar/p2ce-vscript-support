@@ -37,19 +37,19 @@ pub struct Parse {
 
 impl Parse {
     pub fn new(text: &str) -> Parse {
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
         let (tokens, mut lex_errors) = lexer::tokenise(text);
-        eprintln!("Lexing took {:?}", now.elapsed());
-        eprintln!("Tokens: {}", tokens.len());
+        // eprintln!("Lexing took {:?}", now.elapsed());
+        // eprintln!("Tokens: {}", tokens.len());
 
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
         let (events, parse_errors) = parser::parse(tokens);
-        eprintln!("Parsing took {:?}", now.elapsed());
-        eprintln!("Events: {}", events.len());
+        // eprintln!("Parsing took {:?}", now.elapsed());
+        // eprintln!("Events: {}", events.len());
 
         lex_errors.extend(parse_errors);
 
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
 
         let mut builder = GreenNodeBuilder::new();
         for event in events.into_iter() {
@@ -63,7 +63,7 @@ impl Parse {
             }
         }
 
-        eprintln!("Building a tree took {:?}", now.elapsed());
+        // eprintln!("Building a tree took {:?}", now.elapsed());
 
         Parse {
             green_node: builder.finish(),
