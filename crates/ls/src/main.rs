@@ -1,7 +1,10 @@
 mod conversions;
 
 use anyhow::Result;
-use ide::{Database, File, SymbolKind, Type, line_index, parse, source_symbol};
+use ide::{
+    Database, File, SymbolKind, Type, get_symbols_at, line_index, members_of_type, parse,
+    source_symbol, type_at,
+};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::Request as _;
@@ -139,8 +142,6 @@ fn handle_request(
                 return Ok(());
             };
 
-            let source_symbol = source_symbol(db, file);
-
             let line_index = line_index(db, file);
 
             let offset =
@@ -157,13 +158,13 @@ fn handle_request(
             let symbols = if let Some(member) = member_access {
                 // get the object (abc) — the part before the dot
                 if let Some(obj) = member.object() {
-                    let typ = source_symbol.type_at(db, obj.syntax().text_range());
-                    source_symbol.members_of_type(db, typ)
+                    let typ = type_at(db, file, obj.syntax().text_range());
+                    members_of_type(db, typ)
                 } else {
                     Vec::new()
                 }
             } else {
-                source_symbol.symbols_at(db, offset)
+                get_symbols_at(db, file, offset)
             };
 
             let items: Vec<CompletionItem> = symbols

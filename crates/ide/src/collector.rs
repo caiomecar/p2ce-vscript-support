@@ -1,5 +1,5 @@
 use la_arena::Idx;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
 use std::{collections::VecDeque, mem::discriminant};
 
@@ -10,7 +10,7 @@ use crate::{
         FunctionData, FunctionId, ParamsState, SourceArena, StringId, SymbolId, TableData, TableId,
     },
     db::Db,
-    source_symbol,
+    get_import_members,
     symbol::{Symbol, SymbolKind, SymbolTable, Type},
 };
 
@@ -175,7 +175,7 @@ impl<'db> Collector<'db> {
         let root_table = arenas.alloc(TableData::default());
         let const_table = arenas.alloc(TableData::default());
         let mut imports = FxHashMap::default();
-        imports.insert(container, db.stdlibs().to_vec());
+        imports.insert(Container::Table(root_table), db.stdlibs().to_vec());
 
         let mut collector = Self {
             db,
@@ -1501,106 +1501,83 @@ impl<'db> Collector<'db> {
     fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
         let text = expr.text()?;
         let offset = expr.syntax().text_range().end();
-        if let Some(symbol) = self.find_symbol(
+        let locals = self.find_symbol(
             self.get_local_members(),
             FindSymbol::OnlyBefore(offset),
             &text,
-        ) {
-            return Some(ExpressionKind::Symbol(symbol));
-        }
+        );
 
-        if let Some(symbol) = self.find_symbol(
-            self.get_const_members(),
-            FindSymbol::OnlyBefore(offset),
-            &text,
-        ) {
-            return Some(ExpressionKind::Symbol(symbol));
-        }
+        let consts = || {
+            self.find_symbol(
+                self.get_const_members(),
+                FindSymbol::OnlyBefore(offset),
+                &text,
+            )
+        };
 
-        let mut already_included = FxHashSet::default();
-        already_included.insert(self.file);
-        for imports in self.imports.values() {
-            for import in imports {
-                let source_symbol = source_symbol(self.db, *import);
-                let Some(symbol) = self.find_symbol(
-                    source_symbol.get_members(
-                        self.db,
-                        self.file,
-                        &mut already_included,
-                        GetMembers::Const,
-                    ),
-                    FindSymbol::Any,
-                    &text,
-                ) else {
-                    continue;
-                };
+        let consts_imports = || {
+            self.find_symbol(
+                get_import_members(
+                    self.db,
+                    self.file,
+                    &self.imports,
+                    GetMembers::Const(self.const_table),
+                ),
+                FindSymbol::OnlyBefore(offset),
+                &text,
+            )
+        };
 
-                return Some(ExpressionKind::Symbol(symbol));
-            }
-        }
+        let members = || {
+            self.find_symbol(
+                self.get_current_container_members(),
+                FindSymbol::BeforeIfInExecutionRange(offset),
+                &text,
+            )
+        };
 
-        if let Some(symbol) = self.find_symbol(
-            self.get_current_container_members(),
-            FindSymbol::BeforeIfInExecutionRange(offset),
-            &text,
-        ) {
-            return Some(ExpressionKind::Symbol(symbol));
-        }
+        let members_imports = || {
+            self.find_symbol(
+                get_import_members(
+                    self.db,
+                    self.file,
+                    &self.imports,
+                    GetMembers::Container(self.container),
+                ),
+                FindSymbol::Any,
+                &text,
+            )
+        };
 
-        let mut already_included = FxHashSet::default();
-        already_included.insert(self.file);
-        if let Some(imports) = self.imports.get(&self.container) {
-            for import in imports {
-                let source_symbol = source_symbol(self.db, *import);
-                let Some(symbol) = self.find_symbol(
-                    source_symbol.get_members(
-                        self.db,
-                        self.file,
-                        &mut already_included,
-                        GetMembers::Source,
-                    ),
-                    FindSymbol::Any,
-                    &text,
-                ) else {
-                    continue;
-                };
+        let root = || {
+            self.find_symbol(
+                self.get_root_members(),
+                FindSymbol::BeforeIfInExecutionRange(offset),
+                &text,
+            )
+        };
 
-                return Some(ExpressionKind::Symbol(symbol));
-            }
-        }
+        let root_imports = || {
+            self.find_symbol(
+                get_import_members(
+                    self.db,
+                    self.file,
+                    &self.imports,
+                    GetMembers::Root(self.root_table),
+                ),
+                FindSymbol::Any,
+                &text,
+            )
+        };
 
-        if let Some(symbol) = self.find_symbol(
-            self.get_root_members(),
-            FindSymbol::BeforeIfInExecutionRange(offset),
-            &text,
-        ) {
-            return Some(ExpressionKind::Symbol(symbol));
-        }
-
-        let mut already_included = FxHashSet::default();
-        already_included.insert(self.file);
-        for imports in self.imports.values() {
-            for import in imports {
-                let source_symbol = source_symbol(self.db, *import);
-
-                let Some(symbol) = self.find_symbol(
-                    source_symbol.get_members(
-                        self.db,
-                        self.file,
-                        &mut already_included,
-                        GetMembers::Root,
-                    ),
-                    FindSymbol::Any,
-                    &text,
-                ) else {
-                    continue;
-                };
-
-                return Some(ExpressionKind::Symbol(symbol));
-            }
-        }
-
-        None
+        locals
+            .or_else(consts)
+            .or_else(consts_imports)
+            .or_else(members)
+            .or_else(members_imports)
+            .or_else(root)
+            .or_else(root_imports)
+            .map(|symbol| ExpressionKind::Symbol(symbol))
     }
 
     fn this_expression(&self, _expr: &ThisExpression) -> ExpressionKind {
@@ -1615,37 +1592,28 @@ impl<'db> Collector<'db> {
         let text = expr.name()?.text()?;
         let offset = expr.syntax().text_range().end();
 
-        if let Some(symbol) = self.find_symbol(
+        let direct = self.find_symbol(
             self.get_root_members(),
             FindSymbol::BeforeIfInExecutionRange(offset),
             &text,
-        ) {
-            return Some(ExpressionKind::Symbol(symbol));
-        }
+        );
 
-        let mut already_included = FxHashSet::default();
-        already_included.insert(self.file);
-        for imports in self.imports.values() {
-            for import in imports {
-                let source_symbol = source_symbol(self.db, *import);
-                let Some(symbol) = self.find_symbol(
-                    source_symbol.get_members(
-                        self.db,
-                        self.file,
-                        &mut already_included,
-                        GetMembers::Root,
-                    ),
-                    FindSymbol::Any,
-                    &text,
-                ) else {
-                    continue;
-                };
+        let imports = || {
+            self.find_symbol(
+                get_import_members(
+                    self.db,
+                    self.file,
+                    &self.imports,
+                    GetMembers::Root(self.root_table),
+                ),
+                FindSymbol::Any,
+                &text,
+            )
+        };
 
-                return Some(ExpressionKind::Symbol(symbol));
-            }
-        }
-
-        None
+        direct
+            .or_else(imports)
+            .map(|symbol| ExpressionKind::Symbol(symbol))
     }
 
     fn base_expression(&mut self, expr: &BaseExpression) -> ExpressionKind {
@@ -1682,35 +1650,20 @@ impl<'db> Collector<'db> {
         let members = self.get_type_members(obj);
 
         let offset = expr.syntax().text_range().end();
-        if let Some(symbol) =
-            self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
-        {
-            return Some(ExpressionKind::Symbol(symbol));
-        };
-
-        Container::try_from(obj).ok().and_then(|c| {
-            let mut already_included = FxHashSet::default();
-            already_included.insert(self.file);
-            let imports = self.imports.get(&c)?;
-            for import in imports {
-                let source_symbol = source_symbol(self.db, *import);
-                let Some(symbol) = self.find_symbol(
-                    source_symbol.get_members(
-                        self.db,
-                        self.file,
-                        &mut already_included,
-                        GetMembers::Source,
-                    ),
+        let direct = self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text);
+        let imports = || {
+            Container::try_from(obj).ok().and_then(|c| {
+                self.find_symbol(
+                    get_import_members(self.db, self.file, &self.imports, GetMembers::Container(c)),
                     FindSymbol::Any,
                     &text,
-                ) else {
-                    continue;
-                };
+                )
+            })
+        };
 
-                return Some(ExpressionKind::Symbol(symbol));
-            }
-            None
-        })
+        direct
+            .or_else(imports)
+            .map(|symbol| ExpressionKind::Symbol(symbol))
     }
 
     fn element_access_expression(&mut self, expr: &ElementAccessExpression) -> NullableExprKind {
@@ -1724,35 +1677,20 @@ impl<'db> Collector<'db> {
         let members = self.get_type_members(obj);
 
         let offset = expr.syntax().text_range().end();
-        if let Some(symbol) =
-            self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
-        {
-            return Some(ExpressionKind::Symbol(symbol));
-        };
-
-        Container::try_from(obj).ok().and_then(|c| {
-            let mut already_included = FxHashSet::default();
-            already_included.insert(self.file);
-            let imports = self.imports.get(&c)?;
-            for import in imports {
-                let source_symbol = source_symbol(self.db, *import);
-                let Some(symbol) = self.find_symbol(
-                    source_symbol.get_members(
-                        self.db,
-                        self.file,
-                        &mut already_included,
-                        GetMembers::Source,
-                    ),
+        let direct = self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text);
+        let imports = || {
+            Container::try_from(obj).ok().and_then(|c| {
+                self.find_symbol(
+                    get_import_members(self.db, self.file, &self.imports, GetMembers::Container(c)),
                     FindSymbol::Any,
                     &text,
-                ) else {
-                    continue;
-                };
+                )
+            })
+        };
 
-                return Some(ExpressionKind::Symbol(symbol));
-            }
-            None
-        })
+        direct
+            .or_else(imports)
+            .map(|symbol| ExpressionKind::Symbol(symbol))
     }
 
     fn call_type(
