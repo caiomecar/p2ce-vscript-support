@@ -608,7 +608,7 @@ impl HasDoc for ConstStatement {}
 impl HasName for ConstStatement {}
 
 impl ConstStatement {
-    pub fn value(&self) -> Option<Expr> {
+    pub fn value(&self) -> Option<Initialiser> {
         support::child(&self.0)
     }
 }

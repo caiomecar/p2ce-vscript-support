@@ -1707,8 +1707,21 @@ impl Parser {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ConstKeyword);
         self.parse_name("constant's name", Some(VARIABLE_RECOVERY));
-        self.expect(SyntaxKind::Equals);
-        self.parse_expression();
+
+        if self.at_set(INIT_OPERATORS) {
+            let m = self.start();
+            self.parse_proper_or_error(
+                SyntaxKind::Equals,
+                "Expected '=' for initialisation".to_owned(),
+            );
+            self.parse_expression();
+            self.finish(m, SyntaxKind::Initialiser);
+        } else if self.at_set(EXPRESSIONS) {
+            let m = self.start();
+            self.error_at_token("Expected '=' before expression".to_owned());
+            self.parse_expression();
+            self.finish(m, SyntaxKind::Initialiser);
+        }
 
         self.finish(m, SyntaxKind::ConstStatement);
         // Here is the only place where statement itself parses end
@@ -1801,7 +1814,7 @@ impl Parser {
     fn parse_class_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ClassKeyword);
-        let name = self.parse_prefix_expression();
+        let name = self.parse_expression();
         if !self.is_lhs_expression(name) {
             self.error(SyntaxError {
                 message: "The class name must be a variable or a property access".to_owned(),

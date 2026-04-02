@@ -198,7 +198,10 @@ mod tests {
             panic!("expected const")
         };
         assert_eq!(c.name().unwrap().text().unwrap(), "MAX");
-        assert!(c.value().is_some());
+        assert_eq!(
+            c.value().unwrap().expression().unwrap().syntax().text(),
+            "100"
+        );
     }
 
     #[test]
