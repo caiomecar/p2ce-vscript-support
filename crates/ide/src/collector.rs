@@ -403,17 +403,17 @@ impl<'db> Collector<'db> {
         match container {
             Container::Table(id) => {
                 if let Some(t) = self.get_mut(id) {
-                    t.add_member(name, symbol);
+                    t.members.insert(name, symbol);
                 }
             }
             Container::Class(id) => {
                 if let Some(c) = self.get_mut(id) {
-                    c.add_member(name, symbol);
+                    c.members.insert(name, symbol);
                 }
             }
             Container::Enum(id) => {
                 if let Some(e) = self.get_mut(id) {
-                    e.add_member(name, symbol);
+                    e.members.insert(name, symbol);
                 }
             }
         }
@@ -572,7 +572,7 @@ impl<'db> Collector<'db> {
             }
             Type::Instance(id) => {
                 let class = self.get(id);
-                let Some(member) = class.get_member(metamethod) else {
+                let Some(&member) = class.members.get(metamethod) else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
                         | MetamethodErrors::YesBinary { keyword, .. } => {
@@ -996,7 +996,7 @@ impl<'db> Collector<'db> {
             kind: SymbolKind::Constant,
             range: stmt.syntax().text_range(),
         });
-        self.arena[self.const_table].add_member(name, symbol);
+        self.arena[self.const_table].members.insert(name, symbol);
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
@@ -1212,7 +1212,7 @@ impl<'db> Collector<'db> {
                 range: stmt.syntax().text_range(),
             });
 
-            self.arena[self.const_table].add_member(name, symbol);
+            self.arena[self.const_table].members.insert(name, symbol);
         }
 
         let save_symbol = self.container;
@@ -1828,7 +1828,7 @@ impl<'db> Collector<'db> {
             }
             Type::Class(id) => {
                 let class = self.get(id);
-                if let Some(symbol) = class.get_member("constructor") {
+                if let Some(&symbol) = class.members.get("constructor") {
                     self.call_type(self.get(symbol).typ, arguments, error_range);
                 } else if arguments.len() != 0 {
                     self.diagnostics.push(Diagnostic {

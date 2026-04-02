@@ -93,42 +93,15 @@ pub struct TableData {
     pub delegate: Option<TableId>,
     pub members: SymbolTable,
 }
-
-impl TableData {
-    pub fn add_member(&mut self, name: String, symbol: SymbolId) {
-        self.members.insert(name, symbol);
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ClassData {
     pub inherits: Option<ClassId>,
     pub members: SymbolTable,
 }
 
-impl ClassData {
-    pub fn add_member(&mut self, name: String, symbol: SymbolId) {
-        self.members.insert(name, symbol);
-    }
-
-    pub fn get_member(&self, name: &str) -> Option<SymbolId> {
-        Some(*self.members.get(name)?)
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EnumData {
     pub members: SymbolTable,
-}
-
-impl EnumData {
-    pub fn get_members(&self) -> Vec<SymbolId> {
-        self.members.values().copied().collect()
-    }
-
-    pub fn add_member(&mut self, name: String, symbol: SymbolId) {
-        self.members.insert(name, symbol);
-    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
