@@ -1389,6 +1389,8 @@ impl<'db> Collector<'db> {
         if let Some(body) = catch.body() {
             self.collect_stmt(&body);
         }
+
+        self.exit_scope();
     }
 
     fn throw_statement(&mut self, stmt: &ThrowStatement) {
