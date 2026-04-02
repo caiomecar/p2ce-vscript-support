@@ -134,6 +134,7 @@ impl EnumData {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FunctionData {
     pub ret: Type,
+    pub container: Option<Container>,
     pub params: Vec<SymbolId>,
     pub params_state: ParamsState,
     pub yielding: Option<Type>,

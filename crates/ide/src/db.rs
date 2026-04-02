@@ -2,12 +2,7 @@ use ::line_index::LineIndex;
 use salsa::Setter;
 use sq_3_parser::Parse;
 
-use crate::{
-    SourceSymbol, Type,
-    arena::{ArenaId, SymbolId},
-    collector::Collector,
-    symbol::SymbolTable,
-};
+use crate::{SourceSymbol, Type, arena::ArenaId, collector::Collector, symbol::SymbolTable};
 
 #[salsa::input]
 #[derive(Debug)]
@@ -109,23 +104,25 @@ impl Database {
     pub fn init_squirrel_lib(&mut self, text: String) {
         let lib = File::new(self, text);
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
+        source_symbol(self, lib);
         self.squirrel_lib = Some(lib);
     }
 
     pub fn init_vscript_lib(&mut self, text: String) {
         let lib = File::new(self, text);
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
+        source_symbol(self, lib);
         self.vscript_lib = Some(lib);
     }
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn line_index(db: &dyn salsa::Database, file: File) -> LineIndex {
+pub fn line_index(db: &dyn Db, file: File) -> LineIndex {
     LineIndex::new(file.text(db))
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn parse(db: &dyn salsa::Database, file: File) -> Parse {
+pub fn parse(db: &dyn Db, file: File) -> Parse {
     Parse::new(file.text(db))
 }
 

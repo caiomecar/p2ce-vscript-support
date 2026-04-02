@@ -392,6 +392,7 @@ pub fn type_at(db: &dyn Db, file: File, text_range: TextRange) -> Type {
 }
 
 pub fn container_members(db: &dyn Db, container: Container) -> Vec<SymbolId> {
+    dbg!(container);
     match container {
         Container::Table(id) => table_members(db, id),
         Container::Class(id) => class_members(db, id),

@@ -1,17 +1,18 @@
 use la_arena::Idx;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
 use std::{collections::VecDeque, mem::discriminant};
 
 use crate::{
-    Diagnostic, DiagnosticSeverity, File, GetMembers, SourceSymbol,
+    Diagnostic, DiagnosticSeverity, File, GetMembers, GetMembersInner, SourceSymbol,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ParamsState, Scope, SourceArena, StringId, SymbolId, TableData,
         TableId,
     },
+    const_members,
     db::Db,
-    import_members,
+    root_members, source_members, source_symbol,
     symbol::{Symbol, SymbolKind, SymbolTable, Type},
     type_members,
 };
@@ -67,6 +68,39 @@ impl From<AssignmentLeftHandSide> for NullableExprKind {
     }
 }
 
+fn lhs_container(lhs: Option<&AssignmentLeftHandSide>) -> Option<Container> {
+    let parent = match lhs {
+        Some(AssignmentLeftHandSide::CanCreate { parent, .. }) => parent,
+        Some(AssignmentLeftHandSide::Exists { parent, .. }) => parent.as_ref()?,
+        Some(AssignmentLeftHandSide::NonStringKey { parent, .. }) => parent,
+        Some(AssignmentLeftHandSide::Invalid(_)) => return None,
+        None => return None,
+    };
+
+    Container::try_from(parent.clone()).ok()
+}
+
+impl TryFrom<AssignmentLeftHandSide> for Type {
+    type Error = ();
+    fn try_from(value: AssignmentLeftHandSide) -> Result<Self, Self::Error> {
+        match value {
+            AssignmentLeftHandSide::CanCreate { parent, .. } => Ok(parent),
+            AssignmentLeftHandSide::Exists { parent, .. } => parent.ok_or(()),
+            AssignmentLeftHandSide::NonStringKey { parent, .. } => Ok(parent),
+            AssignmentLeftHandSide::Invalid(_) => Err(()),
+        }
+    }
+}
+
+impl TryFrom<AssignmentLeftHandSide> for Container {
+    type Error = ();
+
+    fn try_from(value: AssignmentLeftHandSide) -> Result<Self, Self::Error> {
+        let typ = Type::try_from(value)?;
+        Self::try_from(typ)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpressionKind {
     // L value
@@ -117,6 +151,7 @@ pub struct Collector<'db> {
     scope: Idx<Scope>,
 
     container: Container,
+    special_container: Option<Container>,
     execution_range: TextRange,
     function: Option<Idx<FunctionData>>,
     deferred_functions: VecDeque<DeferredFunction>,
@@ -147,18 +182,19 @@ impl<'db> Collector<'db> {
         });
 
         let mut imports = FxHashMap::default();
+        let mut libs = Vec::new();
         if let Some(squirrel_lib) = db.squirrel_lib() {
-            imports.insert(
-                Container::Table(TableId::new(file, root_table)),
-                vec![squirrel_lib],
-            );
+            if squirrel_lib != file {
+                libs.push(squirrel_lib);
+            }
         }
-
         if let Some(vscript_lib) = db.vscript_lib() {
-            imports
-                .entry(Container::Table(TableId::new(file, root_table)))
-                .or_insert_with(Vec::new)
-                .push(vscript_lib);
+            if vscript_lib != file {
+                libs.push(vscript_lib);
+            }
+        }
+        if !libs.is_empty() {
+            imports.insert(Container::Table(TableId::new(file, root_table)), libs);
         }
 
         let mut collector = Self {
@@ -167,6 +203,7 @@ impl<'db> Collector<'db> {
             imports,
             scope,
             container,
+            special_container: None,
             arena,
             const_table,
             root_table,
@@ -187,7 +224,9 @@ impl<'db> Collector<'db> {
             collector.execution_range = func.execution_range;
             collector.function = Some(func.idx);
             collector.scope = func.scope;
-            collector.container = collector.arena[func.scope].container;
+            collector.container = collector.arena[func.idx]
+                .container
+                .unwrap_or(collector.arena[func.scope].container);
             match func.body {
                 FunctionBody::Expr(expr) => {
                     let typ = collector.expr_type(&expr);
@@ -397,6 +436,115 @@ impl<'db> Collector<'db> {
             // require the presence of this file inside the database
             _ => type_members(self.db, typ),
         }
+    }
+
+    fn import_members(&self, settings: GetMembers) -> Vec<SymbolId> {
+        let mut already_included = FxHashSet::default();
+        already_included.insert(self.file);
+        let mut result = Vec::new();
+        // If we ask for root symbols but imports contains symbols for root container
+        // how to not iterate the files twice?
+        // include source_table + root_table where it's the import goes in the root table
+        // include just root_table where it's not put in the root table?
+        // First iterate through possi
+        let (first_settings, second_settings, container) = match settings {
+            GetMembers::Container(container) => {
+                (GetMembersInner::Container(container), None, container)
+            }
+            GetMembers::Const(idx) => (
+                GetMembersInner::ConstAsSource,
+                Some(GetMembersInner::Const),
+                Container::Table(TableId::new(self.file, idx)),
+            ),
+            GetMembers::Root(idx) => (
+                GetMembersInner::RootAsSource,
+                Some(GetMembersInner::Root),
+                Container::Table(TableId::new(self.file, idx)),
+            ),
+        };
+
+        if let Some(imports) = self.imports.get(&container) {
+            for import in imports {
+                if !already_included.insert(*import) {
+                    continue;
+                }
+
+                result.extend(self.import_members_inner(
+                    *import,
+                    &mut already_included,
+                    first_settings,
+                ));
+            }
+        }
+
+        let Some(second_settings) = second_settings else {
+            return result;
+        };
+
+        for import_list in self.imports.values() {
+            for import in import_list {
+                if !already_included.insert(*import) {
+                    continue;
+                }
+
+                result.extend(self.import_members_inner(
+                    *import,
+                    &mut already_included,
+                    second_settings,
+                ));
+            }
+        }
+        result
+    }
+
+    fn import_members_inner(
+        &self,
+        file: File,
+        already_included: &mut FxHashSet<File>,
+        settings: GetMembersInner,
+    ) -> Vec<SymbolId> {
+        let mut result = match settings {
+            GetMembersInner::Container(container) => self.container_members(container),
+            GetMembersInner::ConstAsSource => const_members(self.db, file)
+                .into_iter()
+                .chain(source_members(self.db, file))
+                .collect(),
+            GetMembersInner::Const => const_members(self.db, file),
+            GetMembersInner::RootAsSource => root_members(self.db, file)
+                .into_iter()
+                .chain(source_members(self.db, file))
+                .collect(),
+            GetMembersInner::Root => root_members(self.db, file),
+        };
+
+        let source = source_symbol(self.db, file);
+        if let GetMembersInner::Container(container) = settings {
+            let Some(imports) = source.imports.get(&container) else {
+                return result;
+            };
+
+            for import in imports {
+                if already_included.contains(import) {
+                    continue;
+                }
+
+                already_included.insert(*import);
+                result.extend(self.import_members_inner(*import, already_included, settings));
+            }
+            return result;
+        }
+
+        for imports in source.imports.values() {
+            for import in imports {
+                if !already_included.insert(*import) {
+                    continue;
+                }
+
+                result.extend(self.import_members_inner(*import, already_included, settings));
+            }
+        }
+
+        result
     }
 
     fn add_current_container_member(&mut self, name: String, symbol: SymbolId) {
@@ -819,11 +967,35 @@ impl<'db> Collector<'db> {
         self.add_current_container_member(name, symbol);
     }
 
+    fn try_setting_container<T>(&mut self, idx: Idx<FunctionData>, node: &T)
+    where
+        T: IsFunction,
+    {
+        if let Some(env) = node.environment().and_then(|e| e.expression()) {
+            let typ = self.expr_type(&env);
+            if let Ok(container) = Container::try_from(typ) {
+                self.arena[idx].container = Some(container);
+                return;
+            } else if typ != Type::Unknown {
+                self.diagnostics.push(Diagnostic {
+                    message: format!("Trying to use '{typ}' as function's environment"),
+                    range: env.syntax().text_range(),
+                    severity: DiagnosticSeverity::Warning,
+                });
+            }
+        }
+
+        if let Some(container) = self.special_container {
+            self.arena[idx].container = Some(container);
+        }
+    }
     // Lambdas are processed differently
     fn collect_function<T>(&mut self, idx: Idx<FunctionData>, node: &T)
     where
         T: IsFunction,
     {
+        self.try_setting_container(idx, node);
+
         let save_function = self.function;
         self.function = Some(idx);
         let save_execution = self.execution_range;
@@ -1183,7 +1355,10 @@ impl<'db> Collector<'db> {
 
         self.add_container_member(container, final_name, symbol);
 
+        let save_container = self.special_container;
+        self.special_container = Some(container);
         self.collect_function(function.idx(), stmt);
+        self.special_container = save_container;
     }
 
     fn enum_statement(&mut self, stmt: &EnumStatement) {
@@ -1549,12 +1724,7 @@ impl<'db> Collector<'db> {
 
         let consts_imports = || {
             self.find_symbol(
-                import_members(
-                    self.db,
-                    self.file,
-                    &self.imports,
-                    GetMembers::Const(self.const_table),
-                ),
+                self.import_members(GetMembers::Const(self.const_table)),
                 FindSymbol::OnlyBefore(offset),
                 &text,
             )
@@ -1570,12 +1740,7 @@ impl<'db> Collector<'db> {
 
         let members_imports = || {
             self.find_symbol(
-                import_members(
-                    self.db,
-                    self.file,
-                    &self.imports,
-                    GetMembers::Container(self.container),
-                ),
+                self.import_members(GetMembers::Container(self.container)),
                 FindSymbol::Any,
                 &text,
             )
@@ -1591,12 +1756,7 @@ impl<'db> Collector<'db> {
 
         let root_imports = || {
             self.find_symbol(
-                import_members(
-                    self.db,
-                    self.file,
-                    &self.imports,
-                    GetMembers::Root(self.root_table),
-                ),
+                self.import_members(GetMembers::Root(self.root_table)),
                 FindSymbol::Any,
                 &text,
             )
@@ -1628,12 +1788,7 @@ impl<'db> Collector<'db> {
 
         let imports = || {
             self.find_symbol(
-                import_members(
-                    self.db,
-                    self.file,
-                    &self.imports,
-                    GetMembers::Root(self.root_table),
-                ),
+                self.import_members(GetMembers::Root(self.root_table)),
                 FindSymbol::Any,
                 &text,
             )
@@ -1693,12 +1848,7 @@ impl<'db> Collector<'db> {
             };
 
             self.find_symbol(
-                import_members(
-                    self.db,
-                    self.file,
-                    &self.imports,
-                    GetMembers::Container(container),
-                ),
+                self.import_members(GetMembers::Container(container)),
                 FindSymbol::Any,
                 &text,
             )
@@ -1735,12 +1885,7 @@ impl<'db> Collector<'db> {
             };
 
             self.find_symbol(
-                import_members(
-                    self.db,
-                    self.file,
-                    &self.imports,
-                    GetMembers::Container(container),
-                ),
+                self.import_members(GetMembers::Container(container)),
                 FindSymbol::Any,
                 &text,
             )
@@ -2067,7 +2212,14 @@ impl<'db> Collector<'db> {
             | BinaryOperator::DivideAssign
             | BinaryOperator::ModuloAssign => {
                 let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+
+                let save_container = self.special_container;
+                if let Some(container) = lhs_container(left_kind.as_ref()) {
+                    self.special_container = Some(container);
+                }
                 let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
+                self.special_container = save_container;
+
                 self.arithmetic_assign_operator(left_kind, right_kind, operator)
             }
         }
@@ -2166,13 +2318,26 @@ impl<'db> Collector<'db> {
 
     fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+        dbg!(&left_kind);
+        let save_container = self.special_container;
+        if let Some(container) = lhs_container(left_kind.as_ref()) {
+            self.special_container = Some(container);
+        }
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
+        self.special_container = save_container;
+
         self.do_new_slot(left_kind, right_kind, expr.syntax().text_range())
     }
 
     fn assign_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+
+        let save_container = self.special_container;
+        if let Some(container) = lhs_container(left_kind.as_ref()) {
+            self.special_container = Some(container);
+        }
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
+        self.special_container = save_container;
 
         match left_kind {
             Some(AssignmentLeftHandSide::CanCreate { parent, range, .. }) => {
