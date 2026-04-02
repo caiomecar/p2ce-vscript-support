@@ -46,10 +46,10 @@ non_container_members!(integer_members => integer);
 non_container_members!(float_members => float);
 non_container_members!(boolean_members => boolean);
 non_container_members!(string_members => string);
-non_container_members!(array_members => string);
+non_container_members!(array_members => array);
 non_container_members!(function_members => function);
 non_container_members!(generator_members => generator);
-non_container_members!(thread_members => generator);
+non_container_members!(thread_members => thread);
 non_container_members!(weakref_members => weakref);
 
 fn table_members(db: &dyn Db, table: TableId) -> Vec<SymbolId> {
