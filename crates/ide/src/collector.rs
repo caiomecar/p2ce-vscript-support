@@ -1,20 +1,18 @@
 use la_arena::Idx;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
 use std::{collections::VecDeque, mem::discriminant};
 
 use crate::{
-    Diagnostic, DiagnosticSeverity, File, GetMembers, GetMembersInner, SourceSymbol,
+    Diagnostic, DiagnosticSeverity, File, FileState, GetMembers, SourceSymbol, SourceSymbolic,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ParamsState, Scope, SourceArena, StringId, SymbolId, TableData,
         TableId,
     },
-    const_members,
     db::Db,
-    root_members, source_members, source_symbol,
+    line_index,
     symbol::{Symbol, SymbolKind, SymbolTable, Type},
-    type_members,
 };
 
 // This is needed to accommodate for the fact that symbols inside function
@@ -140,13 +138,15 @@ fn unquote_string(input: &str) -> String {
 }
 
 pub struct Collector<'db> {
-    db: &'db dyn Db,
-    file: File,
+    pub db: &'db dyn Db,
+    pub file: File,
+
     imports: FxHashMap<Container, Vec<File>>,
 
     arena: SourceArena,
     const_table: Idx<TableData>,
     root_table: Idx<TableData>,
+    source_table: Idx<TableData>,
 
     scope: Idx<Scope>,
 
@@ -158,6 +158,36 @@ pub struct Collector<'db> {
 
     expr_kinds: RangeExprKindMap,
     diagnostics: Vec<Diagnostic>,
+}
+
+impl<'db> SourceSymbolic for Collector<'db> {
+    fn imports(&self) -> &FxHashMap<Container, Vec<File>> {
+        &self.imports
+    }
+
+    fn arena(&self) -> &SourceArena {
+        &self.arena
+    }
+
+    fn const_table(&self) -> Idx<TableData> {
+        self.const_table
+    }
+
+    fn root_table(&self) -> Idx<TableData> {
+        self.root_table
+    }
+
+    fn source_table(&self) -> Idx<TableData> {
+        self.source_table
+    }
+
+    fn expr_kinds(&self) -> &RangeExprKindMap {
+        &self.expr_kinds
+    }
+
+    fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
 }
 
 impl<'db> Collector<'db> {
@@ -207,6 +237,7 @@ impl<'db> Collector<'db> {
             arena,
             const_table,
             root_table,
+            source_table,
             execution_range: node.syntax().text_range(),
             function: None,
             deferred_functions: VecDeque::new(),
@@ -240,7 +271,6 @@ impl<'db> Collector<'db> {
 
         SourceSymbol {
             imports: collector.imports,
-            file,
             arena: collector.arena,
             const_table,
             root_table,
@@ -250,7 +280,7 @@ impl<'db> Collector<'db> {
         }
     }
 
-    fn get<T>(&self, id: T) -> &T::Data
+    pub fn get<T>(&self, id: T) -> &T::Data
     where
         T: ArenaId,
         SourceArena: std::ops::Index<Idx<T::Data>, Output = T::Data>,
@@ -262,7 +292,7 @@ impl<'db> Collector<'db> {
         &self.arena[id.idx()]
     }
 
-    fn get_mut<T>(&mut self, id: T) -> Option<&mut T::Data>
+    pub fn get_mut<T>(&mut self, id: T) -> Option<&mut T::Data>
     where
         T: ArenaId,
         SourceArena: std::ops::IndexMut<Idx<T::Data>, Output = T::Data>,
@@ -354,197 +384,15 @@ impl<'db> Collector<'db> {
     }
 
     fn local_members(&self) -> Vec<SymbolId> {
-        let mut result = self.arena[self.scope].locals.clone();
-        let mut scope = self.scope;
-        while let Some(parent) = self.arena[scope].parent {
-            for (k, v) in &self.arena[parent].locals {
-                result.entry(k.clone()).or_insert(*v);
-            }
-            scope = parent;
-        }
-        result.values().cloned().collect()
+        self.state().local_members(self.scope)
     }
 
-    fn const_members(&self) -> Vec<SymbolId> {
-        self.table_members(TableId::new(self.file, self.const_table))
-    }
-
-    fn root_members(&self) -> Vec<SymbolId> {
-        self.table_members(TableId::new(self.file, self.root_table))
+    fn state(&self) -> FileState<'_> {
+        FileState::InProcess(self)
     }
 
     fn current_container_members(&self) -> Vec<SymbolId> {
-        self.container_members(self.container)
-    }
-
-    fn table_members(&self, table: TableId) -> Vec<SymbolId> {
-        let table = self.get(table);
-
-        let mut result = table.members.clone();
-
-        if let Some(delegate) = table.delegate {
-            for (k, v) in &self.get(delegate).members {
-                result.entry(k.clone()).or_insert(*v);
-            }
-        }
-
-        if let Some(builtins) = self.db.builtins().map(|b| &b.table) {
-            for (k, v) in builtins {
-                result.entry(k.clone()).or_insert(*v);
-            }
-        }
-
-        result.values().cloned().collect()
-    }
-
-    fn enum_members(&self, enum_: EnumId) -> Vec<SymbolId> {
-        let enum_ = self.get(enum_);
-        enum_.members.values().cloned().collect()
-    }
-
-    fn class_members(&self, class: ClassId) -> Vec<SymbolId> {
-        let class = self.get(class);
-        let mut result = class.members.clone();
-        if let Some(builtins) = self.db.builtins().map(|b| &b.class) {
-            for (k, v) in builtins {
-                result.entry(k.clone()).or_insert(*v);
-            }
-        }
-        result.values().cloned().collect()
-    }
-
-    fn container_members(&self, container: Container) -> Vec<SymbolId> {
-        match container {
-            Container::Table(id) => self.table_members(id),
-            Container::Class(id) => self.class_members(id),
-            Container::Enum(id) => self.enum_members(id),
-        }
-    }
-
-    fn type_members(&self, typ: Type) -> Vec<SymbolId> {
-        match typ {
-            Type::Table(id) => self.table_members(id),
-            Type::Class(id) => self.class_members(id),
-            Type::Enum(id) => self.enum_members(id),
-            Type::Instance(id) => self.class_members(id),
-            // We create our own methods for containers so that we can fetch
-            // the type residing in our file
-            // If our file was to be queried through a database we would get
-            // a circular dependency since the file is not present inside the
-            // database until the end of Collector's execution
-            // Other types just look into their 'builtins' and therefore don't
-            // require the presence of this file inside the database
-            _ => type_members(self.db, typ),
-        }
-    }
-
-    fn import_members(&self, settings: GetMembers) -> Vec<SymbolId> {
-        let mut already_included = FxHashSet::default();
-        already_included.insert(self.file);
-        let mut result = Vec::new();
-        // If we ask for root symbols but imports contains symbols for root container
-        // how to not iterate the files twice?
-        // include source_table + root_table where it's the import goes in the root table
-        // include just root_table where it's not put in the root table?
-        // First iterate through possi
-        let (first_settings, second_settings, container) = match settings {
-            GetMembers::Container(container) => {
-                (GetMembersInner::Container(container), None, container)
-            }
-            GetMembers::Const(idx) => (
-                GetMembersInner::ConstAsSource,
-                Some(GetMembersInner::Const),
-                Container::Table(TableId::new(self.file, idx)),
-            ),
-            GetMembers::Root(idx) => (
-                GetMembersInner::RootAsSource,
-                Some(GetMembersInner::Root),
-                Container::Table(TableId::new(self.file, idx)),
-            ),
-        };
-
-        if let Some(imports) = self.imports.get(&container) {
-            for import in imports {
-                if !already_included.insert(*import) {
-                    continue;
-                }
-
-                result.extend(self.import_members_inner(
-                    *import,
-                    &mut already_included,
-                    first_settings,
-                ));
-            }
-        }
-
-        let Some(second_settings) = second_settings else {
-            return result;
-        };
-
-        for import_list in self.imports.values() {
-            for import in import_list {
-                if !already_included.insert(*import) {
-                    continue;
-                }
-
-                result.extend(self.import_members_inner(
-                    *import,
-                    &mut already_included,
-                    second_settings,
-                ));
-            }
-        }
-        result
-    }
-
-    fn import_members_inner(
-        &self,
-        file: File,
-        already_included: &mut FxHashSet<File>,
-        settings: GetMembersInner,
-    ) -> Vec<SymbolId> {
-        let mut result = match settings {
-            GetMembersInner::Container(container) => self.container_members(container),
-            GetMembersInner::ConstAsSource => const_members(self.db, file)
-                .into_iter()
-                .chain(source_members(self.db, file))
-                .collect(),
-            GetMembersInner::Const => const_members(self.db, file),
-            GetMembersInner::RootAsSource => root_members(self.db, file)
-                .into_iter()
-                .chain(source_members(self.db, file))
-                .collect(),
-            GetMembersInner::Root => root_members(self.db, file),
-        };
-
-        let source = source_symbol(self.db, file);
-        if let GetMembersInner::Container(container) = settings {
-            let Some(imports) = source.imports.get(&container) else {
-                return result;
-            };
-
-            for import in imports {
-                if already_included.contains(import) {
-                    continue;
-                }
-
-                already_included.insert(*import);
-                result.extend(self.import_members_inner(*import, already_included, settings));
-            }
-            return result;
-        }
-
-        for imports in source.imports.values() {
-            for import in imports {
-                if !already_included.insert(*import) {
-                    continue;
-                }
-
-                result.extend(self.import_members_inner(*import, already_included, settings));
-            }
-        }
-
-        result
+        self.state().container_members(self.container)
     }
 
     fn add_current_container_member(&mut self, name: String, symbol: SymbolId) {
@@ -568,14 +416,6 @@ impl<'db> Collector<'db> {
                     e.add_member(name, symbol);
                 }
             }
-        }
-    }
-
-    fn expr_to_type(&self, expr: NullableExprKind) -> Type {
-        match expr {
-            Some(ExpressionKind::Literal(kind)) => kind,
-            Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ,
-            None => Type::Unknown,
         }
     }
 
@@ -877,8 +717,8 @@ impl<'db> Collector<'db> {
         operator: BinaryOperator,
         error_range: TextRange,
     ) -> Option<Type> {
-        let left_type = self.expr_to_type(left);
-        let right_type = self.expr_to_type(right);
+        let left_type = self.state().expr_to_type(left);
+        let right_type = self.state().expr_to_type(right);
         let (metamethod, keyword) = match operator {
             BinaryOperator::Add | BinaryOperator::AddAssign => ("_add", "adding"),
             BinaryOperator::Subtract | BinaryOperator::SubtractAssign => ("_sub", "subtracting"),
@@ -1286,7 +1126,7 @@ impl<'db> Collector<'db> {
 
         let root = || {
             self.find_symbol(
-                self.root_members(),
+                self.state().root_members(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
                 &text,
             )
@@ -1297,7 +1137,7 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let mut typ = self.expr_to_type(Some(expr_kind));
+        let mut typ = self.state().expr_to_type(Some(expr_kind));
         let key = names[0].syntax().text_range();
         self.expr_kinds.insert(key, expr_kind);
 
@@ -1320,7 +1160,7 @@ impl<'db> Collector<'db> {
 
             let Some(expr_kind) = self
                 .find_symbol(
-                    self.container_members(container),
+                    self.state().container_members(container),
                     FindSymbol::BeforeIfInExecutionRange(offset),
                     &text,
                 )
@@ -1330,7 +1170,7 @@ impl<'db> Collector<'db> {
                 return;
             };
 
-            typ = self.expr_to_type(Some(expr_kind));
+            typ = self.state().expr_to_type(Some(expr_kind));
             let key = segment.syntax().text_range();
             self.expr_kinds.insert(key, expr_kind);
         }
@@ -1587,7 +1427,7 @@ impl<'db> Collector<'db> {
 
     fn expr_type(&mut self, expr: &Expr) -> Type {
         let kind = self.collect_expr(expr);
-        self.expr_to_type(kind)
+        self.state().expr_to_type(kind)
     }
 
     fn collect_expr(&mut self, expr: &Expr) -> NullableExprKind {
@@ -1719,12 +1559,17 @@ impl<'db> Collector<'db> {
         let offset = expr.syntax().text_range().end();
         let locals = self.find_symbol(self.local_members(), FindSymbol::OnlyBefore(offset), &text);
 
-        let consts =
-            || self.find_symbol(self.const_members(), FindSymbol::OnlyBefore(offset), &text);
+        let consts = || {
+            self.find_symbol(
+                self.state().const_members(),
+                FindSymbol::OnlyBefore(offset),
+                &text,
+            )
+        };
 
         let consts_imports = || {
             self.find_symbol(
-                self.import_members(GetMembers::Const(self.const_table)),
+                self.state().import_members(GetMembers::Const),
                 FindSymbol::OnlyBefore(offset),
                 &text,
             )
@@ -1740,7 +1585,8 @@ impl<'db> Collector<'db> {
 
         let members_imports = || {
             self.find_symbol(
-                self.import_members(GetMembers::Container(self.container)),
+                self.state()
+                    .import_members(GetMembers::Container(self.container)),
                 FindSymbol::Any,
                 &text,
             )
@@ -1748,7 +1594,7 @@ impl<'db> Collector<'db> {
 
         let root = || {
             self.find_symbol(
-                self.root_members(),
+                self.state().root_members(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
                 &text,
             )
@@ -1756,20 +1602,25 @@ impl<'db> Collector<'db> {
 
         let root_imports = || {
             self.find_symbol(
-                self.import_members(GetMembers::Root(self.root_table)),
+                self.state().import_members(GetMembers::Root),
                 FindSymbol::Any,
                 &text,
             )
         };
 
-        locals
+        dbg!(&text);
+        dbg!(line_index(self.db, self.file).line_col(offset));
+        dbg!(consts());
+        let result = locals
             .or_else(consts)
             .or_else(consts_imports)
             .or_else(members)
             .or_else(members_imports)
             .or_else(root)
             .or_else(root_imports)
-            .map(|symbol| ExpressionKind::Symbol(symbol))
+            .map(|symbol| ExpressionKind::Symbol(symbol));
+        dbg!(result);
+        result
     }
 
     fn this_expression(&self, _expr: &ThisExpression) -> ExpressionKind {
@@ -1781,14 +1632,14 @@ impl<'db> Collector<'db> {
         let offset = expr.syntax().text_range().end();
 
         let direct = self.find_symbol(
-            self.root_members(),
+            self.state().root_members(),
             FindSymbol::BeforeIfInExecutionRange(offset),
             &text,
         );
 
         let imports = || {
             self.find_symbol(
-                self.import_members(GetMembers::Root(self.root_table)),
+                self.state().import_members(GetMembers::Root),
                 FindSymbol::Any,
                 &text,
             )
@@ -1830,7 +1681,7 @@ impl<'db> Collector<'db> {
         let obj = self.expr_type(&expr.object()?);
         let text = expr.member_part()?.name()?.text()?;
 
-        let members = self.type_members(obj);
+        let members = self.state().type_members(obj);
 
         let offset = expr.syntax().text_range().end();
         let direct = self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text);
@@ -1848,7 +1699,8 @@ impl<'db> Collector<'db> {
             };
 
             self.find_symbol(
-                self.import_members(GetMembers::Container(container)),
+                self.state()
+                    .import_members(GetMembers::Container(container)),
                 FindSymbol::Any,
                 &text,
             )
@@ -1867,7 +1719,7 @@ impl<'db> Collector<'db> {
         };
 
         let text = self.get(id).to_owned();
-        let members = self.type_members(obj);
+        let members = self.state().type_members(obj);
 
         let offset = expr.syntax().text_range().end();
         let direct = self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text);
@@ -1885,7 +1737,8 @@ impl<'db> Collector<'db> {
             };
 
             self.find_symbol(
-                self.import_members(GetMembers::Container(container)),
+                self.state()
+                    .import_members(GetMembers::Container(container)),
                 FindSymbol::Any,
                 &text,
             )
@@ -1917,7 +1770,10 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    match (self.expr_to_type(argument_kind), self.get(param).typ) {
+                    match (
+                        self.state().expr_to_type(argument_kind),
+                        self.get(param).typ,
+                    ) {
                         (Type::Unknown | Type::Null, required_kind) => {
                             // If passed in parameter has type of unknown
                             // we can coerce it to be the type of a required parameter
@@ -2044,8 +1900,11 @@ impl<'db> Collector<'db> {
                     });
                 }
 
-                let consts =
-                    self.find_symbol(self.const_members(), FindSymbol::OnlyBefore(offset), &text);
+                let consts = self.find_symbol(
+                    self.state().const_members(),
+                    FindSymbol::OnlyBefore(offset),
+                    &text,
+                );
 
                 if let Some(symbol) = consts {
                     return Some(AssignmentLeftHandSide::Exists {
@@ -2070,7 +1929,7 @@ impl<'db> Collector<'db> {
                 }
 
                 let root = self.find_symbol(
-                    self.root_members(),
+                    self.state().root_members(),
                     FindSymbol::BeforeIfInExecutionRange(offset),
                     &text,
                 );
@@ -2093,7 +1952,7 @@ impl<'db> Collector<'db> {
                 let obj = self.expr_type(&expr.object()?);
                 let text = expr.member_part()?.name()?.text()?;
 
-                let members = self.type_members(obj);
+                let members = self.state().type_members(obj);
 
                 let offset = expr.syntax().text_range().end();
                 Some(
@@ -2116,7 +1975,7 @@ impl<'db> Collector<'db> {
                 let obj = self.expr_type(&expr.object()?);
                 let index = expr.index()?.expression()?;
                 let index_kind = self.collect_expr(&index);
-                let Type::String(Some(id)) = self.expr_to_type(index_kind) else {
+                let Type::String(Some(id)) = self.state().expr_to_type(index_kind) else {
                     return Some(AssignmentLeftHandSide::NonStringKey {
                         parent: obj,
                         range: expr.syntax().text_range(),
@@ -2125,7 +1984,7 @@ impl<'db> Collector<'db> {
                 };
 
                 let text = self.get(id).as_ref();
-                let members = self.type_members(obj);
+                let members = self.state().type_members(obj);
 
                 let offset = expr.syntax().text_range().end();
                 Some(
@@ -2149,7 +2008,7 @@ impl<'db> Collector<'db> {
                 let offset = expr.syntax().text_range().end();
                 Some(
                     self.find_symbol(
-                        self.root_members(),
+                        self.state().root_members(),
                         FindSymbol::BeforeIfInExecutionRange(offset),
                         &text,
                     )
@@ -2248,7 +2107,7 @@ impl<'db> Collector<'db> {
                 };
 
                 let symbol = self.symbol(Symbol {
-                    typ: self.expr_to_type(right_kind),
+                    typ: self.state().expr_to_type(right_kind),
                     name: new_key.to_string(),
                     kind: SymbolKind::Property,
                     range: expr_range,
@@ -2292,7 +2151,7 @@ impl<'db> Collector<'db> {
                     return right_kind;
                 }
 
-                let typ = self.expr_to_type(right_kind);
+                let typ = self.state().expr_to_type(right_kind);
 
                 let Some(symbol) = self.get_mut(symbol) else {
                     return right_kind;
@@ -2318,7 +2177,6 @@ impl<'db> Collector<'db> {
 
     fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
-        dbg!(&left_kind);
         let save_container = self.special_container;
         if let Some(container) = lhs_container(left_kind.as_ref()) {
             self.special_container = Some(container);
@@ -2372,7 +2230,7 @@ impl<'db> Collector<'db> {
                     return right_kind;
                 }
 
-                let typ = self.expr_to_type(right_kind);
+                let typ = self.state().expr_to_type(right_kind);
                 let Some(symbol) = self.get_mut(symbol) else {
                     return right_kind;
                 };
@@ -2399,11 +2257,11 @@ impl<'db> Collector<'db> {
 
     fn in_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let right = self.expr_to_type(right_kind);
+        let right = self.state().expr_to_type(right_kind);
 
         match right {
             Type::Array(_) => {
-                let left = self.expr_to_type(left_kind);
+                let left = self.state().expr_to_type(left_kind);
                 if !matches!(left, Type::Unknown | Type::Integer) {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to index into an array using '{left}' (only integers are applicable)"),
@@ -2426,8 +2284,8 @@ impl<'db> Collector<'db> {
 
     fn instance_of_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.expr_to_type(left_kind);
-        let right = self.expr_to_type(right_kind);
+        let left = self.state().expr_to_type(left_kind);
+        let right = self.state().expr_to_type(right_kind);
 
         match (left, right) {
             (Type::Unknown, Type::Class(_))
@@ -2459,8 +2317,8 @@ impl<'db> Collector<'db> {
         is_three_way: bool,
     ) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.expr_to_type(left_kind);
-        let right = self.expr_to_type(right_kind);
+        let left = self.state().expr_to_type(left_kind);
+        let right = self.state().expr_to_type(right_kind);
 
         match (left, right) {
             (Type::Unknown | Type::Null, _)
@@ -2512,8 +2370,8 @@ impl<'db> Collector<'db> {
 
     fn bitwise_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.expr_to_type(left_kind);
-        let right = self.expr_to_type(right_kind);
+        let left = self.state().expr_to_type(left_kind);
+        let right = self.state().expr_to_type(right_kind);
 
         match (left, right) {
             (Type::Integer, Type::Integer) => {}
@@ -2546,8 +2404,8 @@ impl<'db> Collector<'db> {
 
     fn logical_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left_kind, right_kind) = self.extract_lhs_and_rhs(expr);
-        let left = self.expr_to_type(left_kind);
-        let right = self.expr_to_type(right_kind);
+        let left = self.state().expr_to_type(left_kind);
+        let right = self.state().expr_to_type(right_kind);
 
         ExpressionKind::Literal(if left.should_substitute() {
             right
@@ -2626,7 +2484,7 @@ impl<'db> Collector<'db> {
                     return right_kind;
                 }
 
-                let typ = self.expr_to_type(right_kind);
+                let typ = self.state().expr_to_type(right_kind);
                 let Some(symbol) = self.get_mut(symbol) else {
                     return right_kind;
                 };
@@ -2868,7 +2726,7 @@ impl<'db> Collector<'db> {
         let function = arguments.remove(0);
         let _context = arguments.remove(0);
 
-        let obj = self.expr_to_type(function);
+        let obj = self.state().expr_to_type(function);
         Some(ExpressionKind::Literal(self.call_type(
             obj,
             &arguments,

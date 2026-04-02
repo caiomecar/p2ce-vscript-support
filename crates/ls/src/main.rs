@@ -2,8 +2,7 @@ mod conversions;
 
 use anyhow::Result;
 use ide::{
-    Database, File, SymbolKind, Type, line_index, members_of_type, parse, source_symbol,
-    symbols_at, type_at,
+    Database, File, FileState, SourceSymbolic, SymbolKind, Type, line_index, parse, source_symbol,
 };
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
@@ -168,7 +167,6 @@ fn handle_request(
 
             let syntax = parse(db, file).syntax();
 
-            // 1. Get meaningful token (prefer left, skip whitespace)
             let token = syntax.token_at_offset(offset).left_biased().and_then(|t| {
                 if t.kind() == SyntaxKind::Whitespace {
                     t.prev_token()
@@ -177,11 +175,12 @@ fn handle_request(
                 }
             });
 
-            // 2. Find enclosing member access
             let member = token.and_then(|t| {
                 t.parent_ancestors()
                     .find_map(|n| ast::MemberAccessExpression::cast(n))
             });
+
+            let file_state = FileState::Finished(db, file);
 
             // 3. Decide if we're in member access
             let symbols = if let Some(member) = member {
@@ -190,17 +189,17 @@ fn handle_request(
                 if offset <= range.end() {
                     // still inside or right after member access → show members
                     if let Some(obj) = member.object() {
-                        let typ = type_at(db, file, obj.syntax().text_range());
-                        members_of_type(db, typ)
+                        let typ = file_state.type_at(obj.syntax().text_range());
+                        file_state.members_of_type(typ)
                     } else {
                         Vec::new()
                     }
                 } else {
                     // past the expression → normal completion
-                    symbols_at(db, file, offset)
+                    file_state.symbols_at(offset)
                 }
             } else {
-                symbols_at(db, file, offset)
+                file_state.symbols_at(offset)
             };
 
             let items: Vec<CompletionItem> = symbols
