@@ -1208,6 +1208,15 @@ impl<'db> Collector<'db> {
             }
             None => {}
         }
+        if let Some(condition) = stmt.condition().and_then(|c| c.expression()) {
+            self.collect_expr(&condition);
+        }
+        if let Some(increment) = stmt.condition().and_then(|i| i.expression()) {
+            self.collect_expr(&increment);
+        }
+        if let Some(body) = stmt.body() {
+            self.collect_stmt(&body);
+        }
         self.exit_scope();
         (self.can_break, self.can_continue) = save_break_continue;
     }
