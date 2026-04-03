@@ -1597,7 +1597,7 @@ impl<'db> Collector<'db> {
             }
             LiteralExpressionKind::Null => ExpressionKind::Literal(Type::Null),
             LiteralExpressionKind::True => ExpressionKind::Literal(Type::Boolean(Some(true))),
-            LiteralExpressionKind::False => ExpressionKind::Literal(Type::Boolean(Some(true))),
+            LiteralExpressionKind::False => ExpressionKind::Literal(Type::Boolean(Some(false))),
         })
     }
 
