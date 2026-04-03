@@ -143,8 +143,22 @@ pub struct Collector<'db> {
 
     scope: ScopeId,
 
+    /// The container new members will be added to. Note that this is different from
+    /// container that we take symbols from. That one is stored on the scope and can
+    /// be acquired via .execution_container()
     container: Container,
+    /// If a function overwrites the current container, either via static environment
+    /// binding function a[whatever](){} or by trying to reside outside of the current
+    /// container, e.g. a.b.c <- function(){need to show completions inside 'b' in here}
+    /// function a::b::c(){same deal here}
+    /// while the second reason is not perfect since it can be overwritten, which would
+    /// lead to errors, it's still the best approximation we can possibly use
     special_container: Option<Container>,
+
+    can_break: bool,
+    can_continue: bool,
+    dead_code: bool,
+
     execution_range: TextRange,
     function: Option<Idx<FunctionData>>,
     deferred_functions: VecDeque<DeferredFunction>,
@@ -228,6 +242,9 @@ impl<'db> Collector<'db> {
             scope,
             container,
             special_container: None,
+            can_break: false,
+            can_continue: false,
+            dead_code: false,
             arena,
             const_table,
             root_table,
@@ -262,6 +279,8 @@ impl<'db> Collector<'db> {
                 }
             }
         }
+
+        collector.unused_variables_diagnostics();
 
         SourceSymbol {
             imports: collector.imports,
@@ -333,7 +352,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to inherit from {kind}"),
                         range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     });
                     None
                 }
@@ -390,6 +409,7 @@ impl<'db> Collector<'db> {
     }
 
     fn exit_scope(&mut self) {
+        self.dead_code = false;
         self.scope = self.arena[self.scope].parent.unwrap();
     }
 
@@ -453,7 +473,7 @@ impl<'db> Collector<'db> {
                                 self.diagnostics.push(Diagnostic {
                                     message: "Non-default parameter cannot be preceded by a default parameter".to_owned(),
                                     range: var.syntax().text_range(),
-                                    severity: DiagnosticSeverity::Error,
+                                    ..Default::default()
                                 });
                                 params_state = ParamsState::NoDefault;
                             }
@@ -462,7 +482,7 @@ impl<'db> Collector<'db> {
                                     message: "Parameters cannot be preceded by varied arguments"
                                         .to_owned(),
                                     range: var.syntax().text_range(),
-                                    severity: DiagnosticSeverity::Error,
+                                    ..Default::default()
                                 });
                                 params_state = ParamsState::NoDefault;
                             }
@@ -504,7 +524,7 @@ impl<'db> Collector<'db> {
                                 message: "Parameters cannot be preceded by varied arguments"
                                     .to_owned(),
                                 range: var.syntax().text_range(),
-                                severity: DiagnosticSeverity::Error,
+                                ..Default::default()
                             });
                             params_state = ParamsState::Default(var_args_at);
                         }
@@ -518,7 +538,7 @@ impl<'db> Collector<'db> {
                                 "Function with varied arguments cannot have default parameters"
                                     .to_owned(),
                             range: var_args.syntax().text_range(),
-                            severity: DiagnosticSeverity::Error,
+                            ..Default::default()
                         });
                     }
                     ParamsState::VarArgs(_) => {
@@ -526,7 +546,7 @@ impl<'db> Collector<'db> {
                             message: "There can't be 2 varied arguments in a function signature"
                                 .to_owned(),
                             range: var_args.syntax().text_range(),
-                            severity: DiagnosticSeverity::Error,
+                            ..Default::default()
                         });
                     }
                 },
@@ -556,7 +576,7 @@ impl<'db> Collector<'db> {
                                     "'table' does not support {keyword}: no delegate assigned"
                                 ),
                                 range: error_range,
-                                severity: DiagnosticSeverity::Error,
+                                ..Default::default()
                             });
                         }
                         MetamethodErrors::No => {}
@@ -572,7 +592,7 @@ impl<'db> Collector<'db> {
                             self.diagnostics.push(Diagnostic {
                                 message: format!("'table' does not support {keyword}: delegate has no '{metamethod}' metamethod"),
                                 range: error_range,
-                                severity: DiagnosticSeverity::Error
+                                ..Default::default()
                             });
                         }
                         MetamethodErrors::No => {}
@@ -591,7 +611,7 @@ impl<'db> Collector<'db> {
                             self.diagnostics.push(Diagnostic {
                                 message: format!("'instance' does not support {keyword}: class has no '{metamethod}' metamethod"),
                                 range: error_range,
-                                severity: DiagnosticSeverity::Error,
+                                ..Default::default()
                             });
                         }
                         MetamethodErrors::No => {}
@@ -608,7 +628,7 @@ impl<'db> Collector<'db> {
                         self.diagnostics.push(Diagnostic {
                             message: format!("'{typ}' does not support {keyword}"),
                             range: error_range,
-                            severity: DiagnosticSeverity::Error,
+                            ..Default::default()
                         });
                     }
                     MetamethodErrors::YesBinary {
@@ -621,7 +641,7 @@ impl<'db> Collector<'db> {
                                     "'{typ}' does not support {keyword} with '{left}'"
                                 ),
                                 range: error_range,
-                                severity: DiagnosticSeverity::Error,
+                                ..Default::default()
                             });
                         }
                     }
@@ -825,7 +845,7 @@ impl<'db> Collector<'db> {
                         "Constant can only hold value of 'integer', 'float', 'string' or 'bool'"
                             .to_owned(),
                     range: error_range,
-                    severity: DiagnosticSeverity::Error,
+                    ..Default::default()
                 });
             }
         }
@@ -914,6 +934,7 @@ impl<'db> Collector<'db> {
                     message: format!("Trying to use '{typ}' as function's environment"),
                     range: env.syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
+                    ..Default::default()
                 });
             }
         }
@@ -1001,6 +1022,14 @@ impl<'db> Collector<'db> {
     }
 
     fn collect_stmt(&mut self, stmt: &Stmt) {
+        if self.dead_code {
+            self.diagnostics.push(Diagnostic {
+                message: "Unreachable code".to_owned(),
+                range: stmt.syntax().text_range(),
+                severity: DiagnosticSeverity::Unnecessary,
+            });
+        }
+
         match stmt {
             Stmt::LocalVariable(stmt) => self.local_variable(stmt),
             Stmt::LocalFunction(stmt) => self.local_function(stmt),
@@ -1019,8 +1048,8 @@ impl<'db> Collector<'db> {
             Stmt::Switch(stmt) => self.switch_statement(stmt),
             Stmt::Return(stmt) => self.return_statement(stmt),
             Stmt::Yield(stmt) => self.yield_statement(stmt),
-            Stmt::Continue(_) => (),
-            Stmt::Break(_) => (),
+            Stmt::Continue(stmt) => self.continue_statement(stmt),
+            Stmt::Break(stmt) => self.break_statement(stmt),
             Stmt::Try(stmt) => self.try_statement(stmt),
             Stmt::Throw(stmt) => self.throw_statement(stmt),
         }
@@ -1112,6 +1141,9 @@ impl<'db> Collector<'db> {
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
+        let save_break_continue = (self.can_break, self.can_continue);
+        self.can_break = true;
+        self.can_continue = true;
         if let Some(body) = stmt.body() {
             self.enter_scope(body.syntax().text_range());
         } else {
@@ -1160,9 +1192,13 @@ impl<'db> Collector<'db> {
         }
 
         self.exit_scope();
+        (self.can_break, self.can_continue) = save_break_continue;
     }
 
     fn for_statement(&mut self, stmt: &ForStatement) {
+        let save_break_continue = (self.can_break, self.can_continue);
+        self.can_break = true;
+        self.can_continue = true;
         self.enter_scope(stmt.syntax().text_range());
         match stmt.initialiser().and_then(|i| i.kind()) {
             Some(ForInitialiserKind::LocalVariableDeclaration(decl)) => self.local_variable(&decl),
@@ -1173,6 +1209,7 @@ impl<'db> Collector<'db> {
             None => {}
         }
         self.exit_scope();
+        (self.can_break, self.can_continue) = save_break_continue;
     }
 
     fn class_statement(&mut self, stmt: &ClassStatement) {
@@ -1268,6 +1305,7 @@ impl<'db> Collector<'db> {
                         .to_owned(),
                     range: names[0].syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
+                    ..Default::default()
                 });
             }
             self.collect_function(function.idx(), stmt);
@@ -1397,17 +1435,25 @@ impl<'db> Collector<'db> {
         }
 
         if let Some(body) = stmt.body() {
+            let save_break_continue = (self.can_break, self.can_continue);
+            self.can_break = true;
+            self.can_continue = true;
             self.enter_scope(body.syntax().text_range());
             self.collect_stmt(&body);
             self.exit_scope();
+            (self.can_break, self.can_continue) = save_break_continue;
         }
     }
 
     fn do_while_statement(&mut self, stmt: &DoWhileStatement) {
         if let Some(body) = stmt.body() {
+            let save_break_continue = (self.can_break, self.can_continue);
+            self.can_break = true;
+            self.can_continue = true;
             self.enter_scope(body.syntax().text_range());
             self.collect_stmt(&body);
             self.exit_scope();
+            (self.can_break, self.can_continue) = save_break_continue;
         }
 
         if let Some(condition) = stmt.condition() {
@@ -1422,6 +1468,8 @@ impl<'db> Collector<'db> {
             Type::Unknown
         };
 
+        let save_break = self.can_break;
+        self.can_break = true;
         for clause in stmt.clauses() {
             match clause {
                 SwitchClause::Case(case) => {
@@ -1444,6 +1492,7 @@ impl<'db> Collector<'db> {
                                 message: format!("Case of type '{case_kind}' is incompitable with discriminant of type '{kind}'"),
                                 range: test.syntax().text_range(),
                                 severity: DiagnosticSeverity::Warning,
+                                ..Default::default()
                             });
                         }
                     }
@@ -1463,6 +1512,7 @@ impl<'db> Collector<'db> {
                 }
             }
         }
+        self.can_break = save_break;
     }
 
     fn return_statement(&mut self, stmt: &ReturnStatement) {
@@ -1472,12 +1522,15 @@ impl<'db> Collector<'db> {
             None
         };
 
+        self.dead_code = true;
+
         let Some(function) = self.function else {
             if kind.is_some() {
                 self.diagnostics.push(Diagnostic {
                     message: "Value returned by the source file execution scope cannot be received in any way".to_owned(),
                     range: stmt.syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
+                    ..Default::default()
                 });
             }
             return;
@@ -1507,6 +1560,7 @@ impl<'db> Collector<'db> {
                 message: "Yielding in the source file execution scope".to_owned(),
                 range: stmt.syntax().text_range(),
                 severity: DiagnosticSeverity::Warning,
+                ..Default::default()
             });
             return;
         };
@@ -1514,6 +1568,28 @@ impl<'db> Collector<'db> {
         if self.arena[function].yielding.is_none() {
             self.arena[function].yielding = Some(kind);
         }
+    }
+
+    fn continue_statement(&mut self, stmt: &ContinueStatement) {
+        if !self.can_continue {
+            self.diagnostics.push(Diagnostic {
+                message: "'continue' has to be in a loop block".to_owned(),
+                range: stmt.syntax().text_range(),
+                ..Default::default()
+            })
+        }
+        self.dead_code = true;
+    }
+
+    fn break_statement(&mut self, stmt: &BreakStatement) {
+        if !self.can_break {
+            self.diagnostics.push(Diagnostic {
+                message: "'break' has to be in a loop or 'switch' block".to_owned(),
+                range: stmt.syntax().text_range(),
+                ..Default::default()
+            })
+        }
+        self.dead_code = true;
     }
 
     fn try_statement(&mut self, stmt: &TryStatement) {
@@ -1562,6 +1638,7 @@ impl<'db> Collector<'db> {
             Type::Unknown
         };
 
+        self.dead_code = true;
         let Some(function) = self.function else {
             return;
         };
@@ -1624,6 +1701,7 @@ impl<'db> Collector<'db> {
                         message: "Leading '0' can be removed".to_owned(),
                         range: token.text_range(),
                         severity: DiagnosticSeverity::Warning,
+                        ..Default::default()
                     });
                 }
                 // Default values are provided to signify that the user has tried
@@ -1798,7 +1876,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: "'enum' can only appear in property access expression".to_owned(),
                         range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     })
                 }
                 ExpressionKind::Symbol(id)
@@ -1843,6 +1921,7 @@ impl<'db> Collector<'db> {
                             .to_owned(),
                         range: expr.syntax().text_range(),
                         severity: DiagnosticSeverity::Warning,
+                        ..Default::default()
                     });
                     ExpressionKind::Literal(Type::Null)
                 }
@@ -1852,6 +1931,7 @@ impl<'db> Collector<'db> {
                     message: "Accessing 'base' inside non-class execution scope".to_owned(),
                     range: expr.syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
+                    ..Default::default()
                 });
                 ExpressionKind::Literal(Type::Null)
             }
@@ -1886,7 +1966,7 @@ impl<'db> Collector<'db> {
             self.diagnostics.push(Diagnostic {
                 message: format!("'{obj}' has no member named '{text}'"),
                 range: expr.syntax().text_range(),
-                severity: DiagnosticSeverity::Error,
+                ..Default::default()
             });
         }
         result
@@ -1919,7 +1999,7 @@ impl<'db> Collector<'db> {
             self.diagnostics.push(Diagnostic {
                 message: format!("'{obj}' has no member named '{text}'"),
                 range: expr.syntax().text_range(),
-                severity: DiagnosticSeverity::Error,
+                ..Default::default()
             });
         }
 
@@ -1941,7 +2021,7 @@ impl<'db> Collector<'db> {
                             self.diagnostics.push(Diagnostic {
                                 message: "Passing more parameters than possible".to_owned(),
                                 range: error_range,
-                                severity: DiagnosticSeverity::Error,
+                                ..Default::default()
                             });
                         }
                         continue;
@@ -1976,6 +2056,7 @@ impl<'db> Collector<'db> {
                                     message: format!("Expected parameter of type '{required}', but got '{passed}'"),
                                     range: error_range,
                                     severity: DiagnosticSeverity::Warning,
+                                    ..Default::default()
                                 });
                             }
                         }
@@ -1993,7 +2074,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: "Insufficient number of parameters passed".to_owned(),
                         range: error_range,
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     });
                 }
 
@@ -2011,7 +2092,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: "Default constructor should have no parameters".to_owned(),
                         range: error_range,
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     });
                 }
 
@@ -2362,7 +2443,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: "Cannot create a new slot with the same name as a local or constant due to the resolution precedence. Prepend variable name with `this.` if you wish to do that".to_owned(),
                         range,
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     });
                     return right_kind;
                 }
@@ -2429,7 +2510,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
                         range,
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     });
                     return right_kind;
                 }
@@ -2479,7 +2560,8 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to index into an array using '{left}' (only integers are applicable)"),
                         range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Warning
+                        severity: DiagnosticSeverity::Warning,
+                        ..Default::default()
                     });
                 }
             }
@@ -2489,6 +2571,7 @@ impl<'db> Collector<'db> {
                     message: format!("Indexing into '{right}' will always return false"),
                     range: expr.syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
+                    ..Default::default()
                 });
             }
         }
@@ -2511,7 +2594,7 @@ impl<'db> Collector<'db> {
                         "'instanceof' operator between '{left}' and '{right}' is not supported"
                     ),
                     range: expr.syntax().text_range(),
-                    severity: DiagnosticSeverity::Error,
+                    ..Default::default()
                 });
             }
         }
@@ -2552,7 +2635,7 @@ impl<'db> Collector<'db> {
                     Some(_) => self.diagnostics.push(Diagnostic {
                         message: "'_cmp' must return an integer".to_owned(),
                         range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     }),
                     None => {
                         self.diagnostics.push(Diagnostic {
@@ -2562,7 +2645,8 @@ impl<'db> Collector<'db> {
                                 "Comparing instances with no '_cmp' class metamethod defined. The result is undetermenistic".to_owned()
                             },
                             range: expr.syntax().text_range(),
-                            severity: DiagnosticSeverity::Warning
+                            severity: DiagnosticSeverity::Warning,
+                            ..Default::default()
                         });
                     }
                 }
@@ -2570,7 +2654,7 @@ impl<'db> Collector<'db> {
             _ => self.diagnostics.push(Diagnostic {
                 message: format!("'{left}' does not support comparison with '{right}'"),
                 range: expr.syntax().text_range(),
-                severity: DiagnosticSeverity::Error,
+                ..Default::default()
             }),
         }
 
@@ -2607,7 +2691,7 @@ impl<'db> Collector<'db> {
                 self.diagnostics.push(Diagnostic {
                     message: format!("'{left}' does not support bitwise operator with '{right}'"),
                     range: expr.syntax().text_range(),
-                    severity: DiagnosticSeverity::Error,
+                    ..Default::default()
                 });
             }
         }
@@ -2681,7 +2765,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
                         range,
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     });
                     return right_kind;
                 }
@@ -2784,7 +2868,7 @@ impl<'db> Collector<'db> {
             _ => self.diagnostics.push(Diagnostic {
                 message: format!("'{typ}' does not support bitwise not operator"),
                 range: expr.syntax().text_range(),
-                severity: DiagnosticSeverity::Error,
+                ..Default::default()
             }),
         }
 
@@ -2877,7 +2961,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: "Cannot delete a variable with the same name as a local or constant due to the resolution precedence. Prepend variable name with `this.` if you wish to do that".to_owned(),
                         range,
-                        severity: DiagnosticSeverity::Error,
+                        ..Default::default()
                     });
                 }
 
@@ -2914,7 +2998,7 @@ impl<'db> Collector<'db> {
                 self.diagnostics.push(Diagnostic {
                     message: "Only generators can be resumed".to_owned(),
                     range: expr.syntax().text_range(),
-                    severity: DiagnosticSeverity::Error,
+                    ..Default::default()
                 });
                 None
             }
@@ -2932,7 +3016,7 @@ impl<'db> Collector<'db> {
                 message: "'rawcall' requires at least 2 parameters: function to call and context"
                     .to_owned(),
                 range: expr.syntax().text_range(),
-                severity: DiagnosticSeverity::Error,
+                ..Default::default()
             });
             return None;
         }
@@ -2963,5 +3047,33 @@ impl<'db> Collector<'db> {
         let function = self.function();
         self.collect_function(function.idx(), expr);
         ExpressionKind::Literal(Type::Function(function))
+    }
+
+    fn unused_variables_diagnostics(&mut self) {
+        let mut seen: FxHashMap<SymbolId, bool> = FxHashMap::default();
+        dbg!(&self.name_kinds);
+
+        for id in self.name_kinds().values() {
+            seen.entry(*id)
+                .and_modify(|used| *used = true)
+                .or_insert(false);
+        }
+
+        for (id, _) in seen.into_iter().filter(|(_, seen)| !seen) {
+            let symbol = self.get(id);
+            if symbol.kind != SymbolKind::Local {
+                continue;
+            }
+
+            if symbol.name.starts_with("_") {
+                continue;
+            }
+
+            self.diagnostics.push(Diagnostic {
+                message: format!("Unused local variable '{}'", symbol.name),
+                range: symbol.name_range,
+                severity: DiagnosticSeverity::Unnecessary,
+            });
+        }
     }
 }

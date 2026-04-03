@@ -18,17 +18,19 @@ pub use arena::{ArenaId, FunctionData, ParamsState};
 pub use db::{Database, File, line_index, parse, source_symbol};
 pub use symbol::{Symbol, SymbolKind, SymbolTable, Type};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Diagnostic {
     pub message: String,
     pub range: TextRange,
     pub severity: DiagnosticSeverity,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSeverity {
+    #[default]
     Error,
     Warning,
+    Unnecessary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

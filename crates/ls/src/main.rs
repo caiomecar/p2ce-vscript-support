@@ -19,11 +19,11 @@ use lsp_types::request::{
     SemanticTokensFullRequest, SignatureHelpRequest,
 };
 use lsp_types::{
-    CompletionOptions, CompletionParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
-    HoverProviderCapability, OneOf, ReferenceParams, RenameParams, SemanticTokenModifier,
-    SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensServerCapabilities, SignatureHelpOptions,
-    SignatureHelpParams,
+    CompletionOptions, CompletionParams, DiagnosticSeverity, DiagnosticTag, DocumentSymbolParams,
+    GotoDefinitionParams, HoverParams, HoverProviderCapability, OneOf, ReferenceParams,
+    RenameParams, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensServerCapabilities, SignatureHelpOptions, SignatureHelpParams,
 };
 use serde::Deserialize; // for METHOD consts
 // for METHOD consts
@@ -296,17 +296,23 @@ fn publish_diagnostics(conn: &Connection, db: &Database, uri: Url, file: File) -
             range: conversions::range(&line_index, error.range()).unwrap(),
             ..Default::default()
         })
-        .chain(
-            source_symbol
-                .diagnostics()
-                .iter()
-                .map(|diagnostic| Diagnostic {
-                    message: diagnostic.message.to_owned(),
-                    range: conversions::range(&line_index, diagnostic.range).unwrap(),
-                    severity: Some(conversions::to_lsp_severity(diagnostic.severity)),
-                    ..Default::default()
-                }),
-        )
+        .chain(source_symbol.diagnostics().iter().map(|diagnostic| {
+            let (severity, tags) = match diagnostic.severity {
+                ide::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
+                ide::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
+                ide::DiagnosticSeverity::Unnecessary => (
+                    DiagnosticSeverity::WARNING,
+                    Some(vec![DiagnosticTag::UNNECESSARY]),
+                ),
+            };
+            Diagnostic {
+                message: diagnostic.message.to_owned(),
+                range: conversions::range(&line_index, diagnostic.range).unwrap(),
+                severity: Some(severity),
+                tags,
+                ..Default::default()
+            }
+        }))
         .collect();
 
     let params = PublishDiagnosticsParams {

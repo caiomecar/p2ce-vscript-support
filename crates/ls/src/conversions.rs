@@ -1,5 +1,5 @@
 use line_index::{LineIndex, TextRange, TextSize, WideEncoding, WideLineCol};
-use lsp_types::{DiagnosticSeverity, Position, Range};
+use lsp_types::{Position, Range};
 
 pub fn test_size(line_index: &LineIndex, position: Position) -> Option<TextSize> {
     let wide = WideLineCol {
@@ -31,11 +31,4 @@ pub fn range(line_index: &LineIndex, range: TextRange) -> Option<Range> {
         start: position(line_index, range.start())?,
         end: position(line_index, range.end())?,
     })
-}
-
-pub fn to_lsp_severity(d: ide::DiagnosticSeverity) -> DiagnosticSeverity {
-    match d {
-        ide::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
-        ide::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
-    }
 }
