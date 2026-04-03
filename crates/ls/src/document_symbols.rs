@@ -21,7 +21,7 @@ pub fn handle_document_symbols(
     let line_idx = line_index(db, file);
     let file_state = FileState::Finished(db, file);
 
-    let mut symbols: Vec<_> = file_state.all_symbols().collect();
+    let mut symbols: Vec<_> = file_state.all_symbols().map(|(_, symbol)| symbol).collect();
 
     symbols.sort_by(|a, b| {
         a.range

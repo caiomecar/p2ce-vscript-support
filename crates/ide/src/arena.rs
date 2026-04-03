@@ -199,7 +199,7 @@ impl SourceArena {
         //.unwrap_or_default(Idx::from_raw(RawIdx::from(0 as u32)))
     }
 
-    pub fn all_symbols(&self) -> impl Iterator<Item = &Symbol> {
-        self.symbols.iter().map(|(_, symbol)| symbol)
+    pub fn all_symbols(&self) -> impl Iterator<Item = (Idx<Symbol>, &Symbol)> {
+        self.symbols.iter().map(|entry| entry)
     }
 }

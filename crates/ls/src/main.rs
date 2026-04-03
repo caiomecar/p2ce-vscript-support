@@ -1,8 +1,10 @@
 mod completion;
 mod conversions;
 mod document_symbols;
-mod go_to_definiton;
+mod find_references;
+mod go_to_definition;
 mod hover;
+mod rename;
 mod semantic_tokens;
 
 use std::time::Instant;
@@ -12,13 +14,14 @@ use ide::{Database, File, SourceSymbolic, line_index, parse, source_symbol};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{
-    DocumentSymbolRequest, GotoDefinition, HoverRequest, Request, SemanticTokensFullRequest,
+    DocumentSymbolRequest, GotoDefinition, HoverRequest, References, Rename, Request,
+    SemanticTokensFullRequest,
 };
 use lsp_types::{
     CompletionOptions, CompletionParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
-    HoverProviderCapability, OneOf, SemanticTokenModifier, SemanticTokenType,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensServerCapabilities,
+    HoverProviderCapability, OneOf, ReferenceParams, RenameParams, SemanticTokenModifier,
+    SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensServerCapabilities,
 };
 use serde::Deserialize; // for METHOD consts
 // for METHOD consts
@@ -43,8 +46,10 @@ use rustc_hash::FxHashMap;
 
 use crate::completion::handle_completions;
 use crate::document_symbols::handle_document_symbols;
-use crate::go_to_definiton::handle_go_to_definition;
+use crate::find_references::handle_references;
+use crate::go_to_definition::handle_go_to_definition;
 use crate::hover::handle_hover;
+use crate::rename::handle_rename;
 use crate::semantic_tokens::handle_semantic_tokens;
 
 #[derive(Deserialize)]
@@ -89,6 +94,8 @@ fn main() -> Result<()> {
             },
         )),
         document_symbol_provider: Some(OneOf::Left(true)),
+        references_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Left(true)),
         ..Default::default()
     };
 
@@ -242,6 +249,16 @@ fn handle_request(
         DocumentSymbolRequest::METHOD => {
             let params: DocumentSymbolParams = serde_json::from_value(req.params.clone())?;
             let result = handle_document_symbols(db, docs, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
+        }
+        References::METHOD => {
+            let params: ReferenceParams = serde_json::from_value(req.params.clone())?;
+            let result = handle_references(db, docs, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
+        }
+        Rename::METHOD => {
+            let params: RenameParams = serde_json::from_value(req.params.clone())?;
+            let result = handle_rename(db, docs, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         _ => send_err(

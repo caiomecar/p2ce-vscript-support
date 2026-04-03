@@ -139,7 +139,7 @@ impl<'db> FileState<'db> {
         }
     }
 
-    pub fn all_symbols(&self) -> impl Iterator<Item = &Symbol> {
+    pub fn all_symbols(&self) -> impl Iterator<Item = (Idx<Symbol>, &Symbol)> {
         self.arena().all_symbols()
     }
 
