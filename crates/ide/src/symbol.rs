@@ -102,6 +102,24 @@ pub struct SymbolDisplay<'a> {
 impl std::fmt::Display for SymbolDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self.symbol;
+        match s.kind {
+            SymbolKind::Local => write!(f, "local ")?,
+            SymbolKind::Property => {}
+            SymbolKind::Enum => return write!(f, "enum {}", s.name),
+            SymbolKind::Constant | SymbolKind::EnumMember => {
+                let type_text = match s.typ {
+                    Type::Integer(Some(value)) => value.to_string(),
+                    Type::Float(Some(value)) => value.to_string(),
+                    Type::Boolean(Some(value)) => value.to_string(),
+                    Type::String(Some(id)) => {
+                        format!("\"{}\"", self.file_state.get(id))
+                    }
+                    _ => return write!(f, "const {}", s.name),
+                };
+                return write!(f, "const {}: {}", s.name, type_text);
+            }
+        };
+
         match s.typ {
             Type::Function(id) => {
                 let func = self.file_state.get(id);
@@ -111,12 +129,19 @@ impl std::fmt::Display for SymbolDisplay<'_> {
                         write!(f, ", ")?;
                     }
                     let param = self.file_state.get(param);
-                    write!(f, "{}: {}", param.name, param.typ)?;
+                    if param.typ != Type::Unknown {
+                        write!(f, "{}: {}", param.name, param.typ)?;
+                    } else {
+                        write!(f, "{}", param.name)?;
+                    }
                 }
-                write!(f, "): {}", func.ret)
+                if func.ret != Type::Unknown {
+                    write!(f, ") -> {}", func.ret)
+                } else {
+                    write!(f, ")")
+                }
             }
             Type::Class(_) => write!(f, "class {}", s.name),
-            Type::Enum(_) => write!(f, "enum {}", s.name),
             _ => write!(f, "{}: {}", s.name, s.typ),
         }
     }

@@ -1,6 +1,9 @@
 use la_arena::Idx;
 use rustc_hash::FxHashMap;
-use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
+use sq_3_parser::{
+    AstNode, TextRange, TextSize,
+    ast::{self, *},
+};
 use std::{collections::VecDeque, mem::discriminant};
 
 use crate::{
@@ -1785,6 +1788,19 @@ impl<'db> Collector<'db> {
             .or_else(root)
             .map(|id| {
                 self.name_kinds.insert(expr.syntax().text_range(), id);
+                if matches!(self.get(id).typ, Type::Enum(_))
+                    && expr
+                        .syntax()
+                        .parent()
+                        .map(|p| !ast::MemberAccessExpression::can_cast(p.kind()))
+                        .unwrap_or(false)
+                {
+                    self.diagnostics.push(Diagnostic {
+                        message: "'enum' can only appear in property access expression".to_owned(),
+                        range: expr.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    })
+                }
                 ExpressionKind::Symbol(id)
             })
     }

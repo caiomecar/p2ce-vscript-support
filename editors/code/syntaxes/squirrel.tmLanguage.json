@@ -1459,17 +1459,6 @@
           "name": "storage.modifier.extends.squirrel"
         },
         {
-          "match": "(?<![_A-Za-z])(?<=(class)\\s.*?)([_A-Za-z]\\w*)\\s*(?=\\sextends|\\{)",
-          "captures": {
-            "1": {
-              "name": "storage.type.class.squirrel"
-            },
-            "2": {
-              "name": "entity.name.type.class.squirrel"
-            }
-          }
-        },
-        {
           "match": "(?<![_A-Za-z])(?:([_A-Za-z]\\w*)\\s*(=|<-)\\s*)?(class)\\b",
           "captures": {
             "1": {
@@ -1488,10 +1477,6 @@
           "name": "storage.type.class.squirrel"
         },
         {
-          "match": "(?<![_A-Za-z])(Vector|QAngle|Vector2D|Vector4D|Quaternion|Convars|Entities|EntityOutputs|NavMesh|NetProps|PlayerVoiceListener|CBaseEntity|CBaseAnimating|CBaseCombatWeapon|CBaseFlex|CBaseCombatCharacter|CBasePlayer|CBaseMultiplayerPlayer|CEconEntity|CTFPlayer|CTFBot|CTFBaseBoss|CEntities|CTFNavArea|CNavMesh|CNetPropManager|CScriptEntityOutputs|CScriptKeyValues|CPlayerVoiceListener|CEnvEntityMaker|CPointTemplate|CFuncTrackTrain|CPointScriptTemplate|CSceneEntity|CCallChainer|CSimpleCallChainer|NextBotCombatCharacter|INextBotComponent|ILocomotion|LateBinder|regexp)\\b(?!\\s*(?:=|<-))",
-          "name": "entity.name.type.class.squirrel"
-        },
-        {
           "match": "(?<![_A-Za-z])(enum)\\s+([_A-Za-z]\\w*)\\b",
           "captures": {
             "0": {
@@ -1508,10 +1493,6 @@
         {
           "match": "(?<![_A-Za-z])enum\\b",
           "name": "storage.type.enum.squirrel"
-        },
-        {
-          "match": "(?<![_A-Za-z])(Constants|EBotType|ECollisionGroup|ECritType|EHitGroup|EHoliday|EHudNotify|EMoveCollide|EMoveType|ENavCornerType|ENavDirType|ENavRelativeDirType|ENavTraverseType|ERenderFx|ERenderMode|ERoundState|EScriptRecipientFilter|ESolidType|ESpectatorMode|EStopwatchState|ETFBotDifficultyType|ETFClass|ETFCond|ETFDmgCustom|ETFTeam|Math|Server|FButtons|FContents|FDmgType|FEntityEffects|FEntityEFlags|FHideHUD|FNavAttributeType|FPlayer|FSolid|FSurf|FTaunts|FTFBotAttributeType|FTFNavAttributeType)",
-          "name": "entity.name.type.enum.squirrel"
         }
       ]
     },
@@ -1550,10 +1531,6 @@
         {
           "name": "entity.name.function.squirrel",
           "match": "(?<![_A-Za-z])[_A-Za-z]\\w*\\b(?=\\s*\\()"
-        },
-        {
-          "name": "entity.name.function.squirrel",
-          "match": "(?<![_A-Za-z])[_A-Za-z][\\w]*(?=\\s*\\.\\s*(bindenv|call|pcall|acall|pacall))"
         }
       ]
     },
@@ -1653,10 +1630,6 @@
         {
           "name": "variable.other.constant.squirrel",
           "match": "(?<![_A-Za-z])[_A-Z][_A-Z0-9]*\\b"
-        },
-        {
-          "name": "variable.other.constant.squirrel",
-          "match": "(?<![_A-Za-z])(_charsize_|_floatsize_|_intsize_|_version_|_versionnumber_|self|__vrefs|__vname|activator|caller|kHoliday_None|kHoliday_TFBirthday|kHoliday_Halloween|kHoliday_Christmas|kHoliday_CommunityUpdate|kHoliday_EOTL|kHoliday_Valentines|kHoliday_MeetThePyro|kHoliday_FullMoon|kHoliday_HalloweenOrFullMoon|kHoliday_HalloweenOrFullMoonOrValentines|kHoliday_AprilFools|kHoliday_Soldier|kHoliday_Summer|kHolidayCount|kRenderFxNone|kRenderFxPulseSlow|kRenderFxPulseFast|kRenderFxPulseSlowWide|kRenderFxPulseFastWide|kRenderFxFadeSlow|kRenderFxFadeFast|kRenderFxSolidSlow|kRenderFxSolidFast|kRenderFxStrobeSlow|kRenderFxStrobeFast|kRenderFxStrobeFaster|kRenderFxFlickerSlow|kRenderFxFlickerFast|kRenderFxNoDissipation|kRenderFxDistort|kRenderFxHologram|kRenderFxExplode|kRenderFxGlowShell|kRenderFxClampMinScale|kRenderFxEnvRain|kRenderFxEnvSnow|kRenderFxSpotlight|kRenderFxRagdoll|kRenderFxPulseFastWider|kRenderFxMax|kRenderNormal|kRenderTransColor|kRenderTransTexture|kRenderGlow|kRenderTransAlpha|kRenderTransAdd|kRenderEnvironmental|kRenderTransAddFrameBlend|kRenderTransAlphaAdd|kRenderWorldGlow|kRenderNone|kRenderModeCount|Zero|Epsilon|GoldenRatio|One|Sqrt2|Sqrt3|E|Pi|Tau|ConstantNamingConvention)\\b"
         },
         {
           "name": "variable.other.squirrel",
