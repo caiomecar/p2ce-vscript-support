@@ -47,7 +47,7 @@ pub fn handle_completions(
             if let Some(obj) = member.object() {
                 let typ = file_state.type_at(obj.syntax().text_range());
                 file_state
-                    .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset))
+                    .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
                     .into_values()
                     .collect()
             } else {

@@ -1224,7 +1224,7 @@ impl<'db> Collector<'db> {
     fn class_statement(&mut self, stmt: &ClassStatement) {
         let class = self.class(stmt);
 
-        let name = stmt.name().and_then(|n| self.assignment_lhs(&n));
+        let name = stmt.name().and_then(|n| self.assignment_lhs(&n, false));
         self.do_new_slot(
             name,
             Some(ExpressionKind::Literal(Type::Class(class))),
@@ -1959,7 +1959,7 @@ impl<'db> Collector<'db> {
 
         let result = self
             .state()
-            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), true)
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
@@ -1997,7 +1997,7 @@ impl<'db> Collector<'db> {
 
         let result = self
             .state()
-            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), true)
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
@@ -2154,7 +2154,13 @@ impl<'db> Collector<'db> {
         (left, right)
     }
 
-    fn assignment_lhs(&mut self, expr: &Expr) -> Option<AssignmentLeftHandSide> {
+    fn assignment_lhs(
+        &mut self,
+        expr: &Expr,
+        allow_imports: bool,
+    ) -> Option<AssignmentLeftHandSide> {
+        // We explicitly don't allow imports anywhere so we can do a new addition to our container
+        // Otherwise we find a symbol that is outside of our scope which is unmodifable
         match expr {
             Expr::Name(expr) => {
                 let text = expr.text()?;
@@ -2180,7 +2186,11 @@ impl<'db> Collector<'db> {
                     .members_of_table(
                         self.state().const_table(),
                         FindSymbol::OnlyBefore(offset),
-                        Some(GetMembers::Const),
+                        if allow_imports {
+                            Some(GetMembers::Const)
+                        } else {
+                            None
+                        },
                     )
                     .into_iter()
                     .find_map(filter);
@@ -2199,7 +2209,11 @@ impl<'db> Collector<'db> {
                     .members_of_container(
                         self.execution_container(),
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        Some(GetMembers::Container(self.execution_container())),
+                        if allow_imports {
+                            Some(GetMembers::Container(self.execution_container()))
+                        } else {
+                            None
+                        },
                     )
                     .into_iter()
                     .find_map(filter);
@@ -2218,7 +2232,11 @@ impl<'db> Collector<'db> {
                     .members_of_table(
                         self.state().root_table(),
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        Some(GetMembers::Root),
+                        if allow_imports {
+                            Some(GetMembers::Root)
+                        } else {
+                            None
+                        },
                     )
                     .into_iter()
                     .find_map(filter);
@@ -2248,7 +2266,11 @@ impl<'db> Collector<'db> {
 
                 Some(
                     self.state()
-                        .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+                        .members_of_type(
+                            obj,
+                            FindSymbol::BeforeIfInExecutionRange(offset),
+                            allow_imports,
+                        )
                         .into_iter()
                         .find_map(|(name, id)| if name == text { Some(id) } else { None })
                         .map_or_else(
@@ -2286,7 +2308,11 @@ impl<'db> Collector<'db> {
 
                 Some(
                     self.state()
-                        .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+                        .members_of_type(
+                            obj,
+                            FindSymbol::BeforeIfInExecutionRange(offset),
+                            allow_imports,
+                        )
                         .into_iter()
                         .find_map(|(name, id)| if name == text { Some(id) } else { None })
                         .map_or_else(
@@ -2316,7 +2342,11 @@ impl<'db> Collector<'db> {
                         .members_of_table(
                             root_table,
                             FindSymbol::BeforeIfInExecutionRange(offset),
-                            Some(GetMembers::Root),
+                            if allow_imports {
+                                Some(GetMembers::Root)
+                            } else {
+                                None
+                            },
                         )
                         .into_iter()
                         .find_map(|(name, id)| if name == text { Some(id) } else { None })
@@ -2382,7 +2412,7 @@ impl<'db> Collector<'db> {
             | BinaryOperator::MultiplyAssign
             | BinaryOperator::DivideAssign
             | BinaryOperator::ModuloAssign => {
-                let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+                let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l, true));
 
                 let save_container = self.special_container;
                 if let Some(container) = lhs_container(left_kind.as_ref()) {
@@ -2484,7 +2514,7 @@ impl<'db> Collector<'db> {
     }
 
     fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
-        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l, false));
         let save_container = self.special_container;
         if let Some(container) = lhs_container(left_kind.as_ref()) {
             self.special_container = Some(container);
@@ -2496,7 +2526,7 @@ impl<'db> Collector<'db> {
     }
 
     fn assign_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
-        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l, true));
 
         let save_container = self.special_container;
         if let Some(container) = lhs_container(left_kind.as_ref()) {
@@ -2905,13 +2935,13 @@ impl<'db> Collector<'db> {
     }
 
     fn prefix_increment_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?);
+        let operand = self.assignment_lhs(&expr.operand()?, true);
         let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand, increment, BinaryOperator::AddAssign)
     }
 
     fn prefix_decrement_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?);
+        let operand = self.assignment_lhs(&expr.operand()?, true);
         let decrement = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand, decrement, BinaryOperator::SubtractAssign)
     }
@@ -2925,21 +2955,21 @@ impl<'db> Collector<'db> {
     }
 
     fn postfix_increment_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?);
+        let operand = self.assignment_lhs(&expr.operand()?, true);
         let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::AddAssign);
         operand?.into()
     }
 
     fn postfix_decrement_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?);
+        let operand = self.assignment_lhs(&expr.operand()?, true);
         let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::SubtractAssign);
         operand?.into()
     }
 
     fn delete_expression(&mut self, expr: &DeleteExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?);
+        let operand = self.assignment_lhs(&expr.operand()?, true);
         match operand {
             Some(AssignmentLeftHandSide::CanCreate { parent, range, .. })
             | Some(AssignmentLeftHandSide::NonStringKey { parent, range, .. }) => {

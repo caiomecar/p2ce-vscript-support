@@ -458,23 +458,40 @@ impl<'db> FileState<'db> {
         items
     }
 
-    pub fn members_of_type(&self, typ: Type, settings: FindSymbol) -> SymbolTable {
+    pub fn members_of_type(
+        &self,
+        typ: Type,
+        settings: FindSymbol,
+        allow_imports: bool,
+    ) -> SymbolTable {
         match typ {
             Type::Table(id) => self.members_of_table(
                 id,
                 settings,
-                Some(GetMembers::Container(Container::Table(id))),
+                if allow_imports {
+                    Some(GetMembers::Container(Container::Table(id)))
+                } else {
+                    None
+                },
             ),
             Type::Class(id) => self.members_of_class(
                 id,
                 settings,
-                Some(GetMembers::Container(Container::Class(id))),
+                if allow_imports {
+                    Some(GetMembers::Container(Container::Class(id)))
+                } else {
+                    None
+                },
                 false,
             ),
             Type::Instance(id) => self.members_of_class(
                 id,
                 settings,
-                Some(GetMembers::Container(Container::Class(id))),
+                if allow_imports {
+                    Some(GetMembers::Container(Container::Class(id)))
+                } else {
+                    None
+                },
                 true,
             ),
             Type::Enum(id) => self.enum_members(id),
