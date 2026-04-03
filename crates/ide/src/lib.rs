@@ -98,6 +98,12 @@ pub enum FileState<'db> {
     Finished(&'db dyn Db, File),
 }
 
+#[derive(Debug)]
+pub enum FunctionIdResolution {
+    Function(FunctionId),
+    DefaultConstructor,
+}
+
 impl<'db> FileState<'db> {
     pub fn get<T>(&self, id: T) -> &'db T::Data
     where
@@ -114,9 +120,16 @@ impl<'db> FileState<'db> {
         self.arena().all_symbols()
     }
 
-    pub fn to_function_id(&self, typ: Type) -> Option<FunctionId> {
+    pub fn to_function_id(&self, typ: Type) -> Option<FunctionIdResolution> {
         match typ {
-            Type::Function(id) => Some(id),
+            Type::Class(id) => {
+                let class = self.get(id);
+                let Some(&member) = class.members.get("constructor") else {
+                    return Some(FunctionIdResolution::DefaultConstructor);
+                };
+                self.to_function_id(self.get(member).typ)
+            }
+            Type::Function(id) => Some(FunctionIdResolution::Function(id)),
             Type::Table(id) => {
                 let table = self.get(id);
                 let Some(delegate_idx) = table.delegate else {

@@ -1024,7 +1024,7 @@ impl<'db> Collector<'db> {
     fn collect_stmt(&mut self, stmt: &Stmt) {
         if self.dead_code {
             self.diagnostics.push(Diagnostic {
-                message: "Unreachable code".to_owned(),
+                message: "Unreachable statement".to_owned(),
                 range: stmt.syntax().text_range(),
                 severity: DiagnosticSeverity::Unnecessary,
             });

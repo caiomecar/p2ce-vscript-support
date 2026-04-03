@@ -1,5 +1,8 @@
 use anyhow::Result;
-use ide::{Database, ExpressionKind, File, FileState, ParamsState, Type, line_index, parse};
+use ide::{
+    Database, ExpressionKind, File, FileState, FunctionIdResolution, ParamsState, Type, line_index,
+    parse,
+};
 use lsp_types::{
     ParameterInformation, ParameterLabel, SignatureHelp, SignatureHelpParams, SignatureInformation,
     Url,
@@ -50,8 +53,21 @@ pub fn handle_signature_help(
         None => return Ok(None),
     };
 
-    let Some(id) = file_state.to_function_id(typ) else {
-        return Ok(None);
+    let id = match file_state.to_function_id(typ) {
+        Some(FunctionIdResolution::Function(id)) => id,
+        Some(FunctionIdResolution::DefaultConstructor) => {
+            return Ok(Some(SignatureHelp {
+                signatures: vec![SignatureInformation {
+                    label: format!("{name}()"),
+                    parameters: None,
+                    documentation: None,
+                    active_parameter: None,
+                }],
+                active_signature: Some(0),
+                active_parameter: None,
+            }));
+        }
+        None => return Ok(None),
     };
 
     let mut active_param: u32 = 0;
@@ -69,7 +85,6 @@ pub fn handle_signature_help(
     }
 
     let func = file_state.get(id);
-
     let mut label = format!("{}(", name);
     let mut param_infos = Vec::new();
 

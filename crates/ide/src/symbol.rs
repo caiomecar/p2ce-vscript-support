@@ -136,7 +136,13 @@ impl std::fmt::Display for SymbolDisplay<'_> {
                     }
                 }
                 if func.ret != Type::Unknown {
-                    write!(f, ") -> {}", func.ret)
+                    if func.throwing.is_some() {
+                        write!(f, ") -> !{}", func.ret)
+                    } else {
+                        write!(f, ") -> {}", func.ret)
+                    }
+                } else if func.throwing.is_some() {
+                    write!(f, ") -> !")
                 } else {
                     write!(f, ")")
                 }
