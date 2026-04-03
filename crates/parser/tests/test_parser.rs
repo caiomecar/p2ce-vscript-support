@@ -648,7 +648,10 @@ mod tests {
     fn call_expression_chained() {
         let expr = first_expr("a.b()");
         let Expr::Call(c) = expr else { panic!() };
-        assert!(matches!(c.callee().unwrap(), Expr::MemberAccess(_)));
+        assert!(matches!(
+            c.callee().unwrap().expression().unwrap(),
+            Expr::MemberAccess(_)
+        ));
     }
 
     #[test]

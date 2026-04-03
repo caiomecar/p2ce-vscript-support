@@ -123,6 +123,7 @@ pub enum SyntaxKind {
     QualifiedName,
 
     Index,
+    Callee,
     MemberPart,
 
     VariableDeclarationList,

@@ -354,15 +354,17 @@ impl ElementAccessExpression {
     }
 }
 
+ast_node!(Callee, Callee);
+impl ExpressionWrapper for Callee {}
 ast_node!(CallExpression, CallExpression);
 
 impl CallExpression {
-    pub fn callee(&self) -> Option<Expr> {
+    pub fn callee(&self) -> Option<Callee> {
         support::child(&self.0)
     }
 
     pub fn arguments(&self) -> impl Iterator<Item = Expr> + '_ {
-        support::children(&self.0).skip(1)
+        support::children(&self.0)
     }
 
     pub fn post_call_initialiser(&self) -> Option<PostCallInitialiser> {

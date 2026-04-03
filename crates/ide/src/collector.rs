@@ -2007,7 +2007,7 @@ impl<'db> Collector<'db> {
     }
 
     fn call_expression(&mut self, expr: &CallExpression) -> NullableExprKind {
-        let obj = match expr.callee() {
+        let obj = match expr.callee().and_then(|c| c.expression()) {
             Some(expr) => self.expr_type(&expr),
             None => Type::Unknown,
         };

@@ -1150,6 +1150,9 @@ impl Parser {
     // abc() { a = 12, b = 3 }
     fn parse_call_expression(&mut self, m: Marker) {
         assert_eq!(self.token(), SyntaxKind::OpenParenthesis);
+        self.finish(m, SyntaxKind::Callee);
+
+        self.precede(m);
         self.parse_call_arguments();
         self.finish(m, SyntaxKind::CallExpression);
     }
