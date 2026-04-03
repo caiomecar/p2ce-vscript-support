@@ -824,8 +824,15 @@ impl<'db> Collector<'db> {
     }
 
     fn collect_property(&mut self, property: &Property, default_value: Option<i32>) {
+        let is_enum = default_value.is_some();
         let value = match property.value() {
-            Some(expr) => self.collect_expr(&expr),
+            Some(expr) => {
+                let value = self.collect_expr(&expr);
+                if is_enum {
+                    self.check_constant(value, expr.syntax().text_range());
+                }
+                value
+            }
             None => {
                 if let Some(value) = default_value {
                     Some(ExpressionKind::Literal(Type::Integer(Some(value))))
@@ -835,38 +842,37 @@ impl<'db> Collector<'db> {
             }
         };
 
-        let is_enum = default_value.is_some();
-        if is_enum {
-            self.check_constant(value, property.syntax().text_range());
-        }
-
-        let Some(name) = property.name() else {
-            return;
-        };
-
-        let Some(text) = (match &name {
-            MemberName::Identifier(name) => name.name().and_then(|n| n.text()),
-            MemberName::String(name) => name
-                .token()
-                .map(|(_kind, token)| unquote_string(token.text())),
-            MemberName::Computed(name) => {
-                let Some(expr) = name.expression() else {
-                    return;
-                };
-
-                let kind = self.expr_type(&expr);
-
-                match kind {
-                    Type::String(id) => {
-                        let Some(id) = id else {
-                            return;
-                        };
-
-                        Some(self.get(id).to_string())
-                    }
-                    _ => None,
+        let Some((name_range, text)) = (match &property.name() {
+            Some(MemberName::Identifier(name)) => {
+                if let Some(text) = name.name().and_then(|n| n.text()) {
+                    Some((name.syntax().text_range(), text))
+                } else {
+                    None
                 }
             }
+            Some(MemberName::String(name)) => {
+                if let Some(token) = name
+                    .token()
+                    .map(|(_kind, token)| unquote_string(token.text()))
+                {
+                    Some((name.syntax().text_range(), token))
+                } else {
+                    None
+                }
+            }
+            Some(MemberName::Computed(name)) => {
+                if let Some(expr) = name.expression() {
+                    let kind = self.expr_type(&expr);
+                    if let Type::String(Some(id)) = kind {
+                        Some((expr.syntax().text_range(), self.get(id).to_string()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
         }) else {
             return;
         };
@@ -879,7 +885,7 @@ impl<'db> Collector<'db> {
             } else {
                 SymbolKind::Property
             },
-            name_range: name.syntax().text_range(),
+            name_range,
             range: property.syntax().text_range(),
         });
 
@@ -1074,12 +1080,14 @@ impl<'db> Collector<'db> {
     }
 
     fn const_statement(&mut self, stmt: &ConstStatement) {
-        let value = stmt
-            .value()
-            .and_then(|v| v.expression())
-            .and_then(|e| self.collect_expr(&e));
-
-        self.check_constant(value, stmt.syntax().text_range());
+        let value = match stmt.value().and_then(|v| v.expression()) {
+            Some(expr) => {
+                let value = self.collect_expr(&expr);
+                self.check_constant(value, expr.syntax().text_range());
+                value
+            }
+            None => None,
+        };
 
         let Some((name, text)) = get_name(stmt) else {
             return;

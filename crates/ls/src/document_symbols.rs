@@ -48,9 +48,16 @@ pub fn handle_document_symbols(
                 _ => LspSymbolKind::VARIABLE,
             },
         };
+
+        let name = if symbol.name.len() > 0 {
+            symbol.name.clone()
+        } else {
+            "\"\"".to_owned()
+        };
+
         #[allow(deprecated)]
         Some(DocumentSymbol {
-            name: symbol.name.clone(),
+            name,
             detail: Some(symbol.typ.to_string()),
             kind,
             range,
