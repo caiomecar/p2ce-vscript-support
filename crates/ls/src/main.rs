@@ -6,6 +6,7 @@ mod go_to_definition;
 mod hover;
 mod rename;
 mod semantic_tokens;
+mod signature_help;
 
 use std::time::Instant;
 
@@ -15,13 +16,14 @@ use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Respo
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{
     DocumentSymbolRequest, GotoDefinition, HoverRequest, References, Rename, Request,
-    SemanticTokensFullRequest,
+    SemanticTokensFullRequest, SignatureHelpRequest,
 };
 use lsp_types::{
     CompletionOptions, CompletionParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
     HoverProviderCapability, OneOf, ReferenceParams, RenameParams, SemanticTokenModifier,
     SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensServerCapabilities,
+    SemanticTokensParams, SemanticTokensServerCapabilities, SignatureHelpOptions,
+    SignatureHelpParams,
 };
 use serde::Deserialize; // for METHOD consts
 // for METHOD consts
@@ -51,6 +53,7 @@ use crate::go_to_definition::handle_go_to_definition;
 use crate::hover::handle_hover;
 use crate::rename::handle_rename;
 use crate::semantic_tokens::handle_semantic_tokens;
+use crate::signature_help::handle_signature_help;
 
 #[derive(Deserialize)]
 struct InitOptions {
@@ -96,6 +99,10 @@ fn main() -> Result<()> {
         document_symbol_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Left(true)),
+        signature_help_provider: Some(SignatureHelpOptions {
+            trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -259,6 +266,11 @@ fn handle_request(
         Rename::METHOD => {
             let params: RenameParams = serde_json::from_value(req.params.clone())?;
             let result = handle_rename(db, docs, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
+        }
+        SignatureHelpRequest::METHOD => {
+            let params: SignatureHelpParams = serde_json::from_value(req.params.clone())?;
+            let result = handle_signature_help(db, docs, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         _ => send_err(

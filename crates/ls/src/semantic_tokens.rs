@@ -29,7 +29,11 @@ pub fn handle_semantic_tokens(
         let symbol = file_state.get(*id);
 
         let (token_type, modifiers) = match symbol.kind {
-            SymbolKind::Local => (0u32, 0u32),
+            SymbolKind::Local => match symbol.typ {
+                Type::Function(_) => (1, 0),
+                Type::Class(_) => (2, 0),
+                _ => (0, 0),
+            },
             SymbolKind::Property => match symbol.typ {
                 Type::Function(_) => (1, 0),
                 Type::Class(_) => (2, 0),

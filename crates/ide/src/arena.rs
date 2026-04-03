@@ -120,8 +120,8 @@ pub struct FunctionData {
 pub enum ParamsState {
     #[default]
     NoDefault,
-    Default(usize),
-    VarArgs(usize),
+    Default(u32),
+    VarArgs(u32),
 }
 
 #[derive(Debug, PartialEq)]

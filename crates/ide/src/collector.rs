@@ -493,7 +493,7 @@ impl<'db> Collector<'db> {
                     self.arena[function].params.push(symbol);
                     match params_state {
                         ParamsState::NoDefault => {
-                            params_state = ParamsState::Default(count);
+                            params_state = ParamsState::Default(count as u32);
                         }
                         ParamsState::Default(_) => {}
                         ParamsState::VarArgs(var_args_at) => {
@@ -508,7 +508,7 @@ impl<'db> Collector<'db> {
                     }
                 }
                 Parameter::Ellipsis(var_args) => match params_state {
-                    ParamsState::NoDefault => params_state = ParamsState::VarArgs(count),
+                    ParamsState::NoDefault => params_state = ParamsState::VarArgs(count as u32),
                     ParamsState::Default(_) => {
                         self.diagnostics.push(Diagnostic {
                             message:
@@ -1969,7 +1969,7 @@ impl<'db> Collector<'db> {
                 let enough_parameters = match self.get(id).params_state {
                     ParamsState::NoDefault => arguments.len() == self.get(id).params.len(),
                     ParamsState::Default(from) | ParamsState::VarArgs(from) => {
-                        arguments.len() >= from
+                        arguments.len() as u32 >= from
                     }
                 };
 

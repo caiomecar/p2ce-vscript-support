@@ -9,12 +9,12 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{TextRange, TextSize};
 
 use crate::{
-    arena::{ClassId, Container, EnumId, SourceArena, SymbolId, TableData, TableId},
+    arena::{ClassId, Container, EnumId, FunctionId, SourceArena, SymbolId, TableData, TableId},
     collector::Collector,
     db::Db,
 };
 
-pub use arena::ArenaId;
+pub use arena::{ArenaId, FunctionData, ParamsState};
 pub use db::{Database, File, line_index, parse, source_symbol};
 pub use symbol::{Symbol, SymbolKind, SymbolTable, Type};
 
@@ -108,6 +108,38 @@ impl<'db> FileState<'db> {
         }
     }
 
+    pub fn all_symbols(&self) -> impl Iterator<Item = (Idx<Symbol>, &Symbol)> {
+        self.arena().all_symbols()
+    }
+
+    pub fn to_function_id(&self, typ: Type) -> Option<FunctionId> {
+        match typ {
+            Type::Function(id) => Some(id),
+            Type::Table(id) => {
+                let table = self.get(id);
+                let Some(delegate_idx) = table.delegate else {
+                    return None;
+                };
+
+                let members = &self.get(delegate_idx).members;
+                let Some(&member) = members.get("_call") else {
+                    return None;
+                };
+
+                self.to_function_id(self.get(member).typ)
+            }
+            Type::Instance(id) => {
+                let class = self.get(id);
+                let Some(&member) = class.members.get("_call") else {
+                    return None;
+                };
+
+                self.to_function_id(self.get(member).typ)
+            }
+            _ => None,
+        }
+    }
+
     fn file(&self) -> File {
         match self {
             FileState::InProcess(collector) => collector.file(),
@@ -137,10 +169,6 @@ impl<'db> FileState<'db> {
                 source_symbol.imports()
             }
         }
-    }
-
-    pub fn all_symbols(&self) -> impl Iterator<Item = (Idx<Symbol>, &Symbol)> {
-        self.arena().all_symbols()
     }
 
     fn local_members(&self, offset: TextSize) -> SymbolTable {
