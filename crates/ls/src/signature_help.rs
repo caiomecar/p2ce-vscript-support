@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, ExpressionKind, File, FileState, ParamsState, line_index, parse};
+use ide::{Database, ExpressionKind, File, FileState, ParamsState, Type, line_index, parse};
 use lsp_types::{
     ParameterInformation, ParameterLabel, SignatureHelp, SignatureHelpParams, SignatureInformation,
     Url,
@@ -82,6 +82,10 @@ pub fn handle_signature_help(
 
         let param = file_state.get(*param_id);
         label.push_str(&param.name);
+        let typ = param.typ;
+        if typ != Type::Unknown {
+            label.push_str(format!(": {typ}").as_str());
+        }
 
         let end = label.len();
 
@@ -111,6 +115,11 @@ pub fn handle_signature_help(
     }
 
     label.push(')');
+
+    let ret = func.ret;
+    if !matches!(ret, Type::Unknown | Type::Null) {
+        label.push_str(format!(" -> {ret}").as_str());
+    }
 
     Ok(Some(SignatureHelp {
         signatures: vec![SignatureInformation {
