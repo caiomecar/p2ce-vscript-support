@@ -1,10 +1,8 @@
 use anyhow::Result;
-use ide::{
-    ArenaId, Database, ExpressionKind, File, FileState, ParamsState, Type, line_index, parse,
-};
+use ide::{Database, ExpressionKind, File, FileState, ParamsState, line_index, parse};
 use lsp_types::{
-    GotoDefinitionParams, GotoDefinitionResponse, Location, ParameterInformation, ParameterLabel,
-    SignatureHelp, SignatureHelpParams, SignatureInformation, Url,
+    ParameterInformation, ParameterLabel, SignatureHelp, SignatureHelpParams, SignatureInformation,
+    Url,
 };
 use rustc_hash::FxHashMap;
 use sq_3_parser::{AstNode, ast};
