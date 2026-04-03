@@ -309,7 +309,10 @@ impl<'db> Collector<'db> {
     }
 
     fn symbol(&mut self, symbol: Symbol) -> SymbolId {
-        SymbolId::new(self.file, self.arena.alloc(symbol))
+        let name_range = symbol.name_range;
+        let id = SymbolId::new(self.file, self.arena.alloc(symbol));
+        self.name_kinds.insert(name_range, id);
+        id
     }
 
     fn function(&mut self) -> FunctionId {
@@ -2302,7 +2305,6 @@ impl<'db> Collector<'db> {
                 });
 
                 self.add_container_member(container, new_key.into_string(), symbol);
-                self.name_kinds.insert(name_range, symbol);
             }
             Some(AssignmentLeftHandSide::Exists {
                 parent,
