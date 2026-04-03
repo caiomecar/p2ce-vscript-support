@@ -511,7 +511,15 @@ impl<'db> FileState<'db> {
         settings: FindSymbol,
         imports: Option<GetMembers>,
     ) -> SymbolTable {
-        let mut members = builtin_table_members(self.db());
+        let mut members = match imports {
+            None | Some(GetMembers::Const) => {
+                // This incorrectly calls table builtin methods on const instead of the root when in name
+                // expression, e.g. `keys()`. It also breaks redefinition of builtin methods, e.g.
+                // `class keys {}` which should normally work
+                FxHashMap::default()
+            }
+            _ => builtin_table_members(self.db()),
+        };
 
         let additional = match settings {
             FindSymbol::Any => self.table_members(table),
@@ -567,6 +575,7 @@ impl<'db> FileState<'db> {
         } else {
             builtin_class_members(self.db())
         };
+        dbg!(&members);
 
         let additional = match settings {
             FindSymbol::Any => self.class_members(class),
@@ -595,9 +604,11 @@ impl<'db> FileState<'db> {
                     .collect()
             }
         };
+        dbg!(&additional);
 
         if let Some(imports) = imports {
             let imports = self.import_members(imports);
+            dbg!(&imports);
             for (k, v) in imports {
                 members.insert(k, v);
             }

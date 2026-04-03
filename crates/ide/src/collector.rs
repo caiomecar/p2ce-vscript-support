@@ -1833,6 +1833,7 @@ impl<'db> Collector<'db> {
         };
 
         let locals = self.local_members(offset).into_iter().find_map(filter);
+        dbg!(&locals);
 
         let state = self.state();
 
@@ -1847,6 +1848,9 @@ impl<'db> Collector<'db> {
                 .find_map(filter)
         };
 
+        dbg!(consts());
+
+        dbg!(self.execution_container());
         let members = || {
             state
                 .members_of_container(
@@ -3060,8 +3064,6 @@ impl<'db> Collector<'db> {
 
     fn unused_variables_diagnostics(&mut self) {
         let mut seen: FxHashMap<SymbolId, bool> = FxHashMap::default();
-        dbg!(&self.name_kinds);
-
         for id in self.name_kinds().values() {
             seen.entry(*id)
                 .and_modify(|used| *used = true)
