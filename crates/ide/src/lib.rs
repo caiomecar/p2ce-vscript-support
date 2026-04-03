@@ -10,7 +10,7 @@ use sq_3_parser::{TextRange, TextSize};
 
 use crate::{
     arena::{ClassId, Container, EnumId, SourceArena, SymbolId, TableData, TableId},
-    collector::{Collector, RangeExprKindMap},
+    collector::Collector,
     db::Db,
 };
 
@@ -574,7 +574,7 @@ impl<'db> FileState<'db> {
         }
     }
 
-    pub fn expr_kinds(&self) -> &RangeExprKindMap {
+    pub fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind> {
         match self {
             FileState::InProcess(collector) => collector.expr_kinds(),
             FileState::Finished(db, file) => {
@@ -586,6 +586,20 @@ impl<'db> FileState<'db> {
 
     pub fn expr_kind_at(&self, range: TextRange) -> NullableExprKind {
         self.expr_kinds().get(&range).cloned()
+    }
+
+    pub fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId> {
+        match self {
+            FileState::InProcess(collector) => collector.name_kinds(),
+            FileState::Finished(db, file) => {
+                let source = source_symbol(*db, *file);
+                source.name_kinds()
+            }
+        }
+    }
+
+    pub fn symbol_at(&self, range: TextRange) -> Option<SymbolId> {
+        self.name_kinds().get(&range).cloned()
     }
 
     pub fn type_at(&self, text_range: TextRange) -> Type {
@@ -602,7 +616,8 @@ pub struct SourceSymbol {
     root_table: Idx<TableData>,
     source_table: Idx<TableData>,
 
-    expr_kinds: RangeExprKindMap,
+    expr_kinds: FxHashMap<TextRange, ExpressionKind>,
+    name_kinds: FxHashMap<TextRange, SymbolId>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -614,7 +629,8 @@ pub trait SourceSymbolic {
     fn const_table(&self) -> Idx<TableData>;
     fn root_table(&self) -> Idx<TableData>;
 
-    fn expr_kinds(&self) -> &RangeExprKindMap;
+    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind>;
+    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId>;
     fn diagnostics(&self) -> &[Diagnostic];
 }
 
@@ -635,8 +651,12 @@ impl SourceSymbolic for SourceSymbol {
         self.root_table
     }
 
-    fn expr_kinds(&self) -> &RangeExprKindMap {
+    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind> {
         &self.expr_kinds
+    }
+
+    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId> {
+        &self.name_kinds
     }
 
     fn diagnostics(&self) -> &[Diagnostic] {

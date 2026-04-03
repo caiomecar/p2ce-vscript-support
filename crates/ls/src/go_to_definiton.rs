@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{ArenaId, Database, ExpressionKind, File, FileState, line_index, parse};
+use ide::{ArenaId, Database, File, FileState, line_index, parse};
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Url};
 use rustc_hash::FxHashMap;
 use sq_3_parser::node_at_offset;
@@ -23,10 +23,12 @@ pub fn handle_go_to_definition(
         conversions::test_size(line_idx, params.text_document_position_params.position).unwrap();
 
     let syntax = parse(db, file).syntax();
-    let node = node_at_offset(syntax, offset);
+    let Some(token) = syntax.token_at_offset(offset).right_biased() else {
+        return Ok(None);
+    };
 
     let file_state = FileState::Finished(db, file);
-    let Some(ExpressionKind::Symbol(id)) = file_state.expr_kind_at(node.text_range()) else {
+    let Some(id) = file_state.symbol_at(token.text_range()) else {
         return Ok(None);
     };
 
