@@ -348,9 +348,9 @@ impl<'db> Collector<'db> {
             match self.expr_type(&expr) {
                 Type::Class(id) => Some(id),
                 Type::Unknown => None,
-                kind => {
+                typ => {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to inherit from {kind}"),
+                        message: format!("Trying to inherit from {typ}"),
                         range: expr.syntax().text_range(),
                         ..Default::default()
                     });
@@ -890,8 +890,8 @@ impl<'db> Collector<'db> {
             }
             Some(MemberName::Computed(name)) => {
                 if let Some(expr) = name.expression() {
-                    let kind = self.expr_type(&expr);
-                    if let Type::String(Some(id)) = kind {
+                    let typ = self.expr_type(&expr);
+                    if let Type::String(Some(id)) = typ {
                         Some((expr.syntax().text_range(), self.get(id).to_string()))
                     } else {
                         None
@@ -1471,7 +1471,7 @@ impl<'db> Collector<'db> {
     }
 
     fn switch_statement(&mut self, stmt: &SwitchStatement) {
-        let kind = if let Some(discriminant) = stmt.discriminant() {
+        let typ = if let Some(discriminant) = stmt.discriminant() {
             self.expr_type(&discriminant)
         } else {
             Type::Unknown
@@ -1483,9 +1483,9 @@ impl<'db> Collector<'db> {
             match clause {
                 SwitchClause::Case(case) => {
                     if let Some(test) = case.test() {
-                        let case_kind = self.expr_type(&test);
+                        let case_type = self.expr_type(&test);
                         if !matches!(
-                            (kind, case_kind),
+                            (typ, case_type),
                             (Type::Null, _)
                                 | (_, Type::Null)
                                 | (Type::Unknown, _)
@@ -1498,7 +1498,7 @@ impl<'db> Collector<'db> {
                                 | (Type::Boolean(_), Type::Boolean(_))
                         ) {
                             self.diagnostics.push(Diagnostic {
-                                message: format!("Case of type '{case_kind}' is incompitable with discriminant of type '{kind}'"),
+                                message: format!("Case of type '{case_type}' is incompitable with discriminant of type '{typ}'"),
                                 range: test.syntax().text_range(),
                                 severity: DiagnosticSeverity::Warning,
                                 ..Default::default()
@@ -1525,7 +1525,7 @@ impl<'db> Collector<'db> {
     }
 
     fn return_statement(&mut self, stmt: &ReturnStatement) {
-        let kind = if let Some(value) = stmt.value() {
+        let typ = if let Some(value) = stmt.value() {
             Some(self.expr_type(&value))
         } else {
             None
@@ -1534,7 +1534,7 @@ impl<'db> Collector<'db> {
         self.dead_code = true;
 
         let Some(function) = self.function else {
-            if kind.is_some() {
+            if typ.is_some() {
                 self.diagnostics.push(Diagnostic {
                     message: "Value returned by the source file execution scope cannot be received in any way".to_owned(),
                     range: stmt.syntax().text_range(),
@@ -1549,16 +1549,16 @@ impl<'db> Collector<'db> {
             return;
         }
 
-        match kind {
+        match typ {
             None | Some(Type::Unknown) => {}
-            Some(kind) => {
-                self.arena[function].ret = kind;
+            Some(typ) => {
+                self.arena[function].ret = typ;
             }
         }
     }
 
     fn yield_statement(&mut self, stmt: &YieldStatement) {
-        let kind = if let Some(value) = stmt.value() {
+        let typ = if let Some(value) = stmt.value() {
             self.expr_type(&value)
         } else {
             Type::Null
@@ -1575,7 +1575,7 @@ impl<'db> Collector<'db> {
         };
 
         if self.arena[function].yielding.is_none() {
-            self.arena[function].yielding = Some(kind);
+            self.arena[function].yielding = Some(typ);
         }
     }
 
@@ -1641,7 +1641,7 @@ impl<'db> Collector<'db> {
 
     fn throw_statement(&mut self, stmt: &ThrowStatement) {
         // mark current function as exception throwing
-        let kind = if let Some(value) = stmt.value() {
+        let typ = if let Some(value) = stmt.value() {
             self.expr_type(&value)
         } else {
             Type::Unknown
@@ -1653,7 +1653,7 @@ impl<'db> Collector<'db> {
         };
 
         if self.arena[function].throwing.is_none() {
-            self.arena[function].throwing = Some(kind);
+            self.arena[function].throwing = Some(typ);
         }
     }
 
@@ -2137,8 +2137,8 @@ impl<'db> Collector<'db> {
 
     fn clone_expression(&mut self, expr: &CloneExpression) -> NullableExprKind {
         let operand = expr.operand()?;
-        let kind = self.expr_type(&operand);
-        Some(ExpressionKind::Literal(self.clone_type(kind)))
+        let typ = self.expr_type(&operand);
+        Some(ExpressionKind::Literal(self.clone_type(typ)))
     }
 
     fn extract_lhs_and_rhs(
