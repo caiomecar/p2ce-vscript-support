@@ -1238,6 +1238,19 @@ impl<'db> Collector<'db> {
         };
 
         let Some(id) = members.or_else(root) else {
+            if state
+                .local_members(offset)
+                .into_iter()
+                .find(|(name, _)| &text == name)
+                .is_some()
+            {
+                self.diagnostics.push(Diagnostic {
+                    message: "Function statement does not lookup locals. Initial symbol not found"
+                        .to_owned(),
+                    range: names[0].syntax().text_range(),
+                    severity: DiagnosticSeverity::Warning,
+                });
+            }
             self.collect_function(function.idx(), stmt);
             return;
         };
