@@ -5,6 +5,8 @@ mod go_to_definiton;
 mod hover;
 mod semantic_tokens;
 
+use std::time::Instant;
+
 use anyhow::Result;
 use ide::{Database, File, SourceSymbolic, line_index, parse, source_symbol};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
@@ -150,16 +152,20 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
                 if connection.handle_shutdown(&req)? {
                     break;
                 }
+                let now = Instant::now();
                 if let Err(err) = handle_request(&connection, &req, &db, &docs, &file_to_url) {
                     eprintln!("[lsp] request {} failed: {err}", &req.method);
                 }
+                eprintln!("Handling request took {:?}", now.elapsed());
             }
             Message::Notification(note) => {
+                let now = Instant::now();
                 if let Err(err) =
                     handle_notification(&connection, &note, &mut db, &mut docs, &mut file_to_url)
                 {
                     eprintln!("[lsp] notification {} failed: {err}", note.method);
                 }
+                eprintln!("Handling notification took {:?}", now.elapsed());
             }
             Message::Response(resp) => eprintln!("[lsp] response: {resp:?}"),
         }

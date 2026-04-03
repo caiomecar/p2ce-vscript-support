@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use ::line_index::LineIndex;
 use salsa::Setter;
 use sq_3_parser::Parse;
@@ -126,11 +128,17 @@ pub fn line_index(db: &dyn Db, file: File) -> LineIndex {
 
 #[salsa::tracked(returns(ref))]
 pub fn parse(db: &dyn Db, file: File) -> Parse {
-    Parse::new(file.text(db))
+    let now = Instant::now();
+    let parse = Parse::new(file.text(db));
+    eprintln!("Parsing took {:?}", now.elapsed());
+    parse
 }
 
 #[salsa::tracked(returns(ref))]
 pub fn source_symbol(db: &dyn Db, file: File) -> SourceSymbol {
+    let now = Instant::now();
     let parse = parse(db, file);
-    Collector::symbol_from_source_file(db, file, parse.source_file())
+    let source = Collector::symbol_from_source_file(db, file, parse.source_file());
+    eprintln!("Source symbol took {:?}", now.elapsed());
+    source
 }
