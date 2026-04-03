@@ -766,6 +766,42 @@ impl<'db> Collector<'db> {
         )
     }
 
+    fn call_iter(&mut self, iterable: Type, error_range: TextRange) -> Option<(Type, Type)> {
+        let arguments = vec![Some(ExpressionKind::Literal(Type::Null))];
+        match iterable {
+            Type::Table(_) => {
+                self.call_metamethod(
+                    iterable,
+                    "_nexti",
+                    &arguments,
+                    error_range,
+                    MetamethodErrors::No,
+                );
+                Some((Type::Unknown, Type::Unknown))
+            }
+            Type::Array(id) => {
+                let typ = self.get(id).typ;
+                Some((Type::Integer(None), typ))
+            }
+            Type::Class(_) => Some((Type::Unknown, Type::Unknown)),
+            _ => {
+                match self.call_metamethod(
+                    iterable,
+                    "_nexti",
+                    &arguments,
+                    error_range,
+                    MetamethodErrors::Yes {
+                        keyword: "iterating",
+                    },
+                ) {
+                    // Shouldn't be Unknown, instead look in the function signature? But who cares about those niche cases
+                    Some(typ) => Some((Type::Unknown, typ)),
+                    None => None,
+                }
+            }
+        }
+    }
+
     fn check_constant(&mut self, value: NullableExprKind, error_range: TextRange) {
         match value {
             Some(ExpressionKind::Literal(Type::Integer(Some(_)))) => {}
@@ -1063,17 +1099,13 @@ impl<'db> Collector<'db> {
             self.enter_scope(TextRange::empty(stmt.syntax().text_range().end()));
         }
 
-        let iterable = match stmt.iterable() {
-            Some(i) => self.expr_type(&i),
-            None => Type::Unknown,
-        };
-
-        let (key_type, value_type) = match iterable {
-            Type::Array(id) => {
-                let array = self.get(id);
-                (Type::Integer(None), array.typ)
+        let (key_type, value_type) = match stmt.iterable() {
+            Some(iterable) => {
+                let typ = self.expr_type(&iterable);
+                self.call_iter(typ, iterable.syntax().text_range())
+                    .unwrap_or((Type::Unknown, Type::Unknown))
             }
-            _ => (Type::String(None), Type::Unknown),
+            None => (Type::Unknown, Type::Unknown),
         };
 
         if let Some(key) = stmt.key() {
@@ -2511,7 +2543,7 @@ impl<'db> Collector<'db> {
         let right = self.state().expr_to_type(right_kind);
 
         match (left, right) {
-            (Type::Integer(_), Type::Integer(None)) => {}
+            (Type::Integer(_), Type::Integer(_)) => {}
             (Type::Unknown | Type::Null, Type::Unknown | Type::Null) => {}
             (Type::Integer(_), Type::Unknown | Type::Null) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = right_kind {
@@ -2520,7 +2552,7 @@ impl<'db> Collector<'db> {
                     }
                 }
             }
-            (Type::Unknown | Type::Null, Type::Integer(None)) => {
+            (Type::Unknown | Type::Null, Type::Integer(_)) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = left_kind {
                     if let Some(symbol) = self.get_mut(symbol) {
                         symbol.typ = Type::Integer(None);
