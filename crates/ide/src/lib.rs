@@ -66,26 +66,6 @@ non_container_members!(instance_members => instance);
 non_container_members!(builtin_table_members => table);
 non_container_members!(builtin_class_members => class);
 
-pub fn builtin_type_members(db: &dyn Db, typ: Type) -> SymbolTable {
-    match typ {
-        Type::Integer(_) => integer_members(db),
-        Type::Float(_) => float_members(db),
-        Type::String(_) => string_members(db),
-        Type::Boolean(_) => boolean_members(db),
-        Type::Instance(_) => instance_members(db),
-        Type::Array(_) => array_members(db),
-        Type::Table(_) => builtin_table_members(db),
-        Type::Class(_) => builtin_class_members(db),
-        Type::Enum(_) => SymbolTable::default(),
-        Type::Function(_) => function_members(db),
-        Type::Generator(_) => generator_members(db),
-        Type::Thread(_) => thread_members(db),
-        Type::Weakref => weakref_members(db),
-        Type::Unknown => SymbolTable::default(),
-        Type::Null => SymbolTable::default(),
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum GetMembers {
     Container(Container),
@@ -442,14 +422,26 @@ impl<'db> FileState<'db> {
                 id,
                 settings,
                 Some(GetMembers::Container(Container::Class(id))),
+                false,
             ),
             Type::Instance(id) => self.members_of_class(
                 id,
                 settings,
                 Some(GetMembers::Container(Container::Class(id))),
+                true,
             ),
             Type::Enum(id) => self.enum_members(id),
-            _ => builtin_type_members(self.db(), typ),
+            Type::Integer(_) => integer_members(self.db()),
+            Type::Float(_) => float_members(self.db()),
+            Type::String(_) => string_members(self.db()),
+            Type::Boolean(_) => boolean_members(self.db()),
+            Type::Array(_) => array_members(self.db()),
+            Type::Function(_) => function_members(self.db()),
+            Type::Generator(_) => generator_members(self.db()),
+            Type::Thread(_) => thread_members(self.db()),
+            Type::Weakref => weakref_members(self.db()),
+            Type::Unknown => SymbolTable::default(),
+            Type::Null => SymbolTable::default(),
         }
     }
 
@@ -461,7 +453,7 @@ impl<'db> FileState<'db> {
     ) -> SymbolTable {
         match container {
             Container::Table(id) => self.members_of_table(id, settings, imports),
-            Container::Class(id) => self.members_of_class(id, settings, imports),
+            Container::Class(id) => self.members_of_class(id, settings, imports, false),
             Container::Enum(id) => self.enum_members(id),
         }
     }
@@ -521,8 +513,13 @@ impl<'db> FileState<'db> {
         class: ClassId,
         settings: FindSymbol,
         imports: Option<GetMembers>,
+        for_instance: bool,
     ) -> SymbolTable {
-        let mut members = builtin_table_members(self.db());
+        let mut members = if for_instance {
+            instance_members(self.db())
+        } else {
+            builtin_class_members(self.db())
+        };
 
         let additional = match settings {
             FindSymbol::Any => self.class_members(class),

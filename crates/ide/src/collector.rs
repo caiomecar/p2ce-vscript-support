@@ -1800,7 +1800,12 @@ impl<'db> Collector<'db> {
                 }
             });
 
-        if result.is_none() && !matches!(obj, Type::Table(_) | Type::Class(_) | Type::Instance(_)) {
+        if result.is_none()
+            && !matches!(
+                obj,
+                Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown
+            )
+        {
             self.diagnostics.push(Diagnostic {
                 message: format!("'{obj}' has no member named '{text}'"),
                 range: expr.syntax().text_range(),
