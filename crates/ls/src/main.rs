@@ -1,16 +1,13 @@
+mod completion;
 mod conversions;
+mod go_to_definiton;
 
 use anyhow::Result;
-use ide::{
-    Database, File, FileState, FindSymbol, SourceSymbolic, SymbolKind, Type, line_index, parse,
-    source_symbol,
-};
+use ide::{Database, File, SourceSymbolic, line_index, parse, source_symbol};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
-use lsp_types::request::Request as _;
-use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-};
+use lsp_types::request::{GotoDefinition, Request as _};
+use lsp_types::{CompletionOptions, CompletionParams, GotoDefinitionParams, OneOf};
 use serde::Deserialize; // for METHOD consts
 // for METHOD consts
 use lsp_types::{
@@ -31,7 +28,9 @@ use lsp_types::{
 use salsa::Setter;
 
 use rustc_hash::FxHashMap;
-use sq_3_parser::{AstNode, SyntaxKind, ast};
+
+use crate::completion::handle_completions;
+use crate::go_to_definiton::handle_go_to_definition;
 
 #[derive(Deserialize)]
 struct InitOptions {
@@ -54,6 +53,7 @@ fn main() -> Result<()> {
             trigger_characters: Some(vec![".".to_owned(), "[".to_owned()]),
             ..Default::default()
         }),
+        definition_provider: Some(OneOf::Left(true)),
         ..Default::default()
     };
 
@@ -66,27 +66,48 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn insert_path(
+    path: &str,
+    file: File,
+    docs: &mut FxHashMap<Url, File>,
+    file_to_url: &mut FxHashMap<File, Url>,
+) {
+    match Url::from_file_path(&path) {
+        Ok(url) => {
+            docs.insert(url.clone(), file);
+            file_to_url.insert(file, url);
+        }
+        Err(_) => {
+            eprintln!("Couldn't convert path {path} to url");
+        }
+    };
+}
+
 fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     let init: InitializeParams = serde_json::from_value(params)?;
     let mut db = Database::default();
     let mut docs: FxHashMap<Url, File> = FxHashMap::default();
+    let mut file_to_url: FxHashMap<File, Url> = FxHashMap::default();
 
     if let Some(options) = init.initialization_options {
         let opts: InitOptions = serde_json::from_value(options).unwrap();
 
         if let Some(path) = opts.builtins {
-            let text = std::fs::read_to_string(path).unwrap();
-            db.init_builtins(text);
+            let text = std::fs::read_to_string(path.clone()).unwrap();
+            let file = db.init_builtins(text);
+            insert_path(&path, file, &mut docs, &mut file_to_url);
         }
 
         if let Some(path) = opts.squirrel_lib {
-            let text = std::fs::read_to_string(path).unwrap();
-            db.init_squirrel_lib(text);
+            let text = std::fs::read_to_string(path.clone()).unwrap();
+            let file = db.init_squirrel_lib(text);
+            insert_path(&path, file, &mut docs, &mut file_to_url);
         }
 
         if let Some(path) = opts.vscript_lib {
-            let text = std::fs::read_to_string(path).unwrap();
-            db.init_vscript_lib(text);
+            let text = std::fs::read_to_string(path.clone()).unwrap();
+            let file = db.init_vscript_lib(text);
+            insert_path(&path, file, &mut docs, &mut file_to_url);
         }
     }
 
@@ -96,12 +117,14 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
                 if connection.handle_shutdown(&req)? {
                     break;
                 }
-                if let Err(err) = handle_request(&connection, &req, &db, &mut docs) {
+                if let Err(err) = handle_request(&connection, &req, &db, &docs, &file_to_url) {
                     eprintln!("[lsp] request {} failed: {err}", &req.method);
                 }
             }
             Message::Notification(note) => {
-                if let Err(err) = handle_notification(&connection, &note, &mut db, &mut docs) {
+                if let Err(err) =
+                    handle_notification(&connection, &note, &mut db, &mut docs, &mut file_to_url)
+                {
                     eprintln!("[lsp] notification {} failed: {err}", note.method);
                 }
             }
@@ -116,6 +139,7 @@ fn handle_notification(
     note: &lsp_server::Notification,
     db: &mut Database,
     docs: &mut FxHashMap<Url, File>,
+    file_to_url: &mut FxHashMap<File, Url>,
 ) -> Result<()> {
     match note.method.as_str() {
         DidOpenTextDocument::METHOD => {
@@ -123,6 +147,7 @@ fn handle_notification(
             let uri = p.text_document.uri;
             let file = File::new(db, p.text_document.text);
             docs.insert(uri.clone(), file);
+            file_to_url.insert(file, uri.clone());
             publish_diagnostics(conn, db, uri, file)?;
         }
         DidChangeTextDocument::METHOD => {
@@ -152,84 +177,18 @@ fn handle_request(
     req: &ServerRequest,
     db: &Database,
     docs: &FxHashMap<Url, File>,
+    file_to_url: &FxHashMap<File, Url>,
 ) -> Result<()> {
     match req.method.as_str() {
         Completion::METHOD => {
             let params: CompletionParams = serde_json::from_value(req.params.clone())?;
-            let uri = params.text_document_position.text_document.uri;
-            let Some(&file) = docs.get(&uri) else {
-                return Ok(());
-            };
-
-            let line_index = line_index(db, file);
-
-            let offset =
-                conversions::test_size(line_index, params.text_document_position.position).unwrap();
-
-            let syntax = parse(db, file).syntax();
-
-            let token = syntax.token_at_offset(offset).left_biased().and_then(|t| {
-                if t.kind() == SyntaxKind::Whitespace {
-                    t.prev_token()
-                } else {
-                    Some(t)
-                }
-            });
-
-            let member = token.and_then(|t| {
-                t.parent_ancestors()
-                    .find_map(|n| ast::MemberAccessExpression::cast(n))
-            });
-
-            let file_state = FileState::Finished(db, file);
-
-            // 3. Decide if we're in member access
-            let symbols = if let Some(member) = member {
-                let range = member.syntax().text_range();
-
-                if offset <= range.end() {
-                    // still inside or right after member access → show members
-                    if let Some(obj) = member.object() {
-                        let typ = file_state.type_at(obj.syntax().text_range());
-                        file_state
-                            .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset))
-                            .into_values()
-                            .collect()
-                    } else {
-                        Vec::new()
-                    }
-                } else {
-                    file_state.symbols_at(offset)
-                }
-            } else {
-                file_state.symbols_at(offset)
-            };
-
-            let items: Vec<CompletionItem> = symbols
-                .iter()
-                .filter_map(|id| {
-                    let symbol = file_state.get(*id);
-                    Some(CompletionItem {
-                        label: symbol.name.clone(),
-                        kind: Some(match symbol.typ {
-                            Type::Enum(_) => CompletionItemKind::ENUM,
-                            Type::Function(_) => CompletionItemKind::FUNCTION,
-                            Type::Class(_) => CompletionItemKind::CLASS,
-                            _ => match symbol.kind {
-                                SymbolKind::Local => CompletionItemKind::VARIABLE,
-                                SymbolKind::Constant => CompletionItemKind::CONSTANT,
-                                SymbolKind::Property => CompletionItemKind::PROPERTY,
-                                SymbolKind::Enum => CompletionItemKind::ENUM,
-                                SymbolKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
-                            },
-                        }),
-
-                        ..Default::default()
-                    })
-                })
-                .collect();
-
-            send_ok(conn, req.id.clone(), &CompletionResponse::Array(items))?;
+            let result = handle_completions(db, docs, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
+        }
+        GotoDefinition::METHOD => {
+            let params: GotoDefinitionParams = serde_json::from_value(req.params.clone())?;
+            let result = handle_go_to_definition(db, docs, file_to_url, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
         }
         _ => send_err(
             conn,

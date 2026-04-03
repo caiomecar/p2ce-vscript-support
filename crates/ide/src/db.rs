@@ -59,7 +59,7 @@ impl Db for Database {
 }
 
 impl Database {
-    pub fn init_builtins(&mut self, text: String) {
+    pub fn init_builtins(&mut self, text: String) -> File {
         let builtins = File::new(self, text);
         builtins
             .set_text(self)
@@ -81,7 +81,8 @@ impl Database {
             generator: self.init_builtin(&source_members, "generator"),
             thread: self.init_builtin(&source_members, "thread"),
             weakref: self.init_builtin(&source_members, "weakref"),
-        })
+        });
+        builtins
     }
 
     fn init_builtin(&self, source_members: &SymbolTable, name: &str) -> SymbolTable {
@@ -101,18 +102,20 @@ impl Database {
         id.get_data(self).members.clone()
     }
 
-    pub fn init_squirrel_lib(&mut self, text: String) {
+    pub fn init_squirrel_lib(&mut self, text: String) -> File {
         let lib = File::new(self, text);
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
         source_symbol(self, lib);
         self.squirrel_lib = Some(lib);
+        lib
     }
 
-    pub fn init_vscript_lib(&mut self, text: String) {
+    pub fn init_vscript_lib(&mut self, text: String) -> File {
         let lib = File::new(self, text);
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
         source_symbol(self, lib);
         self.vscript_lib = Some(lib);
+        lib
     }
 }
 

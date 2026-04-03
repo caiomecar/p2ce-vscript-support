@@ -825,6 +825,11 @@ ast_enum!(MemberName {
 ast_node!(Constructor, Constructor);
 impl HasDoc for Constructor {}
 impl IsFunction for Constructor {}
+impl Constructor {
+    pub fn constructor_keyword(&self) -> Option<SyntaxToken> {
+        support::token(&self.0, SyntaxKind::ConstructorKeyword)
+    }
+}
 
 ast_node!(Method, Method);
 impl HasDoc for Method {}

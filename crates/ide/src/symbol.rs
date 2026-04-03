@@ -8,6 +8,7 @@ pub struct Symbol {
     pub name: String,
     pub typ: Type,
     pub kind: SymbolKind,
+    pub name_range: TextRange,
     pub range: TextRange,
 }
 

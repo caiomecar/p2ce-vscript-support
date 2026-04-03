@@ -4,17 +4,19 @@ mod db;
 // mod doc;
 mod symbol;
 
-use crate::{
-    arena::{ArenaId, ClassId, Container, EnumId, SourceArena, SymbolId, TableData, TableId},
-    collector::{Collector, ExpressionKind, NullableExprKind, RangeExprKindMap},
-    db::Db,
-    symbol::SymbolTable,
-};
-pub use db::{Database, File, line_index, parse, source_symbol};
 use la_arena::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{TextRange, TextSize};
-pub use symbol::{Symbol, SymbolKind, Type};
+
+use crate::{
+    arena::{ClassId, Container, EnumId, SourceArena, SymbolId, TableData, TableId},
+    collector::{Collector, RangeExprKindMap},
+    db::Db,
+};
+
+pub use arena::ArenaId;
+pub use db::{Database, File, line_index, parse, source_symbol};
+pub use symbol::{Symbol, SymbolKind, SymbolTable, Type};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -28,6 +30,16 @@ pub enum DiagnosticSeverity {
     Error,
     Warning,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExpressionKind {
+    // L value
+    Literal(Type),
+    // R value
+    Symbol(SymbolId),
+}
+
+pub type NullableExprKind = Option<ExpressionKind>;
 
 macro_rules! non_container_members {
     ($func:ident => $ty:ident) => {

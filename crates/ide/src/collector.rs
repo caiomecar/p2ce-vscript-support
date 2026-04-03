@@ -4,8 +4,8 @@ use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
 use std::{collections::VecDeque, mem::discriminant};
 
 use crate::{
-    Diagnostic, DiagnosticSeverity, File, FileState, FindSymbol, GetMembers, SourceSymbol,
-    SourceSymbolic,
+    Diagnostic, DiagnosticSeverity, ExpressionKind, File, FileState, FindSymbol, GetMembers,
+    NullableExprKind, SourceSymbol, SourceSymbolic,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ParamsState, Scope, ScopeId, SourceArena, StringId, SymbolId,
@@ -37,20 +37,21 @@ struct DeferredFunction {
 enum AssignmentLeftHandSide {
     CanCreate {
         parent: Type,
-        range: TextRange,
         new_key: Box<str>,
+        name_range: TextRange,
+        range: TextRange,
     },
     // Parent doesn't exist for locals
     Exists {
         parent: Option<Type>,
+        symbol: SymbolId,
         // For saving the new type in case it is updated
         range: TextRange,
-        symbol: SymbolId,
     },
     NonStringKey {
         parent: Type,
-        range: TextRange,
         key: NullableExprKind,
+        range: TextRange,
     },
     Invalid(NullableExprKind),
 }
@@ -78,6 +79,15 @@ fn lhs_container(lhs: Option<&AssignmentLeftHandSide>) -> Option<Container> {
     Container::try_from(parent.clone()).ok()
 }
 
+fn get_name<T>(node: &T) -> Option<(Name, String)>
+where
+    T: HasName,
+{
+    let name = node.name()?;
+    let text = name.text()?;
+    Some((name, text))
+}
+
 impl TryFrom<AssignmentLeftHandSide> for Type {
     type Error = ();
     fn try_from(value: AssignmentLeftHandSide) -> Result<Self, Self::Error> {
@@ -98,16 +108,6 @@ impl TryFrom<AssignmentLeftHandSide> for Container {
         Self::try_from(typ)
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ExpressionKind {
-    // L value
-    Literal(Type),
-    // R value
-    Symbol(SymbolId),
-}
-
-pub type NullableExprKind = Option<ExpressionKind>;
 
 enum MetamethodErrors {
     No,
@@ -428,7 +428,7 @@ impl<'db> Collector<'db> {
         for (count, param) in parameters.enumerate() {
             match param {
                 Parameter::Variable(var) => {
-                    let Some(name) = var.name().and_then(|n| n.text()) else {
+                    let Some((name, text)) = get_name(&var) else {
                         let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                             continue;
                         };
@@ -460,13 +460,14 @@ impl<'db> Collector<'db> {
                         }
 
                         let symbol = self.symbol(Symbol {
-                            name: name.clone(),
+                            name: text.clone(),
                             typ: Type::Unknown,
                             kind: SymbolKind::Local,
+                            name_range: name.syntax().text_range(),
                             range: var.syntax().text_range(),
                         });
 
-                        self.current_scope().locals.insert(name, symbol);
+                        self.current_scope().locals.insert(text, symbol);
                         self.arena[function].params.push(symbol);
                         continue;
                     };
@@ -474,13 +475,14 @@ impl<'db> Collector<'db> {
                     let typ = self.expr_type(&expr);
 
                     let symbol = self.symbol(Symbol {
-                        name: name.clone(),
+                        name: text.clone(),
                         typ,
                         kind: SymbolKind::Local,
+                        name_range: name.syntax().text_range(),
                         range: var.syntax().text_range(),
                     });
 
-                    self.current_scope().locals.insert(name, symbol);
+                    self.current_scope().locals.insert(text, symbol);
                     self.arena[function].params.push(symbol);
                     match params_state {
                         ParamsState::NoDefault => {
@@ -795,12 +797,16 @@ impl<'db> Collector<'db> {
             self.check_constant(value, property.syntax().text_range());
         }
 
-        let Some(name) = (match property.name() {
-            Some(MemberName::Identifier(name)) => name.name().and_then(|n| n.text()),
-            Some(MemberName::String(name)) => name
+        let Some(name) = property.name() else {
+            return;
+        };
+
+        let Some(text) = (match &name {
+            MemberName::Identifier(name) => name.name().and_then(|n| n.text()),
+            MemberName::String(name) => name
                 .token()
                 .map(|(_kind, token)| unquote_string(token.text())),
-            Some(MemberName::Computed(name)) => {
+            MemberName::Computed(name) => {
                 let Some(expr) = name.expression() else {
                     return;
                 };
@@ -818,23 +824,23 @@ impl<'db> Collector<'db> {
                     _ => None,
                 }
             }
-            _ => None,
         }) else {
             return;
         };
 
         let symbol = self.symbol(Symbol {
-            name: name.clone(),
+            name: text.clone(),
             typ: self.state().expr_to_type(value),
             kind: if is_enum {
                 SymbolKind::EnumMember
             } else {
                 SymbolKind::Property
             },
+            name_range: name.syntax().text_range(),
             range: property.syntax().text_range(),
         });
 
-        self.add_current_container_member(name, symbol);
+        self.add_current_container_member(text, symbol);
     }
 
     fn try_setting_container<T>(&mut self, idx: Idx<FunctionData>, node: &T)
@@ -899,24 +905,34 @@ impl<'db> Collector<'db> {
             Member::Property(property) => self.collect_property(property, None),
             Member::Method(method) => {
                 let function = self.function();
-                if let Some(name) = method.name().and_then(|n| n.text()) {
-                    let symbol = self.symbol(Symbol {
-                        name: name.clone(),
-                        typ: Type::Function(function),
-                        kind: SymbolKind::Property,
-                        range: method.syntax().text_range(),
-                    });
-                    self.add_current_container_member(name, symbol);
-                }
+                let Some((name, text)) = get_name(method) else {
+                    self.collect_function(function.idx(), method);
+                    return;
+                };
+
+                let symbol = self.symbol(Symbol {
+                    name: text.clone(),
+                    typ: Type::Function(function),
+                    kind: SymbolKind::Property,
+                    name_range: name.syntax().text_range(),
+                    range: method.syntax().text_range(),
+                });
+                self.add_current_container_member(text, symbol);
+
                 self.collect_function(function.idx(), method);
             }
             Member::Constructor(constructor) => {
                 let function = self.function();
+                let Some(keyword) = constructor.constructor_keyword() else {
+                    self.collect_function(function.idx(), constructor);
+                    return;
+                };
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".to_owned(),
                     typ: Type::Function(function),
                     kind: SymbolKind::Property,
+                    name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                 });
 
@@ -955,7 +971,7 @@ impl<'db> Collector<'db> {
 
     fn local_variable(&mut self, decl: &LocalVariableDeclaration) {
         for var in decl.declarations() {
-            let Some(name) = var.name().and_then(|n| n.text()) else {
+            let Some((name, text)) = get_name(&var) else {
                 let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                     continue;
                 };
@@ -966,39 +982,42 @@ impl<'db> Collector<'db> {
 
             let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                 let id = self.symbol(Symbol {
-                    name: name.clone(),
+                    name: text.clone(),
                     typ: Type::Null,
                     kind: SymbolKind::Local,
+                    name_range: name.syntax().text_range(),
                     range: var.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, id);
+                self.current_scope().locals.insert(text, id);
                 continue;
             };
 
             let typ = self.expr_type(&expr);
             let id = self.symbol(Symbol {
-                name: name.clone(),
+                name: text.clone(),
                 typ,
                 kind: SymbolKind::Local,
+                name_range: name.syntax().text_range(),
                 range: var.syntax().text_range(),
             });
 
-            self.current_scope().locals.insert(name, id);
+            self.current_scope().locals.insert(text, id);
         }
     }
 
     fn local_function(&mut self, decl: &LocalFunctionDeclaration) {
         let id = self.function();
-        if let Some(name) = decl.name().and_then(|n| n.text()) {
+        if let Some((name, text)) = get_name(decl) {
             let symbol = self.symbol(Symbol {
-                name: name.clone(),
+                name: text.clone(),
                 typ: Type::Function(id),
                 kind: SymbolKind::Local,
+                name_range: name.syntax().text_range(),
                 range: decl.syntax().text_range(),
             });
 
-            self.current_scope().locals.insert(name, symbol);
+            self.current_scope().locals.insert(text, symbol);
         }
         self.collect_function(id.idx(), decl);
     }
@@ -1019,17 +1038,18 @@ impl<'db> Collector<'db> {
 
         self.check_constant(value, stmt.syntax().text_range());
 
-        let Some(name) = stmt.name().and_then(|n| n.text()) else {
+        let Some((name, text)) = get_name(stmt) else {
             return;
         };
 
         let symbol = self.symbol(Symbol {
-            name: name.clone(),
+            name: text.clone(),
             typ: self.state().expr_to_type(value),
             kind: SymbolKind::Constant,
+            name_range: name.syntax().text_range(),
             range: stmt.syntax().text_range(),
         });
-        self.arena[self.const_table].members.insert(name, symbol);
+        self.arena[self.const_table].members.insert(text, symbol);
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
@@ -1053,28 +1073,30 @@ impl<'db> Collector<'db> {
         };
 
         if let Some(key) = stmt.key() {
-            if let Some(name) = key.name().and_then(|n| n.text()) {
+            if let Some((name, text)) = get_name(&key) {
                 let symbol = self.symbol(Symbol {
-                    name: name.clone(),
+                    name: text.clone(),
                     typ: key_type,
                     kind: SymbolKind::Local,
+                    name_range: name.syntax().text_range(),
                     range: key.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, symbol);
+                self.current_scope().locals.insert(text, symbol);
             }
         }
 
         if let Some(value) = stmt.value() {
-            if let Some(name) = value.name().and_then(|n| n.text()) {
+            if let Some((name, text)) = get_name(&value) {
                 let symbol = self.symbol(Symbol {
-                    name: name.clone(),
+                    name: text.clone(),
                     typ: value_type,
                     kind: SymbolKind::Local,
+                    name_range: name.syntax().text_range(),
                     range: value.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, symbol);
+                self.current_scope().locals.insert(text, symbol);
             }
         }
 
@@ -1124,9 +1146,14 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let mut names: Vec<Name> = qualified_name.names().collect();
+        let mut names: Vec<_> = qualified_name.names().collect();
 
-        let Some(final_name) = names.pop().and_then(|n| n.text()) else {
+        let Some(final_name) = names.pop() else {
+            self.collect_function(function.idx(), stmt);
+            return;
+        };
+
+        let Some(final_text) = final_name.text() else {
             self.collect_function(function.idx(), stmt);
             return;
         };
@@ -1134,16 +1161,18 @@ impl<'db> Collector<'db> {
         if names.is_empty() {
             // Plain `function abc()`: declare in current container
             let symbol = self.symbol(Symbol {
-                name: final_name.clone(),
+                name: final_text.clone(),
                 typ: Type::Function(function),
                 kind: SymbolKind::Property,
+                name_range: final_name.syntax().text_range(),
                 range: stmt.syntax().text_range(),
             });
-            self.add_current_container_member(final_name, symbol);
+            self.add_current_container_member(final_text, symbol);
 
             self.collect_function(function.idx(), stmt);
             return;
         }
+
         let Some(text) = names[0].text() else {
             self.collect_function(function.idx(), stmt);
             return;
@@ -1236,13 +1265,14 @@ impl<'db> Collector<'db> {
         };
 
         let symbol = self.symbol(Symbol {
-            name: final_name.clone(),
+            name: final_text.clone(),
             typ: Type::Function(function),
             kind: SymbolKind::Property,
+            name_range: final_name.syntax().text_range(),
             range: stmt.syntax().text_range(),
         });
 
-        self.add_container_member(container, final_name, symbol);
+        self.add_container_member(container, final_text, symbol);
 
         let save_container = self.special_container;
         self.special_container = Some(container);
@@ -1253,15 +1283,16 @@ impl<'db> Collector<'db> {
     fn enum_statement(&mut self, stmt: &EnumStatement) {
         let enum_ = EnumId::new(self.file, self.arena.alloc(EnumData::default()));
 
-        if let Some(name) = stmt.name().and_then(|n| n.text()) {
+        if let Some((name, text)) = get_name(stmt) {
             let symbol = self.symbol(Symbol {
-                name: name.clone(),
+                name: text.clone(),
                 typ: Type::Enum(enum_),
                 kind: SymbolKind::Enum,
+                name_range: name.syntax().text_range(),
                 range: stmt.syntax().text_range(),
             });
 
-            self.arena[self.const_table].members.insert(name, symbol);
+            self.arena[self.const_table].members.insert(text, symbol);
         }
 
         let save_symbol = self.container;
@@ -1441,15 +1472,16 @@ impl<'db> Collector<'db> {
         });
 
         if let Some(binding) = catch.binding() {
-            if let Some(name) = binding.name().and_then(|n| n.text()) {
+            if let Some((name, text)) = get_name(&binding) {
                 let symbol = self.symbol(Symbol {
                     typ: Type::String(None),
-                    name: name.clone(),
+                    name: text.clone(),
                     kind: SymbolKind::Local,
+                    name_range: name.syntax().text_range(),
                     range: binding.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(name, symbol);
+                self.current_scope().locals.insert(text, symbol);
             };
         }
 
@@ -1958,8 +1990,8 @@ impl<'db> Collector<'db> {
                 if let Some(symbol) = locals {
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: None,
-                        range: expr.syntax().text_range(),
                         symbol,
+                        range: expr.syntax().text_range(),
                     });
                 }
 
@@ -1977,8 +2009,8 @@ impl<'db> Collector<'db> {
                 if let Some(symbol) = consts {
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(Type::Table(state.const_table())),
-                        range: expr.syntax().text_range(),
                         symbol,
+                        range: expr.syntax().text_range(),
                     });
                 }
 
@@ -1994,8 +2026,8 @@ impl<'db> Collector<'db> {
                 if let Some(symbol) = members {
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(self.arena[self.scope].container.into()),
-                        range: expr.syntax().text_range(),
                         symbol,
+                        range: expr.syntax().text_range(),
                     });
                 }
 
@@ -2011,21 +2043,23 @@ impl<'db> Collector<'db> {
                 if let Some(symbol) = root {
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(Type::Table(state.root_table())),
-                        range: expr.syntax().text_range(),
                         symbol,
+                        range: expr.syntax().text_range(),
                     });
                 }
 
                 Some(AssignmentLeftHandSide::CanCreate {
                     parent: self.container.into(),
-                    range: expr.syntax().text_range(),
                     new_key: text.into_boxed_str(),
+                    name_range: expr.syntax().text_range(),
+                    range: expr.syntax().text_range(),
                 })
             }
             Expr::MemberAccess(expr) => {
                 let obj = self.expr_type(&expr.object()?);
-                let text = expr.member_part()?.name()?.text()?;
+                let member_part = expr.member_part()?;
 
+                let (name, text) = get_name(&member_part)?;
                 let offset = expr.syntax().text_range().end();
 
                 Some(
@@ -2036,13 +2070,14 @@ impl<'db> Collector<'db> {
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
-                                range: expr.syntax().text_range(),
                                 new_key: text.into_boxed_str(),
+                                name_range: name.syntax().text_range(),
+                                range: expr.syntax().text_range(),
                             },
                             |id| AssignmentLeftHandSide::Exists {
                                 parent: Some(obj),
-                                range: expr.syntax().text_range(),
                                 symbol: id,
+                                range: expr.syntax().text_range(),
                             },
                         ),
                 )
@@ -2070,19 +2105,20 @@ impl<'db> Collector<'db> {
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
-                                range: expr.syntax().text_range(),
                                 new_key: text.clone(),
+                                name_range: index.syntax().text_range(),
+                                range: expr.syntax().text_range(),
                             },
                             |id| AssignmentLeftHandSide::Exists {
                                 parent: Some(obj),
-                                range: expr.syntax().text_range(),
                                 symbol: id,
+                                range: expr.syntax().text_range(),
                             },
                         ),
                 )
             }
             Expr::RootAccess(expr) => {
-                let text = expr.name()?.text()?;
+                let (name, text) = get_name(expr)?;
                 let offset = expr.syntax().text_range().end();
                 let state = self.state();
                 Some(
@@ -2097,13 +2133,14 @@ impl<'db> Collector<'db> {
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: Type::Table(state.root_table()),
-                                range: expr.syntax().text_range(),
                                 new_key: text.into_boxed_str(),
+                                name_range: name.syntax().text_range(),
+                                range: expr.syntax().text_range(),
                             },
                             |id| AssignmentLeftHandSide::Exists {
                                 parent: None,
-                                range: expr.syntax().text_range(),
                                 symbol: id,
+                                range: expr.syntax().text_range(),
                             },
                         ),
                 )
@@ -2176,8 +2213,9 @@ impl<'db> Collector<'db> {
         match left_kind {
             Some(AssignmentLeftHandSide::CanCreate {
                 parent,
-                new_key,
                 range,
+                name_range,
+                new_key,
             }) => {
                 let arguments = vec![
                     Some(ExpressionKind::Literal(Type::String(None))),
@@ -2189,9 +2227,10 @@ impl<'db> Collector<'db> {
                 };
 
                 let symbol = self.symbol(Symbol {
-                    typ: self.state().expr_to_type(right_kind),
                     name: new_key.to_string(),
+                    typ: self.state().expr_to_type(right_kind),
                     kind: SymbolKind::Property,
+                    name_range,
                     range: expr_range,
                 });
 

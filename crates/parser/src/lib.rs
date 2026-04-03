@@ -91,3 +91,11 @@ impl Parse {
         (self.source_file(), self.errors)
     }
 }
+
+pub fn node_at_offset(node: SyntaxNode, offset: TextSize) -> SyntaxNode {
+    assert!(node.text_range().contains(offset));
+    node.children()
+        .find(|it| it.text_range().contains(offset))
+        .map(|it| node_at_offset(it, offset))
+        .unwrap_or(node)
+}
