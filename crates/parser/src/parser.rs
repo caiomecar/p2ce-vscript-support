@@ -473,7 +473,7 @@ impl Parser {
         }
 
         let m = self.start();
-        if self.at(SyntaxKind::Integer) {
+        if self.at(SyntaxKind::DecimalInteger) {
             // It would've been possible to make the identifier recovery where we have a
             // preceding number and identifier afterwards, but this can be valid syntax in
             // squirrel due to optionality of the commas. E.g. local abc = 0, a = [123abc]
@@ -1164,7 +1164,9 @@ impl Parser {
             | SyntaxKind::FalseKeyword
             | SyntaxKind::String
             | SyntaxKind::VerbatimString
-            | SyntaxKind::Integer
+            | SyntaxKind::DecimalInteger
+            | SyntaxKind::OctalInteger
+            | SyntaxKind::HexInteger
             | SyntaxKind::Character
             | SyntaxKind::Float => self.parse_literal_expression(),
 

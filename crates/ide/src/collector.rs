@@ -4,14 +4,14 @@ use sq_3_parser::{AstNode, TextRange, TextSize, ast::*};
 use std::{collections::VecDeque, mem::discriminant};
 
 use crate::{
-    Diagnostic, DiagnosticSeverity, File, FileState, GetMembers, SourceSymbol, SourceSymbolic,
+    Diagnostic, DiagnosticSeverity, File, FileState, FindSymbol, GetMembers, SourceSymbol,
+    SourceSymbolic,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
-        FunctionData, FunctionId, ParamsState, Scope, SourceArena, StringId, SymbolId, TableData,
-        TableId,
+        FunctionData, FunctionId, ParamsState, Scope, ScopeId, SourceArena, StringId, SymbolId,
+        TableData, TableId,
     },
     db::Db,
-    line_index,
     symbol::{Symbol, SymbolKind, SymbolTable, Type},
 };
 
@@ -30,7 +30,7 @@ struct DeferredFunction {
     idx: Idx<FunctionData>,
     body: FunctionBody,
     execution_range: TextRange,
-    scope: Idx<Scope>,
+    scope: ScopeId,
 }
 
 #[derive(Debug, Clone)]
@@ -99,18 +99,12 @@ impl TryFrom<AssignmentLeftHandSide> for Container {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExpressionKind {
     // L value
     Literal(Type),
     // R value
     Symbol(SymbolId),
-}
-
-enum FindSymbol {
-    Any,
-    OnlyBefore(TextSize),
-    BeforeIfInExecutionRange(TextSize),
 }
 
 pub type NullableExprKind = Option<ExpressionKind>;
@@ -138,17 +132,16 @@ fn unquote_string(input: &str) -> String {
 }
 
 pub struct Collector<'db> {
-    pub db: &'db dyn Db,
-    pub file: File,
+    db: &'db dyn Db,
+    file: File,
 
     imports: FxHashMap<Container, Vec<File>>,
 
     arena: SourceArena,
     const_table: Idx<TableData>,
     root_table: Idx<TableData>,
-    source_table: Idx<TableData>,
 
-    scope: Idx<Scope>,
+    scope: ScopeId,
 
     container: Container,
     special_container: Option<Container>,
@@ -175,10 +168,6 @@ impl<'db> SourceSymbolic for Collector<'db> {
 
     fn root_table(&self) -> Idx<TableData> {
         self.root_table
-    }
-
-    fn source_table(&self) -> Idx<TableData> {
-        self.source_table
     }
 
     fn expr_kinds(&self) -> &RangeExprKindMap {
@@ -237,7 +226,6 @@ impl<'db> Collector<'db> {
             arena,
             const_table,
             root_table,
-            source_table,
             execution_range: node.syntax().text_range(),
             function: None,
             deferred_functions: VecDeque::new(),
@@ -302,6 +290,18 @@ impl<'db> Collector<'db> {
         }
 
         Some(&mut self.arena[id.idx()])
+    }
+
+    pub fn db(&self) -> &dyn Db {
+        self.db
+    }
+
+    pub fn file(&self) -> File {
+        self.file
+    }
+
+    pub fn scope(&self) -> ScopeId {
+        self.scope
     }
 
     fn symbol(&mut self, symbol: Symbol) -> SymbolId {
@@ -383,16 +383,16 @@ impl<'db> Collector<'db> {
         self.scope = self.arena[self.scope].parent.unwrap();
     }
 
-    fn local_members(&self) -> Vec<SymbolId> {
-        self.state().local_members(self.scope)
+    fn execution_container(&self) -> Container {
+        self.arena[self.scope].container
+    }
+
+    fn local_members(&self, offset: TextSize) -> SymbolTable {
+        self.state().local_members(offset)
     }
 
     fn state(&self) -> FileState<'_> {
         FileState::InProcess(self)
-    }
-
-    fn current_container_members(&self) -> Vec<SymbolId> {
-        self.state().container_members(self.container)
     }
 
     fn add_current_container_member(&mut self, name: String, symbol: SymbolId) {
@@ -733,15 +733,17 @@ impl<'db> Collector<'db> {
             _ if operator == BinaryOperator::Add || operator == BinaryOperator::AddAssign => {
                 match (left_type, right_type) {
                     (_, Type::String(_)) | (Type::String(_), _) => return Some(Type::String(None)),
-                    (Type::Integer, Type::Integer) => return Some(Type::Integer),
-                    (Type::Float | Type::Integer, Type::Float | Type::Integer) => {
-                        return Some(Type::Float);
+                    (Type::Integer(_), Type::Integer(_)) => return Some(Type::Integer(None)),
+                    (Type::Float(_) | Type::Integer(_), Type::Float(_) | Type::Integer(_)) => {
+                        return Some(Type::Float(None));
                     }
                     _ => {}
                 }
             }
-            (Type::Integer, Type::Integer) => return Some(Type::Integer),
-            (Type::Float | Type::Integer, Type::Float | Type::Integer) => return Some(Type::Float),
+            (Type::Integer(_), Type::Integer(_)) => return Some(Type::Integer(None)),
+            (Type::Float(_) | Type::Integer(_), Type::Float(_) | Type::Integer(_)) => {
+                return Some(Type::Float(None));
+            }
             _ => {}
         }
 
@@ -758,12 +760,40 @@ impl<'db> Collector<'db> {
         )
     }
 
-    fn collect_property(&mut self, property: &Property, default_value: Option<usize>) {
-        let kind = match property.value() {
-            Some(expr) => self.expr_type(&expr),
-            None if default_value.is_some() => Type::Integer,
-            None => Type::Unknown,
+    fn check_constant(&mut self, value: NullableExprKind, error_range: TextRange) {
+        match value {
+            Some(ExpressionKind::Literal(Type::Integer(Some(_)))) => {}
+            Some(ExpressionKind::Literal(Type::Float(Some(_)))) => {}
+            Some(ExpressionKind::Literal(Type::String(Some(_)))) => {}
+            Some(ExpressionKind::Literal(Type::Boolean(Some(_)))) => {}
+            _ => {
+                self.diagnostics.push(Diagnostic {
+                    message:
+                        "Constant can only hold value of 'integer', 'float', 'string' or 'bool'"
+                            .to_owned(),
+                    range: error_range,
+                    severity: DiagnosticSeverity::Error,
+                });
+            }
+        }
+    }
+
+    fn collect_property(&mut self, property: &Property, default_value: Option<i32>) {
+        let value = match property.value() {
+            Some(expr) => self.collect_expr(&expr),
+            None => {
+                if let Some(value) = default_value {
+                    Some(ExpressionKind::Literal(Type::Integer(Some(value))))
+                } else {
+                    None
+                }
+            }
         };
+
+        let is_enum = default_value.is_some();
+        if is_enum {
+            self.check_constant(value, property.syntax().text_range());
+        }
 
         let Some(name) = (match property.name() {
             Some(MemberName::Identifier(name)) => name.name().and_then(|n| n.text()),
@@ -795,8 +825,8 @@ impl<'db> Collector<'db> {
 
         let symbol = self.symbol(Symbol {
             name: name.clone(),
-            typ: kind,
-            kind: if default_value.is_some() {
+            typ: self.state().expr_to_type(value),
+            kind: if is_enum {
                 SymbolKind::EnumMember
             } else {
                 SymbolKind::Property
@@ -972,6 +1002,7 @@ impl<'db> Collector<'db> {
         }
         self.collect_function(id.idx(), decl);
     }
+
     fn block_statement(&mut self, stmt: &BlockStatement) {
         self.enter_scope(stmt.syntax().text_range());
         for stmt in stmt.statements() {
@@ -981,10 +1012,12 @@ impl<'db> Collector<'db> {
     }
 
     fn const_statement(&mut self, stmt: &ConstStatement) {
-        let typ = match stmt.value() {
-            Some(expr) => self.expr_type(&expr),
-            None => Type::Unknown,
-        };
+        let value = stmt
+            .value()
+            .and_then(|v| v.expression())
+            .and_then(|e| self.collect_expr(&e));
+
+        self.check_constant(value, stmt.syntax().text_range());
 
         let Some(name) = stmt.name().and_then(|n| n.text()) else {
             return;
@@ -992,7 +1025,7 @@ impl<'db> Collector<'db> {
 
         let symbol = self.symbol(Symbol {
             name: name.clone(),
-            typ,
+            typ: self.state().expr_to_type(value),
             kind: SymbolKind::Constant,
             range: stmt.syntax().text_range(),
         });
@@ -1014,7 +1047,7 @@ impl<'db> Collector<'db> {
         let (key_type, value_type) = match iterable {
             Type::Array(id) => {
                 let array = self.get(id);
-                (Type::Integer, array.typ)
+                (Type::Integer(None), array.typ)
             }
             _ => (Type::String(None), Type::Unknown),
         };
@@ -1117,19 +1150,26 @@ impl<'db> Collector<'db> {
         };
 
         let offset = qualified_name.syntax().text_range().end();
+        let state = self.state();
 
-        let members = self.find_symbol(
-            self.current_container_members(),
-            FindSymbol::BeforeIfInExecutionRange(offset),
-            &text,
-        );
+        let members = state
+            .members_of_container(
+                self.execution_container(),
+                FindSymbol::BeforeIfInExecutionRange(offset),
+                Some(GetMembers::Container(self.execution_container())),
+            )
+            .into_iter()
+            .find_map(|(name, id)| if text == name { Some(id) } else { None });
 
         let root = || {
-            self.find_symbol(
-                self.state().root_members(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
-                &text,
-            )
+            state
+                .members_of_table(
+                    state.root_table(),
+                    FindSymbol::BeforeIfInExecutionRange(offset),
+                    Some(GetMembers::Container(self.execution_container())),
+                )
+                .into_iter()
+                .find_map(|(name, id)| if text == name { Some(id) } else { None })
         };
 
         let Some(expr_kind) = members.or_else(root).map(|id| ExpressionKind::Symbol(id)) else {
@@ -1137,7 +1177,7 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let mut typ = self.state().expr_to_type(Some(expr_kind));
+        let mut typ = state.expr_to_type(Some(expr_kind));
         let key = names[0].syntax().text_range();
         self.expr_kinds.insert(key, expr_kind);
 
@@ -1158,19 +1198,28 @@ impl<'db> Collector<'db> {
                 return;
             };
 
-            let Some(expr_kind) = self
-                .find_symbol(
-                    self.state().container_members(container),
+            let state = self.state();
+
+            let Some(expr_kind) = state
+                .members_of_container(
+                    container,
                     FindSymbol::BeforeIfInExecutionRange(offset),
-                    &text,
+                    Some(GetMembers::Container(container)),
                 )
-                .map(|id| ExpressionKind::Symbol(id))
+                .into_iter()
+                .find_map(|(name, id)| {
+                    if text == name {
+                        Some(ExpressionKind::Symbol(id))
+                    } else {
+                        None
+                    }
+                })
             else {
                 self.collect_function(function.idx(), stmt);
                 return;
             };
 
-            typ = self.state().expr_to_type(Some(expr_kind));
+            typ = state.expr_to_type(Some(expr_kind));
             let key = segment.syntax().text_range();
             self.expr_kinds.insert(key, expr_kind);
         }
@@ -1218,7 +1267,7 @@ impl<'db> Collector<'db> {
         let save_symbol = self.container;
         self.container = Container::Enum(enum_);
         for (value, property) in stmt.members().enumerate() {
-            self.collect_property(&property, Some(value));
+            self.collect_property(&property, Some(value as i32));
         }
         self.container = save_symbol;
     }
@@ -1291,9 +1340,12 @@ impl<'db> Collector<'db> {
                                 | (_, Type::Null)
                                 | (Type::Unknown, _)
                                 | (_, Type::Unknown)
-                                | (Type::Integer | Type::Float, Type::Integer | Type::Float,)
+                                | (
+                                    Type::Integer(_) | Type::Float(_),
+                                    Type::Integer(_) | Type::Float(_),
+                                )
                                 | (Type::String(_), Type::String(_))
-                                | (Type::Boolean, Type::Boolean)
+                                | (Type::Boolean(_), Type::Boolean(_))
                         ) {
                             self.diagnostics.push(Diagnostic {
                                 message: format!("Case of type '{case_kind}' is incompitable with discriminant of type '{kind}'"),
@@ -1454,7 +1506,7 @@ impl<'db> Collector<'db> {
             Expr::Resume(expr) => self.resume_expression(expr),
             Expr::RawCall(expr) => self.raw_call_expression(expr),
             Expr::File(_) => Some(ExpressionKind::Literal(Type::String(None))),
-            Expr::Line(_) => Some(ExpressionKind::Literal(Type::Integer)),
+            Expr::Line(_) => Some(ExpressionKind::Literal(Type::Integer(None))),
             Expr::Parenthesised(expr) => self.parenthesised_expression(expr),
             Expr::Function(expr) => Some(self.function_expression(expr)),
             Expr::Lambda(expr) => Some(self.lambda_expression(expr)),
@@ -1470,9 +1522,70 @@ impl<'db> Collector<'db> {
         let (kind, token) = expr.token()?;
 
         Some(match kind {
-            LiteralExpressionKind::Integer => ExpressionKind::Literal(Type::Integer),
-            LiteralExpressionKind::Character => ExpressionKind::Literal(Type::Integer),
-            LiteralExpressionKind::Float => ExpressionKind::Literal(Type::Float),
+            LiteralExpressionKind::DecimalInteger => {
+                let text = token.text();
+
+                if text.starts_with('0') && text.len() > 1 {
+                    self.diagnostics.push(Diagnostic {
+                        message: "Leading '0' can be removed".to_owned(),
+                        range: token.text_range(),
+                        severity: DiagnosticSeverity::Warning,
+                    });
+                }
+                // Default values are provided to signify that the user has tried
+                // to write a literal but the literal was malformed
+                // This is to not error out
+                let value = text.parse::<i32>().unwrap_or(0);
+
+                ExpressionKind::Literal(Type::Integer(Some(value)))
+            }
+            LiteralExpressionKind::OctalInteger => {
+                let text = token.text();
+                // 0321321
+                let value = i32::from_str_radix(&text[1..], 8).unwrap_or(0);
+
+                ExpressionKind::Literal(Type::Integer(Some(value)))
+            }
+            LiteralExpressionKind::HexInteger => {
+                let text = token.text();
+                //0x12312312
+                let value = i32::from_str_radix(&text[2..], 16).unwrap_or(0);
+
+                ExpressionKind::Literal(Type::Integer(Some(value)))
+            }
+            LiteralExpressionKind::Character => {
+                let text = token.text();
+                let inner = &text[1..text.len() - 1];
+
+                let value = if !inner.starts_with('\\') {
+                    inner.chars().next().map(|c| c as i32)
+                } else {
+                    match inner.chars().nth(1) {
+                        Some('n') => Some('\n' as i32),
+                        Some('t') => Some('\t' as i32),
+                        Some('r') => Some('\r' as i32),
+                        Some('\\') => Some('\\' as i32),
+                        Some('\'') => Some('\'' as i32),
+
+                        Some('x') => {
+                            let hex = &inner[2..];
+                            u8::from_str_radix(hex, 16).ok().map(|c| c as i32)
+                        }
+
+                        Some(other) => panic!("unknown escape: {}", other),
+                        None => None,
+                    }
+                }
+                .unwrap_or(0);
+
+                ExpressionKind::Literal(Type::Integer(Some(value)))
+            }
+            LiteralExpressionKind::Float => {
+                let text = token.text();
+                let value = text.parse::<f32>().unwrap_or(0.0);
+
+                ExpressionKind::Literal(Type::Float(Some(value)))
+            }
             LiteralExpressionKind::String | LiteralExpressionKind::VerbatimString => {
                 let string = StringId::new(
                     self.file,
@@ -1483,8 +1596,8 @@ impl<'db> Collector<'db> {
                 ExpressionKind::Literal(Type::String(Some(string)))
             }
             LiteralExpressionKind::Null => ExpressionKind::Literal(Type::Null),
-            LiteralExpressionKind::True => ExpressionKind::Literal(Type::Boolean),
-            LiteralExpressionKind::False => ExpressionKind::Literal(Type::Boolean),
+            LiteralExpressionKind::True => ExpressionKind::Literal(Type::Boolean(Some(true))),
+            LiteralExpressionKind::False => ExpressionKind::Literal(Type::Boolean(Some(true))),
         })
     }
 
@@ -1531,96 +1644,55 @@ impl<'db> Collector<'db> {
         )
     }
 
-    fn find_symbol(
-        &self,
-        iter: impl IntoIterator<Item = SymbolId>,
-        settings: FindSymbol,
-        text: &str,
-    ) -> Option<SymbolId> {
-        match settings {
-            FindSymbol::Any => iter.into_iter().find(|symbol| {
-                let symbol = self.get(*symbol);
-                text == symbol.name
-            }),
-            FindSymbol::OnlyBefore(offset) => iter.into_iter().find(|symbol| {
-                let symbol = self.get(*symbol);
-                symbol.range.end() < offset && text == symbol.name
-            }),
-            FindSymbol::BeforeIfInExecutionRange(offset) => iter.into_iter().find(|symbol| {
-                let symbol = self.get(*symbol);
-                (!self.execution_range.contains_range(symbol.range) || symbol.range.end() < offset)
-                    && text == symbol.name
-            }),
-        }
-    }
-
     fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
         let text = expr.text()?;
         let offset = expr.syntax().text_range().end();
-        let locals = self.find_symbol(self.local_members(), FindSymbol::OnlyBefore(offset), &text);
-
-        let consts = || {
-            self.find_symbol(
-                self.state().const_members(),
-                FindSymbol::OnlyBefore(offset),
-                &text,
-            )
+        let filter = |(name, id)| {
+            if name == text { Some(id) } else { None }
         };
 
-        let consts_imports = || {
-            self.find_symbol(
-                self.state().import_members(GetMembers::Const),
-                FindSymbol::OnlyBefore(offset),
-                &text,
-            )
+        let locals = self.local_members(offset).into_iter().find_map(filter);
+
+        let state = self.state();
+
+        let consts = || {
+            state
+                .members_of_table(
+                    state.const_table(),
+                    FindSymbol::OnlyBefore(offset),
+                    Some(GetMembers::Const),
+                )
+                .into_iter()
+                .find_map(filter)
         };
 
         let members = || {
-            self.find_symbol(
-                self.current_container_members(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
-                &text,
-            )
-        };
-
-        let members_imports = || {
-            self.find_symbol(
-                self.state()
-                    .import_members(GetMembers::Container(self.container)),
-                FindSymbol::Any,
-                &text,
-            )
+            state
+                .members_of_container(
+                    self.execution_container(),
+                    FindSymbol::BeforeIfInExecutionRange(offset),
+                    Some(GetMembers::Container(self.execution_container())),
+                )
+                .into_iter()
+                .find_map(filter)
         };
 
         let root = || {
-            self.find_symbol(
-                self.state().root_members(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
-                &text,
-            )
+            state
+                .members_of_table(
+                    state.root_table(),
+                    FindSymbol::BeforeIfInExecutionRange(offset),
+                    Some(GetMembers::Root),
+                )
+                .into_iter()
+                .find_map(filter)
         };
 
-        let root_imports = || {
-            self.find_symbol(
-                self.state().import_members(GetMembers::Root),
-                FindSymbol::Any,
-                &text,
-            )
-        };
-
-        dbg!(&text);
-        dbg!(line_index(self.db, self.file).line_col(offset));
-        dbg!(consts());
-        let result = locals
+        locals
             .or_else(consts)
-            .or_else(consts_imports)
             .or_else(members)
-            .or_else(members_imports)
             .or_else(root)
-            .or_else(root_imports)
-            .map(|symbol| ExpressionKind::Symbol(symbol));
-        dbg!(result);
-        result
+            .map(|symbol| ExpressionKind::Symbol(symbol))
     }
 
     fn this_expression(&self, _expr: &ThisExpression) -> ExpressionKind {
@@ -1630,24 +1702,22 @@ impl<'db> Collector<'db> {
     fn root_access_expression(&mut self, expr: &RootAccessExpression) -> NullableExprKind {
         let text = expr.name()?.text()?;
         let offset = expr.syntax().text_range().end();
+        let state = self.state();
 
-        let direct = self.find_symbol(
-            self.state().root_members(),
-            FindSymbol::BeforeIfInExecutionRange(offset),
-            &text,
-        );
-
-        let imports = || {
-            self.find_symbol(
-                self.state().import_members(GetMembers::Root),
-                FindSymbol::Any,
-                &text,
+        state
+            .members_of_table(
+                state.root_table(),
+                FindSymbol::BeforeIfInExecutionRange(offset),
+                Some(GetMembers::Root),
             )
-        };
-
-        direct
-            .or_else(imports)
-            .map(|symbol| ExpressionKind::Symbol(symbol))
+            .into_iter()
+            .find_map(|(name, id)| {
+                if name == text {
+                    Some(ExpressionKind::Symbol(id))
+                } else {
+                    None
+                }
+            })
     }
 
     fn base_expression(&mut self, expr: &BaseExpression) -> ExpressionKind {
@@ -1681,34 +1751,29 @@ impl<'db> Collector<'db> {
         let obj = self.expr_type(&expr.object()?);
         let text = expr.member_part()?.name()?.text()?;
 
-        let members = self.state().type_members(obj);
-
         let offset = expr.syntax().text_range().end();
-        let direct = self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text);
-        let imports = || {
-            // We 100% know the members of non container symbols
-            let Ok(container) = Container::try_from(obj) else {
-                if obj != Type::Unknown {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!("'{obj}' has no member named '{text}'"),
-                        range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
-                    });
+
+        let result = self
+            .state()
+            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+            .into_iter()
+            .find_map(|(name, id)| {
+                if name == text {
+                    Some(ExpressionKind::Symbol(id))
+                } else {
+                    None
                 }
-                return None;
-            };
+            });
 
-            self.find_symbol(
-                self.state()
-                    .import_members(GetMembers::Container(container)),
-                FindSymbol::Any,
-                &text,
-            )
-        };
+        if result.is_none() && !matches!(obj, Type::Table(_) | Type::Class(_) | Type::Instance(_)) {
+            self.diagnostics.push(Diagnostic {
+                message: format!("'{obj}' has no member named '{text}'"),
+                range: expr.syntax().text_range(),
+                severity: DiagnosticSeverity::Error,
+            });
+        }
 
-        direct
-            .or_else(imports)
-            .map(|symbol| ExpressionKind::Symbol(symbol))
+        result
     }
 
     fn element_access_expression(&mut self, expr: &ElementAccessExpression) -> NullableExprKind {
@@ -1718,35 +1783,30 @@ impl<'db> Collector<'db> {
             return None;
         };
 
-        let text = self.get(id).to_owned();
-        let members = self.state().type_members(obj);
-
+        let text = self.get(id);
         let offset = expr.syntax().text_range().end();
-        let direct = self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text);
-        let imports = || {
-            // We 100% know the members of non container symbols
-            let Ok(container) = Container::try_from(obj) else {
-                if obj != Type::Unknown {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!("'{obj}' has no member named '{text}'"),
-                        range: expr.syntax().text_range(),
-                        severity: DiagnosticSeverity::Error,
-                    });
+
+        let result = self
+            .state()
+            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+            .into_iter()
+            .find_map(|(name, id)| {
+                if *name == **text {
+                    Some(ExpressionKind::Symbol(id))
+                } else {
+                    None
                 }
-                return None;
-            };
+            });
 
-            self.find_symbol(
-                self.state()
-                    .import_members(GetMembers::Container(container)),
-                FindSymbol::Any,
-                &text,
-            )
-        };
+        if result.is_none() && !matches!(obj, Type::Table(_) | Type::Class(_) | Type::Instance(_)) {
+            self.diagnostics.push(Diagnostic {
+                message: format!("'{obj}' has no member named '{text}'"),
+                range: expr.syntax().text_range(),
+                severity: DiagnosticSeverity::Error,
+            });
+        }
 
-        direct
-            .or_else(imports)
-            .map(|symbol| ExpressionKind::Symbol(symbol))
+        result
     }
 
     fn call_type(
@@ -1791,7 +1851,7 @@ impl<'db> Collector<'db> {
                             }
                         }
 
-                        (Type::Integer | Type::Float, Type::Integer | Type::Float) => {}
+                        (Type::Integer(_) | Type::Float(_), Type::Integer(_) | Type::Float(_)) => {}
 
                         (passed, required) => {
                             if discriminant(&passed) != discriminant(&required) {
@@ -1889,8 +1949,11 @@ impl<'db> Collector<'db> {
                 let text = expr.text()?;
                 let offset = expr.syntax().text_range().end();
 
-                let locals =
-                    self.find_symbol(self.local_members(), FindSymbol::OnlyBefore(offset), &text);
+                let filter = |(name, id)| {
+                    if name == text { Some(id) } else { None }
+                };
+
+                let locals = self.local_members(offset).into_iter().find_map(filter);
 
                 if let Some(symbol) = locals {
                     return Some(AssignmentLeftHandSide::Exists {
@@ -1900,43 +1963,54 @@ impl<'db> Collector<'db> {
                     });
                 }
 
-                let consts = self.find_symbol(
-                    self.state().const_members(),
-                    FindSymbol::OnlyBefore(offset),
-                    &text,
-                );
+                let state = self.state();
+
+                let consts = state
+                    .members_of_table(
+                        state.const_table(),
+                        FindSymbol::OnlyBefore(offset),
+                        Some(GetMembers::Const),
+                    )
+                    .into_iter()
+                    .find_map(filter);
 
                 if let Some(symbol) = consts {
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(Type::Table(TableId::new(self.file, self.const_table))),
+                        parent: Some(Type::Table(state.const_table())),
                         range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
 
-                let members = self.find_symbol(
-                    self.current_container_members(),
-                    FindSymbol::BeforeIfInExecutionRange(offset),
-                    &text,
-                );
+                let members = state
+                    .members_of_container(
+                        self.execution_container(),
+                        FindSymbol::BeforeIfInExecutionRange(offset),
+                        Some(GetMembers::Container(self.execution_container())),
+                    )
+                    .into_iter()
+                    .find_map(filter);
 
                 if let Some(symbol) = members {
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(self.container.into()),
+                        parent: Some(self.arena[self.scope].container.into()),
                         range: expr.syntax().text_range(),
                         symbol,
                     });
                 }
 
-                let root = self.find_symbol(
-                    self.state().root_members(),
-                    FindSymbol::BeforeIfInExecutionRange(offset),
-                    &text,
-                );
+                let root = state
+                    .members_of_table(
+                        state.root_table(),
+                        FindSymbol::BeforeIfInExecutionRange(offset),
+                        Some(GetMembers::Root),
+                    )
+                    .into_iter()
+                    .find_map(filter);
 
                 if let Some(symbol) = root {
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(Type::Table(TableId::new(self.file, self.root_table))),
+                        parent: Some(Type::Table(state.root_table())),
                         range: expr.syntax().text_range(),
                         symbol,
                     });
@@ -1952,11 +2026,13 @@ impl<'db> Collector<'db> {
                 let obj = self.expr_type(&expr.object()?);
                 let text = expr.member_part()?.name()?.text()?;
 
-                let members = self.state().type_members(obj);
-
                 let offset = expr.syntax().text_range().end();
+
                 Some(
-                    self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
+                    self.state()
+                        .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+                        .into_iter()
+                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
@@ -1983,17 +2059,19 @@ impl<'db> Collector<'db> {
                     });
                 };
 
-                let text = self.get(id).as_ref();
-                let members = self.state().type_members(obj);
-
+                let text = self.get(id);
                 let offset = expr.syntax().text_range().end();
+
                 Some(
-                    self.find_symbol(members, FindSymbol::BeforeIfInExecutionRange(offset), &text)
+                    self.state()
+                        .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset))
+                        .into_iter()
+                        .find_map(|(name, id)| if *name == **text { Some(id) } else { None })
                         .map_or_else(
                             || AssignmentLeftHandSide::CanCreate {
                                 parent: obj,
                                 range: expr.syntax().text_range(),
-                                new_key: text.into(),
+                                new_key: text.clone(),
                             },
                             |id| AssignmentLeftHandSide::Exists {
                                 parent: Some(obj),
@@ -2006,24 +2084,28 @@ impl<'db> Collector<'db> {
             Expr::RootAccess(expr) => {
                 let text = expr.name()?.text()?;
                 let offset = expr.syntax().text_range().end();
+                let state = self.state();
                 Some(
-                    self.find_symbol(
-                        self.state().root_members(),
-                        FindSymbol::BeforeIfInExecutionRange(offset),
-                        &text,
-                    )
-                    .map_or_else(
-                        || AssignmentLeftHandSide::CanCreate {
-                            parent: Type::Table(TableId::new(self.file, self.root_table)),
-                            range: expr.syntax().text_range(),
-                            new_key: text.into_boxed_str(),
-                        },
-                        |id| AssignmentLeftHandSide::Exists {
-                            parent: None,
-                            range: expr.syntax().text_range(),
-                            symbol: id,
-                        },
-                    ),
+                    state
+                        .members_of_table(
+                            state.root_table(),
+                            FindSymbol::BeforeIfInExecutionRange(offset),
+                            Some(GetMembers::Root),
+                        )
+                        .into_iter()
+                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                        .map_or_else(
+                            || AssignmentLeftHandSide::CanCreate {
+                                parent: Type::Table(state.root_table()),
+                                range: expr.syntax().text_range(),
+                                new_key: text.into_boxed_str(),
+                            },
+                            |id| AssignmentLeftHandSide::Exists {
+                                parent: None,
+                                range: expr.syntax().text_range(),
+                                symbol: id,
+                            },
+                        ),
                 )
             }
             _ => Some(AssignmentLeftHandSide::Invalid(self.collect_expr(expr))),
@@ -2262,7 +2344,7 @@ impl<'db> Collector<'db> {
         match right {
             Type::Array(_) => {
                 let left = self.state().expr_to_type(left_kind);
-                if !matches!(left, Type::Unknown | Type::Integer) {
+                if !matches!(left, Type::Unknown | Type::Integer(_)) {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to index into an array using '{left}' (only integers are applicable)"),
                         range: expr.syntax().text_range(),
@@ -2279,7 +2361,7 @@ impl<'db> Collector<'db> {
                 });
             }
         }
-        Some(ExpressionKind::Literal(Type::Boolean))
+        Some(ExpressionKind::Literal(Type::Boolean(None)))
     }
 
     fn instance_of_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
@@ -2303,12 +2385,12 @@ impl<'db> Collector<'db> {
             }
         }
 
-        ExpressionKind::Literal(Type::Boolean)
+        ExpressionKind::Literal(Type::Boolean(None))
     }
 
     fn equality_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (_left_kind, _right_kind) = self.extract_lhs_and_rhs(expr);
-        ExpressionKind::Literal(Type::Boolean)
+        ExpressionKind::Literal(Type::Boolean(None))
     }
 
     fn comparison_operator(
@@ -2323,9 +2405,9 @@ impl<'db> Collector<'db> {
         match (left, right) {
             (Type::Unknown | Type::Null, _)
             | (_, Type::Unknown | Type::Null)
-            | (Type::Integer | Type::Float, Type::Integer | Type::Float)
+            | (Type::Integer(_) | Type::Float(_), Type::Integer(_) | Type::Float(_))
             | (Type::String(_), Type::String(_))
-            | (Type::Boolean, Type::Boolean) => {}
+            | (Type::Boolean(_), Type::Boolean(_)) => {}
             (Type::Table(_), Type::Table(_)) | (Type::Instance(_), Type::Instance(_)) => {
                 let arguments = vec![right_kind];
                 match self.call_metamethod(
@@ -2335,7 +2417,7 @@ impl<'db> Collector<'db> {
                     expr.syntax().text_range(),
                     MetamethodErrors::No,
                 ) {
-                    Some(Type::Integer) | Some(Type::Unknown) => {}
+                    Some(Type::Integer(_)) | Some(Type::Unknown) => {}
                     Some(_) => self.diagnostics.push(Diagnostic {
                         message: "'_cmp' must return an integer".to_owned(),
                         range: expr.syntax().text_range(),
@@ -2362,9 +2444,9 @@ impl<'db> Collector<'db> {
         }
 
         ExpressionKind::Literal(if is_three_way {
-            Type::Integer
+            Type::Integer(None)
         } else {
-            Type::Boolean
+            Type::Boolean(None)
         })
     }
 
@@ -2374,19 +2456,19 @@ impl<'db> Collector<'db> {
         let right = self.state().expr_to_type(right_kind);
 
         match (left, right) {
-            (Type::Integer, Type::Integer) => {}
+            (Type::Integer(_), Type::Integer(None)) => {}
             (Type::Unknown | Type::Null, Type::Unknown | Type::Null) => {}
-            (Type::Integer, Type::Unknown | Type::Null) => {
+            (Type::Integer(_), Type::Unknown | Type::Null) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = right_kind {
                     if let Some(symbol) = self.get_mut(symbol) {
-                        symbol.typ = Type::Integer;
+                        symbol.typ = Type::Integer(None);
                     }
                 }
             }
-            (Type::Unknown | Type::Null, Type::Integer) => {
+            (Type::Unknown | Type::Null, Type::Integer(None)) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = left_kind {
                     if let Some(symbol) = self.get_mut(symbol) {
-                        symbol.typ = Type::Integer;
+                        symbol.typ = Type::Integer(None);
                     }
                 }
             }
@@ -2399,7 +2481,7 @@ impl<'db> Collector<'db> {
             }
         }
 
-        ExpressionKind::Literal(Type::Integer)
+        ExpressionKind::Literal(Type::Integer(None))
     }
 
     fn logical_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
@@ -2546,7 +2628,9 @@ impl<'db> Collector<'db> {
         let typ = self.expr_type(&expr.operand()?);
 
         Some(ExpressionKind::Literal(match typ {
-            Type::Integer | Type::Float => typ,
+            Type::Integer(Some(value)) => Type::Integer(Some(-value)),
+            Type::Float(Some(value)) => Type::Float(Some(-value)),
+            Type::Integer(_) | Type::Float(_) => typ,
             _ => self.call_metamethod(
                 typ,
                 "_unm",
@@ -2567,7 +2651,7 @@ impl<'db> Collector<'db> {
         };
 
         match typ {
-            Type::Integer | Type::Unknown => {}
+            Type::Integer(_) | Type::Unknown => {}
             _ => self.diagnostics.push(Diagnostic {
                 message: format!("'{typ}' does not support bitwise not operator"),
                 range: expr.syntax().text_range(),
@@ -2575,7 +2659,7 @@ impl<'db> Collector<'db> {
             }),
         }
 
-        ExpressionKind::Literal(Type::Integer)
+        ExpressionKind::Literal(Type::Integer(None))
     }
 
     fn logical_not_operator(&mut self, expr: &PrefixUnaryExpression) -> ExpressionKind {
@@ -2583,7 +2667,7 @@ impl<'db> Collector<'db> {
             self.collect_expr(&operand);
         }
 
-        ExpressionKind::Literal(Type::Boolean)
+        ExpressionKind::Literal(Type::Boolean(None))
     }
 
     fn prefix_update_expression(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
@@ -2596,14 +2680,14 @@ impl<'db> Collector<'db> {
 
     fn prefix_increment_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
-        let increment = Some(ExpressionKind::Literal(Type::Integer));
+        let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand, increment, BinaryOperator::AddAssign)
     }
 
     fn prefix_decrement_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
-        let increment = Some(ExpressionKind::Literal(Type::Integer));
-        self.arithmetic_assign_operator(operand, increment, BinaryOperator::SubtractAssign)
+        let decrement = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
+        self.arithmetic_assign_operator(operand, decrement, BinaryOperator::SubtractAssign)
     }
 
     fn postfix_update_expression(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
@@ -2616,14 +2700,14 @@ impl<'db> Collector<'db> {
 
     fn postfix_increment_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
-        let increment = Some(ExpressionKind::Literal(Type::Integer));
+        let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::AddAssign);
         operand?.into()
     }
 
     fn postfix_decrement_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
-        let increment = Some(ExpressionKind::Literal(Type::Integer));
+        let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::SubtractAssign);
         operand?.into()
     }

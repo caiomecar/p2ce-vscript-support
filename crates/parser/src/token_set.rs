@@ -136,7 +136,7 @@ pub(crate) const EXPRESSIONS: TokenSet = TokenSet::new(&[
     SyntaxKind::BaseKeyword,
     SyntaxKind::FileKeyword,
     SyntaxKind::LineKeyword,
-    SyntaxKind::Integer,
+    SyntaxKind::DecimalInteger,
     SyntaxKind::Character,
     SyntaxKind::Float,
     SyntaxKind::TrueKeyword,

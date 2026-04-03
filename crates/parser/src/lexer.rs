@@ -757,13 +757,13 @@ impl<'a> Lexer<'a> {
                     self.octal_number();
                     // let value = self.current_token_value();
                     // return SyntaxKind::Integer(value);
-                    return SyntaxKind::Integer;
+                    return SyntaxKind::OctalInteger;
                 }
                 Some('x' | 'X') => {
                     self.hexadecimal_number();
                     // let value = self.current_token_value();
                     // return SyntaxKind::Integer(value);
-                    return SyntaxKind::Integer;
+                    return SyntaxKind::HexInteger;
                 } /*
                 Some('8' | '9') => {
                 self.diagnostics.push(Diagnostic::warning(
@@ -835,7 +835,7 @@ impl<'a> Lexer<'a> {
         if is_float {
             SyntaxKind::Float
         } else {
-            SyntaxKind::Integer
+            SyntaxKind::DecimalInteger
         }
     }
 

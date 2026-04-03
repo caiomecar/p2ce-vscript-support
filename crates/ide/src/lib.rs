@@ -5,11 +5,10 @@ mod db;
 mod symbol;
 
 use crate::{
-    arena::{
-        ArenaId, ClassId, Container, EnumId, Scope, SourceArena, SymbolId, TableData, TableId,
-    },
+    arena::{ArenaId, ClassId, Container, EnumId, SourceArena, SymbolId, TableData, TableId},
     collector::{Collector, ExpressionKind, NullableExprKind, RangeExprKindMap},
     db::Db,
+    symbol::SymbolTable,
 };
 pub use db::{Database, File, line_index, parse, source_symbol};
 use la_arena::Idx;
@@ -32,11 +31,11 @@ pub enum DiagnosticSeverity {
 
 macro_rules! non_container_members {
     ($func:ident => $ty:ident) => {
-        fn $func(db: &dyn Db) -> Vec<SymbolId> {
+        fn $func(db: &dyn Db) -> SymbolTable {
             if let Some(builtins) = db.builtins().map(|b| &b.$ty) {
-                builtins.values().cloned().collect()
+                builtins.clone()
             } else {
-                Vec::new()
+                SymbolTable::default()
             }
         }
     };
@@ -51,40 +50,28 @@ non_container_members!(function_members => function);
 non_container_members!(generator_members => generator);
 non_container_members!(thread_members => thread);
 non_container_members!(weakref_members => weakref);
+non_container_members!(instance_members => instance);
+non_container_members!(builtin_table_members => table);
+non_container_members!(builtin_class_members => class);
 
-fn table_members(file_state: FileState, table: TableId) -> Vec<SymbolId> {
-    let table = file_state.get(table);
-    let mut result = table.members.clone();
-
-    if let Some(delegate) = table.delegate {
-        for (k, v) in &file_state.get(delegate).members {
-            result.entry(k.clone()).or_insert(*v);
-        }
+pub fn builtin_type_members(db: &dyn Db, typ: Type) -> SymbolTable {
+    match typ {
+        Type::Integer(_) => integer_members(db),
+        Type::Float(_) => float_members(db),
+        Type::String(_) => string_members(db),
+        Type::Boolean(_) => boolean_members(db),
+        Type::Instance(_) => instance_members(db),
+        Type::Array(_) => array_members(db),
+        Type::Table(_) => builtin_table_members(db),
+        Type::Class(_) => builtin_class_members(db),
+        Type::Enum(_) => SymbolTable::default(),
+        Type::Function(_) => function_members(db),
+        Type::Generator(_) => generator_members(db),
+        Type::Thread(_) => thread_members(db),
+        Type::Weakref => weakref_members(db),
+        Type::Unknown => SymbolTable::default(),
+        Type::Null => SymbolTable::default(),
     }
-
-    if let Some(builtins) = file_state.db().builtins().map(|b| &b.table) {
-        for (k, v) in builtins {
-            result.entry(k.clone()).or_insert(*v);
-        }
-    }
-
-    result.values().cloned().collect()
-}
-
-fn enum_members(file_state: FileState, enum_: EnumId) -> Vec<SymbolId> {
-    let enum_ = file_state.get(enum_);
-    enum_.members.values().cloned().collect()
-}
-
-fn class_members(file_state: FileState, class: ClassId) -> Vec<SymbolId> {
-    let class = file_state.get(class);
-    let mut result = class.members.clone();
-    if let Some(builtins) = file_state.db().builtins().map(|b| &b.class) {
-        for (k, v) in builtins {
-            result.entry(k.clone()).or_insert(*v);
-        }
-    }
-    result.values().cloned().collect()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -103,10 +90,10 @@ enum GetMembersInner {
     Const,
 }
 
-enum FindSymbol {
+pub enum FindSymbol {
     Any,
     OnlyBefore(TextSize),
-    BeforeIfInExecutionRange(TextSize, TextRange),
+    BeforeIfInExecutionRange(TextSize),
 }
 
 #[derive(Clone, Copy)]
@@ -118,7 +105,7 @@ pub enum FileState<'db> {
 }
 
 impl<'db> FileState<'db> {
-    fn get<T>(&self, id: T) -> &'db T::Data
+    pub fn get<T>(&self, id: T) -> &'db T::Data
     where
         T: ArenaId,
         SourceArena: std::ops::Index<Idx<T::Data>, Output = T::Data>,
@@ -131,7 +118,7 @@ impl<'db> FileState<'db> {
 
     fn file(&self) -> File {
         match self {
-            FileState::InProcess(collector) => collector.file,
+            FileState::InProcess(collector) => collector.file(),
             FileState::Finished(_, file) => *file,
         }
     }
@@ -145,7 +132,7 @@ impl<'db> FileState<'db> {
 
     fn db(&self) -> &dyn Db {
         match self {
-            FileState::InProcess(collector) => collector.db,
+            FileState::InProcess(collector) => collector.db(),
             FileState::Finished(db, _) => *db,
         }
     }
@@ -160,40 +147,32 @@ impl<'db> FileState<'db> {
         }
     }
 
-    fn local_members(&self, mut scope: Idx<Scope>) -> Vec<SymbolId> {
-        let mut result = self.arena()[scope].locals.clone();
-        while let Some(parent) = self.arena()[scope].parent {
-            for (k, v) in &self.arena()[parent].locals {
-                result.entry(k.clone()).or_insert(*v);
-            }
-            scope = parent;
-        }
-        result.values().cloned().collect()
-    }
+    fn local_members(&self, offset: TextSize) -> SymbolTable {
+        let mut scope = Some(match self {
+            FileState::InProcess(collector) => collector.scope(),
+            FileState::Finished(db, file) => source_symbol(*db, *file).arena().scope_at(offset),
+        });
 
-    fn root_table_of(&self, file: File) -> TableId {
-        match self {
-            FileState::InProcess(collector) if collector.file == file => {
-                TableId::new(collector.file, collector.root_table())
+        let mut result = SymbolTable::default();
+        while let Some(current_scope) = scope {
+            let new = self.arena()[current_scope].locals.clone();
+            for (k, v) in new {
+                if self.get(v).range.end() >= offset {
+                    continue;
+                };
+                result.entry(k).or_insert(v);
             }
-            FileState::InProcess(collector) => {
-                let source_symbol = source_symbol(collector.db, file);
-                TableId::new(file, source_symbol.root_table())
-            }
-            FileState::Finished(db, _) => {
-                let source_symbol = source_symbol(*db, file);
-                TableId::new(file, source_symbol.root_table())
-            }
+            scope = self.arena()[current_scope].parent;
         }
-    }
 
-    fn root_members_of(&self, file: File) -> Vec<SymbolId> {
-        table_members(*self, self.root_table_of(file))
+        result
     }
 
     fn root_table(&self) -> TableId {
         match self {
-            FileState::InProcess(collector) => TableId::new(collector.file, collector.root_table()),
+            FileState::InProcess(collector) => {
+                TableId::new(collector.file(), collector.root_table())
+            }
             FileState::Finished(db, file) => {
                 let source_symbol = source_symbol(*db, *file);
                 TableId::new(*file, source_symbol.root_table())
@@ -201,34 +180,10 @@ impl<'db> FileState<'db> {
         }
     }
 
-    fn root_members(&self) -> Vec<SymbolId> {
-        table_members(*self, self.root_table())
-    }
-
-    fn const_table_of(&self, file: File) -> TableId {
-        match self {
-            FileState::InProcess(collector) if collector.file == file => {
-                TableId::new(collector.file, collector.const_table())
-            }
-            FileState::InProcess(collector) => {
-                let source_symbol = source_symbol(collector.db, file);
-                TableId::new(file, source_symbol.const_table())
-            }
-            FileState::Finished(db, _) => {
-                let source_symbol = source_symbol(*db, file);
-                TableId::new(file, source_symbol.const_table())
-            }
-        }
-    }
-
-    fn const_members_of(&self, file: File) -> Vec<SymbolId> {
-        table_members(*self, self.const_table_of(file))
-    }
-
     fn const_table(&self) -> TableId {
         match self {
             FileState::InProcess(collector) => {
-                TableId::new(collector.file, collector.const_table())
+                TableId::new(collector.file(), collector.const_table())
             }
             FileState::Finished(db, file) => {
                 let source_symbol = source_symbol(*db, *file);
@@ -237,42 +192,33 @@ impl<'db> FileState<'db> {
         }
     }
 
-    fn const_members(&self) -> Vec<SymbolId> {
-        table_members(*self, self.const_table())
-    }
+    fn table_members(&self, table: TableId) -> SymbolTable {
+        let table = self.get(table);
+        let mut result = table.members.clone();
 
-    fn source_table_of(&self, file: File) -> TableId {
-        match self {
-            FileState::InProcess(collector) if collector.file == file => {
-                TableId::new(collector.file, collector.source_table())
-            }
-            FileState::InProcess(collector) => {
-                let source_symbol = source_symbol(collector.db, file);
-                TableId::new(file, source_symbol.source_table())
-            }
-            FileState::Finished(db, _) => {
-                let source_symbol = source_symbol(*db, file);
-                TableId::new(file, source_symbol.source_table())
+        if let Some(delegate) = table.delegate {
+            for (k, v) in &self.get(delegate).members {
+                result.entry(k.clone()).or_insert(*v);
             }
         }
+
+        result
     }
 
-    fn source_members_of(&self, file: File) -> Vec<SymbolId> {
-        table_members(*self, self.source_table_of(file))
+    fn enum_members(&self, enum_: EnumId) -> SymbolTable {
+        let enum_ = self.get(enum_);
+        enum_.members.clone()
     }
 
-    fn container_members(&self, container: Container) -> Vec<SymbolId> {
-        match container {
-            Container::Table(id) => table_members(*self, id),
-            Container::Class(id) => class_members(*self, id),
-            Container::Enum(id) => enum_members(*self, id),
-        }
+    fn class_members(&self, class: ClassId) -> SymbolTable {
+        let class = self.get(class);
+        class.members.clone()
     }
 
-    fn import_members(&self, settings: GetMembers) -> Vec<SymbolId> {
+    fn import_members(&self, settings: GetMembers) -> SymbolTable {
         let mut already_included = FxHashSet::default();
         already_included.insert(self.file());
-        let mut result = Vec::new();
+        let mut result = SymbolTable::default();
         // If we ask for root symbols but imports contains symbols for root container
         // how to not iterate the files twice?
         // include source_table + root_table where it's the import goes in the root table
@@ -327,6 +273,7 @@ impl<'db> FileState<'db> {
                 ));
             }
         }
+
         result
     }
 
@@ -335,21 +282,57 @@ impl<'db> FileState<'db> {
         import: File,
         already_included: &mut FxHashSet<File>,
         settings: GetMembersInner,
-    ) -> Vec<SymbolId> {
+    ) -> SymbolTable {
         let mut result = match settings {
-            GetMembersInner::Container(container) => self.container_members(container),
-            GetMembersInner::ConstAsSource => self
-                .const_members_of(import)
+            GetMembersInner::Container(container) => {
+                self.members_of_container(container, FindSymbol::Any, None)
+            }
+            GetMembersInner::ConstAsSource => {
+                let source = source_symbol(self.db(), import);
+                self.members_of_table(
+                    TableId::new(import, source.const_table),
+                    FindSymbol::Any,
+                    None,
+                )
                 .into_iter()
-                .chain(self.source_members_of(import))
-                .collect(),
-            GetMembersInner::Const => self.const_members_of(import),
-            GetMembersInner::RootAsSource => self
-                .root_members_of(import)
+                .chain(self.members_of_table(
+                    TableId::new(import, source.source_table),
+                    FindSymbol::Any,
+                    None,
+                ))
+                .collect()
+            }
+            GetMembersInner::Const => {
+                let source = source_symbol(self.db(), import);
+                self.members_of_table(
+                    TableId::new(import, source.const_table),
+                    FindSymbol::Any,
+                    None,
+                )
+            }
+            GetMembersInner::RootAsSource => {
+                let source = source_symbol(self.db(), import);
+                self.members_of_table(
+                    TableId::new(import, source.root_table),
+                    FindSymbol::Any,
+                    None,
+                )
                 .into_iter()
-                .chain(self.root_members_of(import))
-                .collect(),
-            GetMembersInner::Root => self.root_members_of(import),
+                .chain(self.members_of_table(
+                    TableId::new(import, source.source_table),
+                    FindSymbol::Any,
+                    None,
+                ))
+                .collect()
+            }
+            GetMembersInner::Root => {
+                let source = source_symbol(self.db(), import);
+                self.members_of_table(
+                    TableId::new(import, source.root_table),
+                    FindSymbol::Any,
+                    None,
+                )
+            }
         };
 
         if let GetMembersInner::Container(container) = settings {
@@ -381,125 +364,194 @@ impl<'db> FileState<'db> {
         result
     }
 
-    fn filter(
-        &self,
-        iter: impl IntoIterator<Item = SymbolId>,
-        taken_names: &mut FxHashSet<String>,
-        settings: FindSymbol,
-    ) -> Vec<Symbol> {
-        match settings {
-            FindSymbol::Any => iter
-                .into_iter()
-                .filter_map(|symbol| {
-                    let symbol = self.get(symbol);
-                    if !taken_names.insert(symbol.name.clone()) {
-                        return None;
-                    }
-                    Some(symbol.clone())
-                })
-                .collect(),
-            FindSymbol::OnlyBefore(offset) => iter
-                .into_iter()
-                .filter_map(|symbol| {
-                    let symbol = self.get(symbol);
-                    if symbol.range.end() >= offset || !taken_names.insert(symbol.name.clone()) {
-                        return None;
-                    }
-                    Some(symbol.clone())
-                })
-                .collect(),
-            FindSymbol::BeforeIfInExecutionRange(offset, execution_range) => iter
-                .into_iter()
-                .filter_map(|symbol| {
-                    let symbol = self.get(symbol);
-                    if execution_range.contains_range(symbol.range) && symbol.range.end() >= offset
-                        || !taken_names.insert(symbol.name.clone())
-                    {
-                        return None;
-                    }
-                    Some(symbol.clone())
-                })
-                .collect(),
-        }
-    }
-
-    pub fn symbols_at(&self, offset: TextSize) -> Vec<Symbol> {
+    pub fn symbols_at(&self, offset: TextSize) -> Vec<SymbolId> {
         let mut taken_names = FxHashSet::default();
         let mut items = Vec::new();
 
+        let mut filter = |(name, id)| {
+            if taken_names.insert(name) {
+                Some(id)
+            } else {
+                None
+            }
+        };
+
         let scope = self.arena().scope_at(offset);
 
-        items.extend(self.filter(
-            self.local_members(scope),
-            &mut taken_names,
-            FindSymbol::OnlyBefore(offset),
-        ));
+        items.extend(
+            self.local_members(offset)
+                .into_iter()
+                .filter_map(&mut filter),
+        );
 
-        items.extend(self.filter(
-            self.const_members(),
-            &mut taken_names,
-            FindSymbol::OnlyBefore(offset),
-        ));
+        items.extend(
+            self.members_of_table(
+                self.const_table(),
+                FindSymbol::OnlyBefore(offset),
+                Some(GetMembers::Const),
+            )
+            .into_iter()
+            .filter_map(&mut filter),
+        );
 
-        items.extend(self.filter(
-            self.import_members(GetMembers::Const),
-            &mut taken_names,
-            FindSymbol::Any,
-        ));
-
-        let execution_range = self.arena()[scope].execution_range;
         let container = self.arena()[scope].container;
 
-        items.extend(self.filter(
-            self.container_members(container),
-            &mut taken_names,
-            FindSymbol::BeforeIfInExecutionRange(offset, execution_range),
-        ));
+        items.extend(
+            self.members_of_container(
+                container,
+                FindSymbol::BeforeIfInExecutionRange(offset),
+                Some(GetMembers::Container(container)),
+            )
+            .into_iter()
+            .filter_map(&mut filter),
+        );
 
-        items.extend(self.filter(
-            self.import_members(GetMembers::Container(container)),
-            &mut taken_names,
-            FindSymbol::Any,
-        ));
-
-        items.extend(self.filter(
-            self.root_members(),
-            &mut taken_names,
-            FindSymbol::BeforeIfInExecutionRange(offset, execution_range),
-        ));
-
-        items.extend(self.filter(
-            self.import_members(GetMembers::Root),
-            &mut taken_names,
-            FindSymbol::Any,
-        ));
+        items.extend(
+            self.members_of_table(
+                self.root_table(),
+                FindSymbol::BeforeIfInExecutionRange(offset),
+                Some(GetMembers::Root),
+            )
+            .into_iter()
+            .filter_map(&mut filter),
+        );
 
         items
     }
 
-    pub fn type_members(&self, typ: Type) -> Vec<SymbolId> {
+    pub fn members_of_type(&self, typ: Type, settings: FindSymbol) -> SymbolTable {
         match typ {
-            Type::Integer => integer_members(self.db()),
-            Type::Float => float_members(self.db()),
-            Type::String(_) => string_members(self.db()),
-            Type::Boolean => boolean_members(self.db()),
-            Type::Instance(id) => class_members(*self, id),
-            Type::Array(_) => array_members(self.db()),
-            Type::Table(id) => table_members(*self, id),
-            Type::Class(id) => class_members(*self, id),
-            Type::Enum(id) => enum_members(*self, id),
-            Type::Function(_) => function_members(self.db()),
-            Type::Generator(_) => generator_members(self.db()),
-            Type::Thread(_) => thread_members(self.db()),
-            Type::Weakref => weakref_members(self.db()),
-            Type::Unknown => Vec::new(),
-            Type::Null => Vec::new(),
+            Type::Table(id) => self.members_of_table(
+                id,
+                settings,
+                Some(GetMembers::Container(Container::Table(id))),
+            ),
+            Type::Class(id) => self.members_of_class(
+                id,
+                settings,
+                Some(GetMembers::Container(Container::Class(id))),
+            ),
+            Type::Instance(id) => self.members_of_class(
+                id,
+                settings,
+                Some(GetMembers::Container(Container::Class(id))),
+            ),
+            Type::Enum(id) => self.enum_members(id),
+            _ => builtin_type_members(self.db(), typ),
         }
     }
 
-    pub fn members_of_type(&self, typ: Type) -> Vec<Symbol> {
-        let members = self.type_members(typ);
-        members.into_iter().map(|id| self.get(id).clone()).collect()
+    fn members_of_container(
+        &self,
+        container: Container,
+        settings: FindSymbol,
+        imports: Option<GetMembers>,
+    ) -> SymbolTable {
+        match container {
+            Container::Table(id) => self.members_of_table(id, settings, imports),
+            Container::Class(id) => self.members_of_class(id, settings, imports),
+            Container::Enum(id) => self.enum_members(id),
+        }
+    }
+
+    fn members_of_table(
+        &self,
+        table: TableId,
+        settings: FindSymbol,
+        imports: Option<GetMembers>,
+    ) -> SymbolTable {
+        let mut members = builtin_table_members(self.db());
+
+        let additional = match settings {
+            FindSymbol::Any => self.table_members(table),
+            FindSymbol::OnlyBefore(offset) => self
+                .table_members(table)
+                .into_iter()
+                .filter(|(_, id)| {
+                    let symbol = self.get(*id);
+                    symbol.range.end() < offset
+                })
+                .collect(),
+            FindSymbol::BeforeIfInExecutionRange(offset) => {
+                let scope = match self {
+                    FileState::InProcess(collector) => collector.scope(),
+                    FileState::Finished(db, file) => {
+                        source_symbol(*db, *file).arena().scope_at(offset)
+                    }
+                };
+                let execution_range = self.arena()[scope].execution_range;
+                self.table_members(table)
+                    .into_iter()
+                    .filter(|(_, id)| {
+                        let symbol = self.get(*id);
+                        !execution_range.contains_range(symbol.range) || symbol.range.end() < offset
+                    })
+                    .collect()
+            }
+        };
+
+        if let Some(imports) = imports {
+            let imports = self.import_members(imports);
+            for (k, v) in imports {
+                members.insert(k, v);
+            }
+        }
+
+        for (k, v) in additional {
+            members.insert(k, v);
+        }
+
+        members
+    }
+
+    fn members_of_class(
+        &self,
+        class: ClassId,
+        settings: FindSymbol,
+        imports: Option<GetMembers>,
+    ) -> SymbolTable {
+        let mut members = builtin_table_members(self.db());
+
+        let additional = match settings {
+            FindSymbol::Any => self.class_members(class),
+            FindSymbol::OnlyBefore(offset) => self
+                .class_members(class)
+                .into_iter()
+                .filter(|(_, id)| {
+                    let symbol = self.get(*id);
+                    symbol.range.end() < offset
+                })
+                .collect(),
+            FindSymbol::BeforeIfInExecutionRange(offset) => {
+                let scope = match self {
+                    FileState::InProcess(collector) => collector.scope(),
+                    FileState::Finished(db, file) => {
+                        source_symbol(*db, *file).arena().scope_at(offset)
+                    }
+                };
+                let execution_range = self.arena()[scope].execution_range;
+                self.class_members(class)
+                    .into_iter()
+                    .filter(|(_, id)| {
+                        let symbol = self.get(*id);
+                        !execution_range.contains_range(symbol.range) || symbol.range.end() < offset
+                    })
+                    .collect()
+            }
+        };
+
+        if let Some(imports) = imports {
+            let imports = self.import_members(imports);
+            for (k, v) in imports {
+                members.insert(k, v);
+            }
+        }
+
+        for (k, v) in additional {
+            members.insert(k, v);
+        }
+
+        members
     }
 
     pub fn expr_to_type(&self, expr: NullableExprKind) -> Type {
@@ -529,7 +581,7 @@ impl<'db> FileState<'db> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct SourceSymbol {
     imports: FxHashMap<Container, Vec<File>>,
 
@@ -549,7 +601,6 @@ pub trait SourceSymbolic {
 
     fn const_table(&self) -> Idx<TableData>;
     fn root_table(&self) -> Idx<TableData>;
-    fn source_table(&self) -> Idx<TableData>;
 
     fn expr_kinds(&self) -> &RangeExprKindMap;
     fn diagnostics(&self) -> &[Diagnostic];
@@ -570,10 +621,6 @@ impl SourceSymbolic for SourceSymbol {
 
     fn root_table(&self) -> Idx<TableData> {
         self.root_table
-    }
-
-    fn source_table(&self) -> Idx<TableData> {
-        self.source_table
     }
 
     fn expr_kinds(&self) -> &RangeExprKindMap {

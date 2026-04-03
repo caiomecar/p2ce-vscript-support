@@ -88,23 +88,25 @@ impl TryFrom<Type> for Container {
         })
     }
 }
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct TableData {
     pub delegate: Option<TableId>,
     pub members: SymbolTable,
 }
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct ClassData {
     pub inherits: Option<ClassId>,
     pub members: SymbolTable,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct EnumData {
     pub members: SymbolTable,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct FunctionData {
     pub ret: Type,
     pub container: Option<Container>,
@@ -122,7 +124,7 @@ pub enum ParamsState {
     VarArgs(usize),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct ArrayData {
     pub typ: Type,
 }
@@ -136,13 +138,15 @@ pub struct Scope {
     pub execution_range: TextRange,
 }
 
+pub type ScopeId = Idx<Scope>;
+
 pub trait ArenaAlloc<T> {
     fn alloc(&mut self, value: T) -> Idx<T>;
 }
 
 macro_rules! impl_source_arena {
     ($($field:ident: $data:ty),* $(,)?) => {
-        #[derive(Debug, Default, PartialEq, Eq)]
+        #[derive(Debug, Default, PartialEq)]
         pub struct SourceArena {
             $($field: Arena<$data>,)*
         }

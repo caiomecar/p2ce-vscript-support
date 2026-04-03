@@ -3,7 +3,7 @@ use sq_3_parser::TextRange;
 
 use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Symbol {
     pub name: String,
     pub typ: Type,
@@ -13,14 +13,16 @@ pub struct Symbol {
 
 pub type SymbolTable = FxHashMap<String, SymbolId>;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+// For option: if not None the value is known at compile time
+// otherwise it's not (primarily used for consts features)
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Type {
     #[default]
     Unknown,
-    Integer,
-    Float,
+    Integer(Option<i32>),
+    Float(Option<f32>),
     String(Option<StringId>),
-    Boolean,
+    Boolean(Option<bool>),
     Null,
     Instance(ClassId),
     Array(ArrayId),
@@ -61,10 +63,10 @@ impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Unknown => write!(f, "unknown"),
-            Type::Integer => write!(f, "integer"),
-            Type::Float => write!(f, "float"),
+            Type::Integer(_) => write!(f, "integer"),
+            Type::Float(_) => write!(f, "float"),
             Type::String(_) => write!(f, "string"),
-            Type::Boolean => write!(f, "bool"),
+            Type::Boolean(_) => write!(f, "bool"),
             Type::Null => write!(f, "null"),
             Type::Instance(_) => write!(f, "instance"),
             Type::Array(_) => write!(f, "array"),

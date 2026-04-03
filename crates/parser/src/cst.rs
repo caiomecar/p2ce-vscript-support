@@ -67,9 +67,11 @@ pub enum SyntaxKind {
 
     Identifier,
     Float,
-    Integer,
-    String,
+    DecimalInteger,
+    OctalInteger,
+    HexInteger,
     Character,
+    String,
     VerbatimString,
 
     BaseKeyword,
@@ -276,7 +278,7 @@ impl SyntaxKind {
 
             SyntaxKind::Identifier => "'identifier'",
             SyntaxKind::Float => "float",
-            SyntaxKind::Integer => "integer",
+            SyntaxKind::DecimalInteger => "integer",
             SyntaxKind::String => "string",
             SyntaxKind::Character => "character",
             SyntaxKind::VerbatimString => "verbatim string",

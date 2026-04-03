@@ -175,7 +175,9 @@ ast_token_enum!(LiteralExpressionKind {
     FalseKeyword => False,
     String => String,
     VerbatimString => VerbatimString,
-    Integer => Integer,
+    DecimalInteger => DecimalInteger,
+    OctalInteger => OctalInteger,
+    HexInteger => HexInteger,
     Character => Character,
     Float => Float,
 });

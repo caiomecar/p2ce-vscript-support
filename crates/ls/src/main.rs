@@ -2,7 +2,8 @@ mod conversions;
 
 use anyhow::Result;
 use ide::{
-    Database, File, FileState, SourceSymbolic, SymbolKind, Type, line_index, parse, source_symbol,
+    Database, File, FileState, FindSymbol, SourceSymbolic, SymbolKind, Type, line_index, parse,
+    source_symbol,
 };
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
@@ -190,12 +191,14 @@ fn handle_request(
                     // still inside or right after member access → show members
                     if let Some(obj) = member.object() {
                         let typ = file_state.type_at(obj.syntax().text_range());
-                        file_state.members_of_type(typ)
+                        file_state
+                            .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset))
+                            .into_values()
+                            .collect()
                     } else {
                         Vec::new()
                     }
                 } else {
-                    // past the expression → normal completion
                     file_state.symbols_at(offset)
                 }
             } else {
@@ -204,7 +207,8 @@ fn handle_request(
 
             let items: Vec<CompletionItem> = symbols
                 .iter()
-                .filter_map(|symbol| {
+                .filter_map(|id| {
+                    let symbol = file_state.get(*id);
                     Some(CompletionItem {
                         label: symbol.name.clone(),
                         kind: Some(match symbol.typ {
