@@ -2,7 +2,6 @@ use anyhow::Result;
 use ide::{ArenaId, Database, File, FileState, line_index, parse};
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Url};
 use rustc_hash::FxHashMap;
-use sq_3_parser::node_at_offset;
 
 use crate::conversions;
 

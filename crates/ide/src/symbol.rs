@@ -1,7 +1,10 @@
 use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
 
-use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId};
+use crate::{
+    FileState,
+    arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Symbol {
@@ -78,6 +81,43 @@ impl std::fmt::Display for Type {
             Type::Generator(_) => write!(f, "generator"),
             Type::Thread(_) => write!(f, "thread"),
             Type::Weakref => write!(f, "weakref"),
+        }
+    }
+}
+
+impl Symbol {
+    pub fn display<'a>(&'a self, file_state: &'a FileState<'a>) -> SymbolDisplay<'a> {
+        SymbolDisplay {
+            symbol: self,
+            file_state,
+        }
+    }
+}
+
+pub struct SymbolDisplay<'a> {
+    symbol: &'a Symbol,
+    file_state: &'a FileState<'a>,
+}
+
+impl std::fmt::Display for SymbolDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = self.symbol;
+        match s.typ {
+            Type::Function(id) => {
+                let func = self.file_state.get(id);
+                write!(f, "function {}(", s.name)?;
+                for (i, &param) in func.params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    let param = self.file_state.get(param);
+                    write!(f, "{}: {}", param.name, param.typ)?;
+                }
+                write!(f, "): {}", func.ret)
+            }
+            Type::Class(_) => write!(f, "class {}", s.name),
+            Type::Enum(_) => write!(f, "enum {}", s.name),
+            _ => write!(f, "{}: {}", s.name, s.typ),
         }
     }
 }

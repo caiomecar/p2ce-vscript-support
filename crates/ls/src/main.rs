@@ -1,13 +1,17 @@
 mod completion;
 mod conversions;
 mod go_to_definiton;
+mod hover;
 
 use anyhow::Result;
 use ide::{Database, File, SourceSymbolic, line_index, parse, source_symbol};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
-use lsp_types::request::{GotoDefinition, Request as _};
-use lsp_types::{CompletionOptions, CompletionParams, GotoDefinitionParams, OneOf};
+use lsp_types::request::{GotoDefinition, HoverRequest, Request as _};
+use lsp_types::{
+    CompletionOptions, CompletionParams, GotoDefinitionParams, HoverParams,
+    HoverProviderCapability, OneOf,
+};
 use serde::Deserialize; // for METHOD consts
 // for METHOD consts
 use lsp_types::{
@@ -31,6 +35,7 @@ use rustc_hash::FxHashMap;
 
 use crate::completion::handle_completions;
 use crate::go_to_definiton::handle_go_to_definition;
+use crate::hover::handle_hover;
 
 #[derive(Deserialize)]
 struct InitOptions {
@@ -54,6 +59,7 @@ fn main() -> Result<()> {
             ..Default::default()
         }),
         definition_provider: Some(OneOf::Left(true)),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
         ..Default::default()
     };
 
@@ -188,6 +194,11 @@ fn handle_request(
         GotoDefinition::METHOD => {
             let params: GotoDefinitionParams = serde_json::from_value(req.params.clone())?;
             let result = handle_go_to_definition(db, docs, file_to_url, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
+        }
+        HoverRequest::METHOD => {
+            let params: HoverParams = serde_json::from_value(req.params.clone())?;
+            let result = handle_hover(db, docs, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         _ => send_err(

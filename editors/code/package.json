@@ -60,8 +60,7 @@
         }
       },
       {
-        "id": "squirrelDoc",
-        "configuration": "./language-configuration.json"
+        "id": "sqDoc"
       }
     ],
     "grammars": [
@@ -72,15 +71,15 @@
       },
       {
         "scopeName": "documentation.injection.squirrel",
-        "path": "./syntaxes/squirrelDoc.injection.tmLanguage.json",
+        "path": "./syntaxes/sqDoc.injection.tmLanguage.json",
         "injectTo": [
           "source.squirrel"
         ]
       },
       {
-        "language": "squirrelDoc",
-        "scopeName": "source.squirrelDoc",
-        "path": "./syntaxes/squirrelDoc.tmLanguage.json"
+        "language": "sqDoc",
+        "scopeName": "source.sqDoc",
+        "path": "./syntaxes/sqDoc.tmLanguage.json"
       }
     ]
   }

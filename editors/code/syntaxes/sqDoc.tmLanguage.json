@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "squirrelDoc",
+  "name": "sqDoc",
   "patterns": [
     {
       "match": "(\")[^\"]*\"",
@@ -126,5 +126,5 @@
       "name": "variable.other.squirrel"
     }
   ],
-  "scopeName": "source.squirrelDoc"
+  "scopeName": "source.sqDoc"
 }
