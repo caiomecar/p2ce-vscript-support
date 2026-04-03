@@ -139,6 +139,10 @@ impl<'db> FileState<'db> {
         }
     }
 
+    pub fn all_symbols(&self) -> impl Iterator<Item = &Symbol> {
+        self.arena().all_symbols()
+    }
+
     fn local_members(&self, offset: TextSize) -> SymbolTable {
         let mut scope = Some(match self {
             FileState::InProcess(collector) => collector.scope(),

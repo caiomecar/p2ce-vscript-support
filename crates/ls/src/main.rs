@@ -1,16 +1,22 @@
 mod completion;
 mod conversions;
+mod document_symbols;
 mod go_to_definiton;
 mod hover;
+mod semantic_tokens;
 
 use anyhow::Result;
 use ide::{Database, File, SourceSymbolic, line_index, parse, source_symbol};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
-use lsp_types::request::{GotoDefinition, HoverRequest, Request as _};
+use lsp_types::request::{
+    DocumentSymbolRequest, GotoDefinition, HoverRequest, Request, SemanticTokensFullRequest,
+};
 use lsp_types::{
-    CompletionOptions, CompletionParams, GotoDefinitionParams, HoverParams,
-    HoverProviderCapability, OneOf,
+    CompletionOptions, CompletionParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
+    HoverProviderCapability, OneOf, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensServerCapabilities,
 };
 use serde::Deserialize; // for METHOD consts
 // for METHOD consts
@@ -34,8 +40,10 @@ use salsa::Setter;
 use rustc_hash::FxHashMap;
 
 use crate::completion::handle_completions;
+use crate::document_symbols::handle_document_symbols;
 use crate::go_to_definiton::handle_go_to_definition;
 use crate::hover::handle_hover;
+use crate::semantic_tokens::handle_semantic_tokens;
 
 #[derive(Deserialize)]
 struct InitOptions {
@@ -60,6 +68,25 @@ fn main() -> Result<()> {
         }),
         definition_provider: Some(OneOf::Left(true)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
+        semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+            SemanticTokensOptions {
+                legend: SemanticTokensLegend {
+                    token_types: vec![
+                        SemanticTokenType::VARIABLE,
+                        SemanticTokenType::FUNCTION,
+                        SemanticTokenType::CLASS,
+                        SemanticTokenType::PROPERTY,
+                        SemanticTokenType::ENUM,
+                        SemanticTokenType::ENUM_MEMBER,
+                        SemanticTokenType::PARAMETER,
+                    ],
+                    token_modifiers: vec![SemanticTokenModifier::READONLY],
+                },
+                full: Some(SemanticTokensFullOptions::Bool(true)),
+                ..Default::default()
+            },
+        )),
+        document_symbol_provider: Some(OneOf::Left(true)),
         ..Default::default()
     };
 
@@ -199,6 +226,16 @@ fn handle_request(
         HoverRequest::METHOD => {
             let params: HoverParams = serde_json::from_value(req.params.clone())?;
             let result = handle_hover(db, docs, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
+        }
+        SemanticTokensFullRequest::METHOD => {
+            let params: SemanticTokensParams = serde_json::from_value(req.params.clone())?;
+            let result = handle_semantic_tokens(db, docs, params)?;
+            send_ok(conn, req.id.clone(), &result)?;
+        }
+        DocumentSymbolRequest::METHOD => {
+            let params: DocumentSymbolParams = serde_json::from_value(req.params.clone())?;
+            let result = handle_document_symbols(db, docs, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         _ => send_err(
