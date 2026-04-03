@@ -770,9 +770,9 @@ impl<'db> Collector<'db> {
     }
 
     fn call_iter(&mut self, iterable: Type, error_range: TextRange) -> Option<(Type, Type)> {
-        let arguments = vec![Some(ExpressionKind::Literal(Type::Null))];
         match iterable {
             Type::Table(_) => {
+                let arguments = vec![Some(ExpressionKind::Literal(Type::Null))];
                 self.call_metamethod(
                     iterable,
                     "_nexti",
@@ -786,8 +786,13 @@ impl<'db> Collector<'db> {
                 let typ = self.get(id).typ;
                 Some((Type::Integer(None), typ))
             }
+            Type::Generator(id) => {
+                let typ = self.get(id).yielding.unwrap_or(Type::Unknown);
+                Some((Type::Integer(None), typ))
+            }
             Type::Class(_) => Some((Type::Unknown, Type::Unknown)),
             _ => {
+                let arguments = vec![Some(ExpressionKind::Literal(Type::Null))];
                 match self.call_metamethod(
                     iterable,
                     "_nexti",
