@@ -129,7 +129,7 @@ pub struct ArrayData {
     pub typ: Type,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Scope {
     pub range: TextRange,
     pub locals: SymbolTable,

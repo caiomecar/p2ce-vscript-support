@@ -4,6 +4,8 @@ mod db;
 // mod doc;
 mod symbol;
 
+use std::collections::hash_map::Entry;
+
 use la_arena::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{TextRange, TextSize};
@@ -13,6 +15,7 @@ use crate::{
         ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, SymbolId, TableData, TableId,
     },
     db::Db,
+    symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
 pub use arena::{ArenaId, FunctionData, ParamsState};
@@ -46,11 +49,11 @@ pub type NullableExprKind = Option<ExpressionKind>;
 
 macro_rules! non_container_members {
     ($func:ident => $ty:ident) => {
-        fn $func(db: &dyn Db) -> SymbolTable {
+        fn $func(db: &dyn Db) -> FlatSymbolTable {
             if let Some(builtins) = db.builtins().map(|b| &b.$ty) {
                 builtins.clone()
             } else {
-                SymbolTable::default()
+                FlatSymbolTable::default()
             }
         }
     };
@@ -121,14 +124,14 @@ pub trait Source {
         self.arena().all_symbols()
     }
 
-    fn to_function_id(&self, typ: Type) -> Option<FunctionIdResolution> {
+    fn to_function_id(&self, typ: Type, offset: TextSize) -> Option<FunctionIdResolution> {
         match typ {
             Type::Class(id) => {
                 let class = self.get(id);
-                let Some(&member) = class.members.get("constructor") else {
+                let Some(member) = self.get_symbol(&class.members, "constructor", offset) else {
                     return Some(FunctionIdResolution::DefaultConstructor);
                 };
-                self.to_function_id(self.get(member).typ)
+                self.to_function_id(member.typ, offset)
             }
             Type::Function(id) => Some(FunctionIdResolution::Function(id)),
             Type::Table(id) => {
@@ -138,40 +141,61 @@ pub trait Source {
                 };
 
                 let members = &self.get(delegate_idx).members;
-                let Some(&member) = members.get("_call") else {
+                let Some(member) = self.get_symbol(members, "_call", offset) else {
                     return None;
                 };
 
-                self.to_function_id(self.get(member).typ)
+                self.to_function_id(member.typ, offset)
             }
             Type::Instance(id) => {
                 let class = self.get(id);
-                let Some(&member) = class.members.get("_call") else {
+                let Some(member) = self.get_symbol(&class.members, "_call", offset) else {
                     return None;
                 };
 
-                self.to_function_id(self.get(member).typ)
+                self.to_function_id(member.typ, offset)
             }
             _ => None,
         }
     }
 
-    fn local_members(&self, offset: TextSize) -> SymbolTable {
+    fn local_members(&self, offset: TextSize) -> FlatSymbolTable {
         let mut scope = Some(self.scope(offset));
-        let mut result = SymbolTable::default();
+        let mut result = FlatSymbolTable::default();
 
         while let Some(current_scope) = scope {
             let new = self.arena()[current_scope].locals.clone();
-            for (k, v) in new {
-                if self.get(v).range.end() >= offset {
+            for (name, ids) in new {
+                let entry = result.entry(name.clone());
+                let Entry::Vacant(entry) = entry else {
                     continue;
                 };
-                result.entry(k).or_insert(v);
+
+                let mut last = None;
+                for id in ids {
+                    let symbol = self.get(id);
+                    if symbol.range.end() >= offset {
+                        break;
+                    };
+
+                    last = Some(id);
+                }
+
+                if let Some(value) = last {
+                    entry.insert(value);
+                }
             }
             scope = self.arena()[current_scope].parent;
         }
 
         result
+    }
+
+    fn enum_members(&self, enum_: EnumId) -> FlatSymbolTable {
+        let enum_ = self.get(enum_);
+        // Enum does not support adding new slots nor defining methods, so there can
+        // be only 1 symbol under a certain name for the duration of the whole program
+        to_flat_symbol_table(enum_.members.clone())
     }
 
     fn table_members(&self, table: TableId) -> SymbolTable {
@@ -180,16 +204,11 @@ pub trait Source {
 
         if let Some(delegate) = table.delegate {
             for (k, v) in &self.get(delegate).members {
-                result.entry(k.clone()).or_insert(*v);
+                result.entry(k.clone()).or_insert(v.clone());
             }
         }
 
         result
-    }
-
-    fn enum_members(&self, enum_: EnumId) -> SymbolTable {
-        let enum_ = self.get(enum_);
-        enum_.members.clone()
     }
 
     fn class_members(&self, class: ClassId) -> SymbolTable {
@@ -197,10 +216,10 @@ pub trait Source {
         class.members.clone()
     }
 
-    fn import_members(&self, settings: GetMembers) -> SymbolTable {
+    fn import_members(&self, settings: GetMembers) -> FlatSymbolTable {
         let mut already_included = FxHashSet::default();
         already_included.insert(self.file());
-        let mut result = SymbolTable::default();
+        let mut result = FlatSymbolTable::default();
         // If we ask for root symbols but imports contains symbols for root container
         // how to not iterate the files twice?
         // include source_table + root_table where it's the import goes in the root table
@@ -264,7 +283,7 @@ pub trait Source {
         import: File,
         already_included: &mut FxHashSet<File>,
         settings: GetMembersInner,
-    ) -> SymbolTable {
+    ) -> FlatSymbolTable {
         let mut result = match settings {
             GetMembersInner::Container(container) => {
                 self.members_of_container(container, FindSymbol::Any, None)
@@ -401,7 +420,12 @@ pub trait Source {
         items
     }
 
-    fn members_of_type(&self, typ: Type, settings: FindSymbol, allow_imports: bool) -> SymbolTable {
+    fn members_of_type(
+        &self,
+        typ: Type,
+        settings: FindSymbol,
+        allow_imports: bool,
+    ) -> FlatSymbolTable {
         match typ {
             Type::Table(id) => self.members_of_table(
                 id,
@@ -442,8 +466,8 @@ pub trait Source {
             Type::Generator(_) => generator_members(self.db()),
             Type::Thread(_) => thread_members(self.db()),
             Type::Weakref => weakref_members(self.db()),
-            Type::Unknown => SymbolTable::default(),
-            Type::Null => SymbolTable::default(),
+            Type::Unknown => FlatSymbolTable::default(),
+            Type::Null => FlatSymbolTable::default(),
         }
     }
 
@@ -452,7 +476,7 @@ pub trait Source {
         container: Container,
         settings: FindSymbol,
         imports: Option<GetMembers>,
-    ) -> SymbolTable {
+    ) -> FlatSymbolTable {
         match container {
             Container::Table(id) => self.members_of_table(id, settings, imports),
             Container::Class(id) => self.members_of_class(id, settings, imports, false),
@@ -465,25 +489,33 @@ pub trait Source {
         table: TableId,
         settings: FindSymbol,
         imports: Option<GetMembers>,
-    ) -> SymbolTable {
+    ) -> FlatSymbolTable {
         let mut members = match imports {
             None | Some(GetMembers::Const) => {
                 // This incorrectly calls table builtin methods on const instead of the root when in name
                 // expression, e.g. `keys()`. It also breaks redefinition of builtin methods, e.g.
                 // `class keys {}` which should normally work
-                FxHashMap::default()
+                FlatSymbolTable::default()
             }
             _ => builtin_table_members(self.db()),
         };
 
-        let additional = match settings {
-            FindSymbol::Any => self.table_members(table),
+        let additional: FlatSymbolTable = match settings {
+            FindSymbol::Any => to_flat_symbol_table(self.table_members(table)),
             FindSymbol::OnlyBefore(offset) => self
                 .table_members(table)
                 .into_iter()
-                .filter(|(_, id)| {
-                    let symbol = self.get(*id);
-                    symbol.range.end() < offset
+                .filter_map(|(name, ids)| {
+                    let mut last = None;
+                    for id in ids {
+                        let symbol = self.get(id);
+                        if symbol.range.end() >= offset {
+                            break;
+                        }
+
+                        last = Some(id)
+                    }
+                    Some((name, last?))
                 })
                 .collect(),
             FindSymbol::BeforeIfInExecutionRange(offset) => {
@@ -491,9 +523,20 @@ pub trait Source {
                 let execution_range = self.arena()[scope].execution_range;
                 self.table_members(table)
                     .into_iter()
-                    .filter(|(_, id)| {
-                        let symbol = self.get(*id);
-                        !execution_range.contains_range(symbol.range) || symbol.range.end() < offset
+                    .filter_map(|(name, ids)| {
+                        let mut last = None;
+                        for id in ids {
+                            let symbol = self.get(id);
+                            if execution_range.contains_range(symbol.range)
+                                && symbol.range.end() >= offset
+                            {
+                                break;
+                            }
+
+                            last = Some(id)
+                        }
+
+                        Some((name, last?))
                     })
                     .collect()
             }
@@ -519,22 +562,29 @@ pub trait Source {
         settings: FindSymbol,
         imports: Option<GetMembers>,
         for_instance: bool,
-    ) -> SymbolTable {
+    ) -> FlatSymbolTable {
         let mut members = if for_instance {
             instance_members(self.db())
         } else {
             builtin_class_members(self.db())
         };
-        dbg!(&members);
 
-        let additional = match settings {
-            FindSymbol::Any => self.class_members(class),
+        let additional: FlatSymbolTable = match settings {
+            FindSymbol::Any => to_flat_symbol_table(self.class_members(class)),
             FindSymbol::OnlyBefore(offset) => self
                 .class_members(class)
                 .into_iter()
-                .filter(|(_, id)| {
-                    let symbol = self.get(*id);
-                    symbol.range.end() < offset
+                .filter_map(|(name, ids)| {
+                    let mut last = None;
+                    for id in ids {
+                        let symbol = self.get(id);
+                        if symbol.range.end() >= offset {
+                            break;
+                        }
+
+                        last = Some(id)
+                    }
+                    Some((name, last?))
                 })
                 .collect(),
             FindSymbol::BeforeIfInExecutionRange(offset) => {
@@ -542,18 +592,27 @@ pub trait Source {
                 let execution_range = self.arena()[scope].execution_range;
                 self.class_members(class)
                     .into_iter()
-                    .filter(|(_, id)| {
-                        let symbol = self.get(*id);
-                        !execution_range.contains_range(symbol.range) || symbol.range.end() < offset
+                    .filter_map(|(name, ids)| {
+                        let mut last = None;
+                        for id in ids {
+                            let symbol = self.get(id);
+                            if execution_range.contains_range(symbol.range)
+                                && symbol.range.end() >= offset
+                            {
+                                break;
+                            }
+
+                            last = Some(id)
+                        }
+
+                        Some((name, last?))
                     })
                     .collect()
             }
         };
-        dbg!(&additional);
 
         if let Some(imports) = imports {
             let imports = self.import_members(imports);
-            dbg!(&imports);
             for (k, v) in imports {
                 members.insert(k, v);
             }
@@ -571,6 +630,53 @@ pub trait Source {
         let members = symbol.members.clone();
 
         members
+    }
+
+    /// The vector is in order of symbols being added, therefore the last symbol that passes the condition
+    /// must be the symbol we're looking for
+    fn get_symbol(&self, table: &SymbolTable, name: &str, offset: TextSize) -> Option<&Symbol> {
+        let symbols = table.get(name)?;
+        let execution_range = self.arena()[self.scope(offset)].execution_range;
+        let mut last = None;
+        for id in symbols {
+            let symbol = self.get(*id);
+            if execution_range.contains_range(symbol.range) && symbol.range.end() > offset {
+                break;
+            }
+
+            last = Some(symbol)
+        }
+        last
+    }
+
+    fn to_flat_symbol_table_context_aware(
+        &self,
+        table: SymbolTable,
+        offset: TextSize,
+    ) -> FlatSymbolTable {
+        let execution_range = self.arena()[self.scope(offset)].execution_range;
+        let mut result = FxHashMap::default();
+
+        for (name, symbols) in table.into_iter() {
+            let mut last = None;
+
+            for id in symbols {
+                let symbol = self.get(id);
+
+                // same filtering logic
+                if execution_range.contains_range(symbol.range) && symbol.range.end() > offset {
+                    break;
+                }
+
+                last = Some(id);
+            }
+
+            if let Some(id) = last {
+                result.insert(name, id);
+            }
+        }
+
+        result
     }
 
     fn expr_to_type(&self, expr: NullableExprKind) -> Type {

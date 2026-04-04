@@ -53,7 +53,7 @@ pub fn handle_signature_help(
         None => return Ok(None),
     };
 
-    let id = match finished_file.to_function_id(typ) {
+    let id = match finished_file.to_function_id(typ, offset) {
         Some(FunctionIdResolution::Function(id)) => id,
         Some(FunctionIdResolution::DefaultConstructor) => {
             return Ok(Some(SignatureHelp {

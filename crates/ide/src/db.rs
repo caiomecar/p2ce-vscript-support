@@ -4,7 +4,12 @@ use ::line_index::LineIndex;
 use salsa::Setter;
 use sq_3_parser::Parse;
 
-use crate::{SourceSymbol, Type, arena::ArenaId, collector::Collector, symbol::SymbolTable};
+use crate::{
+    SourceSymbol, Type,
+    arena::ArenaId,
+    collector::Collector,
+    symbol::{FlatSymbolTable, SymbolTable, to_flat_symbol_table},
+};
 
 #[salsa::input]
 #[derive(Debug)]
@@ -14,18 +19,18 @@ pub struct File {
 }
 
 pub struct Builtins {
-    pub integer: SymbolTable,
-    pub float: SymbolTable,
-    pub boolean: SymbolTable,
-    pub string: SymbolTable,
-    pub array: SymbolTable,
-    pub table: SymbolTable,
-    pub function: SymbolTable,
-    pub class: SymbolTable,
-    pub instance: SymbolTable,
-    pub generator: SymbolTable,
-    pub thread: SymbolTable,
-    pub weakref: SymbolTable,
+    pub integer: FlatSymbolTable,
+    pub float: FlatSymbolTable,
+    pub boolean: FlatSymbolTable,
+    pub string: FlatSymbolTable,
+    pub array: FlatSymbolTable,
+    pub table: FlatSymbolTable,
+    pub function: FlatSymbolTable,
+    pub class: FlatSymbolTable,
+    pub instance: FlatSymbolTable,
+    pub generator: FlatSymbolTable,
+    pub thread: FlatSymbolTable,
+    pub weakref: FlatSymbolTable,
 }
 
 #[salsa::db]
@@ -87,12 +92,16 @@ impl Database {
         builtins
     }
 
-    fn init_builtin(&self, source_members: &SymbolTable, name: &str) -> SymbolTable {
-        let Some(typ) = source_members.iter().find_map(|(symbol_name, id)| {
+    fn init_builtin(&self, source_members: &SymbolTable, name: &str) -> FlatSymbolTable {
+        let Some(typ) = source_members.iter().find_map(|(symbol_name, ids)| {
             if symbol_name != name {
                 return None;
             }
-            Some(id.get_data(self).typ)
+            if ids.len() > 1 {
+                eprintln!("Multiple definitions for the symbol '{name}'")
+            }
+
+            Some(ids[0].get_data(self).typ)
         }) else {
             panic!("'{name}' is not contained inside builtins members");
         };
@@ -101,7 +110,7 @@ impl Database {
             panic!("'{name}' member is not of type 'class'");
         };
 
-        id.get_data(self).members.clone()
+        to_flat_symbol_table(id.get_data(self).members.clone())
     }
 
     pub fn init_squirrel_lib(&mut self, text: String) -> File {

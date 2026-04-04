@@ -15,7 +15,30 @@ pub struct Symbol {
     pub range: TextRange,
 }
 
-pub type SymbolTable = FxHashMap<String, SymbolId>;
+/// To represent multiple symbols with the same name
+/// we use a vector instead of 1 to 1 mapping
+/// this complicated API quite a bit since we need to
+/// pass current execution range and offset whenever
+/// we want a specific symbol but properly represents
+/// what is actually happening in the source file
+pub type SymbolTable = FxHashMap<String, Vec<SymbolId>>;
+
+// This is used in "members_of_type" where it's possible to flatten the table
+pub type FlatSymbolTable = FxHashMap<String, SymbolId>;
+
+pub fn insert_symbol(table: &mut SymbolTable, name: String, value: SymbolId) {
+    table
+        .entry(name)
+        .and_modify(|entry| entry.push(value))
+        .or_insert_with(|| vec![value]);
+}
+
+pub fn to_flat_symbol_table(table: SymbolTable) -> FlatSymbolTable {
+    table
+        .into_iter()
+        .map(|(name, ids)| (name, *ids.last().unwrap()))
+        .collect()
+}
 
 // For option: if not None the value is known at compile time
 // otherwise it's not (primarily used for consts features)

@@ -15,7 +15,7 @@ use crate::{
         TableData, TableId,
     },
     db::Db,
-    symbol::{Symbol, SymbolKind, SymbolTable, Type},
+    symbol::{Symbol, SymbolKind, SymbolTable, Type, insert_symbol},
 };
 
 // This is needed to accommodate for the fact that symbols inside function
@@ -48,6 +48,7 @@ enum AssignmentLeftHandSide {
     Exists {
         parent: Option<Type>,
         symbol: SymbolId,
+        name_range: TextRange,
         range: TextRange,
     },
     NonStringKey {
@@ -418,17 +419,17 @@ impl<'db> Collector<'db> {
         match container {
             Container::Table(id) => {
                 if let Some(t) = self.get_mut(id) {
-                    t.members.insert(name, symbol);
+                    insert_symbol(&mut t.members, name, symbol);
                 }
             }
             Container::Class(id) => {
                 if let Some(c) = self.get_mut(id) {
-                    c.members.insert(name, symbol);
+                    insert_symbol(&mut c.members, name, symbol);
                 }
             }
             Container::Enum(id) => {
                 if let Some(e) = self.get_mut(id) {
-                    e.members.insert(name, symbol);
+                    insert_symbol(&mut e.members, name, symbol);
                 }
             }
         }
@@ -482,7 +483,7 @@ impl<'db> Collector<'db> {
                             range: var.syntax().text_range(),
                         });
 
-                        self.current_scope().locals.insert(text, symbol);
+                        insert_symbol(&mut self.current_scope().locals, text, symbol);
                         self.arena[function].params.push(symbol);
                         continue;
                     };
@@ -497,7 +498,7 @@ impl<'db> Collector<'db> {
                         range: var.syntax().text_range(),
                     });
 
-                    self.current_scope().locals.insert(text, symbol);
+                    insert_symbol(&mut self.current_scope().locals, text, symbol);
                     self.arena[function].params.push(symbol);
                     match params_state {
                         ParamsState::NoDefault => {
@@ -570,7 +571,8 @@ impl<'db> Collector<'db> {
                 };
 
                 let members = &self.get(delegate_idx).members;
-                let Some(&member) = members.get(metamethod) else {
+                // possibly change error_range.start() to the real offset parameter?
+                let Some(member) = self.get_symbol(members, metamethod, error_range.start()) else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
                         | MetamethodErrors::YesBinary { keyword, .. } => {
@@ -585,11 +587,12 @@ impl<'db> Collector<'db> {
                     return None;
                 };
 
-                Some(self.call_type(self.get(member).typ, arguments, error_range)?)
+                Some(self.call_type(member.typ, arguments, error_range)?)
             }
             Type::Instance(id) => {
                 let class = self.get(id);
-                let Some(&member) = class.members.get(metamethod) else {
+                let Some(member) = self.get_symbol(&class.members, metamethod, error_range.start())
+                else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
                         | MetamethodErrors::YesBinary { keyword, .. } => {
@@ -604,7 +607,7 @@ impl<'db> Collector<'db> {
                     return None;
                 };
 
-                Some(self.call_type(self.get(member).typ, arguments, error_range)?)
+                Some(self.call_type(member.typ, arguments, error_range)?)
             }
             Type::Unknown => None,
             _ => {
@@ -1060,7 +1063,7 @@ impl<'db> Collector<'db> {
                     range: var.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(text, id);
+                insert_symbol(&mut self.current_scope().locals, text, id);
                 continue;
             };
 
@@ -1073,7 +1076,7 @@ impl<'db> Collector<'db> {
                 range: var.syntax().text_range(),
             });
 
-            self.current_scope().locals.insert(text, id);
+            insert_symbol(&mut self.current_scope().locals, text, id);
         }
     }
 
@@ -1088,7 +1091,7 @@ impl<'db> Collector<'db> {
                 range: decl.syntax().text_range(),
             });
 
-            self.current_scope().locals.insert(text, symbol);
+            insert_symbol(&mut self.current_scope().locals, text, symbol);
         }
         self.collect_function(id.idx(), decl);
     }
@@ -1122,7 +1125,8 @@ impl<'db> Collector<'db> {
             name_range: name.syntax().text_range(),
             range: stmt.syntax().text_range(),
         });
-        self.arena[self.const_table].members.insert(text, symbol);
+
+        insert_symbol(&mut self.arena[self.const_table].members, text, symbol);
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
@@ -1154,7 +1158,7 @@ impl<'db> Collector<'db> {
                     range: key.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(text, symbol);
+                insert_symbol(&mut self.current_scope().locals, text, symbol);
             }
         }
 
@@ -1168,7 +1172,7 @@ impl<'db> Collector<'db> {
                     range: value.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(text, symbol);
+                insert_symbol(&mut self.current_scope().locals, text, symbol);
             }
         }
 
@@ -1209,7 +1213,7 @@ impl<'db> Collector<'db> {
     fn class_statement(&mut self, stmt: &ClassStatement) {
         let class = self.class(stmt);
 
-        let name = stmt.name().and_then(|n| self.assignment_lhs(&n, false));
+        let name = stmt.name().and_then(|n| self.assignment_lhs(&n));
         self.do_new_slot(
             name,
             Some(ExpressionKind::Literal(Type::Class(class))),
@@ -1382,7 +1386,7 @@ impl<'db> Collector<'db> {
                 range: stmt.syntax().text_range(),
             });
 
-            self.arena[self.const_table].members.insert(text, symbol);
+            insert_symbol(&mut self.arena[self.const_table].members, text, symbol);
         }
 
         let save_symbol = self.container;
@@ -1609,7 +1613,7 @@ impl<'db> Collector<'db> {
                     range: binding.syntax().text_range(),
                 });
 
-                self.current_scope().locals.insert(text, symbol);
+                insert_symbol(&mut self.current_scope().locals, text, symbol);
             };
         }
 
@@ -2064,8 +2068,10 @@ impl<'db> Collector<'db> {
             }
             Type::Class(id) => {
                 let class = self.get(id);
-                if let Some(&symbol) = class.members.get("constructor") {
-                    self.call_type(self.get(symbol).typ, arguments, error_range);
+                if let Some(symbol) =
+                    self.get_symbol(&class.members, "constructor", error_range.start())
+                {
+                    self.call_type(symbol.typ, arguments, error_range);
                 } else if arguments.len() != 0 {
                     self.diagnostics.push(Diagnostic {
                         message: "Default constructor should have no parameters".to_owned(),
@@ -2119,17 +2125,14 @@ impl<'db> Collector<'db> {
         (left, right)
     }
 
-    fn assignment_lhs(
-        &mut self,
-        expr: &Expr,
-        allow_imports: bool,
-    ) -> Option<AssignmentLeftHandSide> {
+    fn assignment_lhs(&mut self, expr: &Expr) -> Option<AssignmentLeftHandSide> {
         // We explicitly don't allow imports anywhere so we can do a new addition to our container
         // Otherwise we find a symbol that is outside of our scope which is unmodifable
         match expr {
             Expr::Name(expr) => {
                 let text = expr.text()?;
-                let offset = expr.syntax().text_range().end();
+                let range = expr.syntax().text_range();
+                let offset = range.end();
 
                 let filter = |(name, id)| {
                     if name == text { Some(id) } else { None }
@@ -2138,11 +2141,12 @@ impl<'db> Collector<'db> {
                 let locals = self.local_members(offset).into_iter().find_map(filter);
 
                 if let Some(symbol) = locals {
-                    self.name_kinds.insert(expr.syntax().text_range(), symbol);
+                    self.name_kinds.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: None,
                         symbol,
-                        range: expr.syntax().text_range(),
+                        name_range: range,
+                        range,
                     });
                 }
 
@@ -2150,21 +2154,18 @@ impl<'db> Collector<'db> {
                     .members_of_table(
                         self.const_table(),
                         FindSymbol::OnlyBefore(offset),
-                        if allow_imports {
-                            Some(GetMembers::Const)
-                        } else {
-                            None
-                        },
+                        Some(GetMembers::Const),
                     )
                     .into_iter()
                     .find_map(filter);
 
                 if let Some(symbol) = consts {
-                    self.name_kinds.insert(expr.syntax().text_range(), symbol);
+                    self.name_kinds.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(Type::Table(self.const_table())),
                         symbol,
-                        range: expr.syntax().text_range(),
+                        name_range: range,
+                        range,
                     });
                 }
 
@@ -2172,21 +2173,18 @@ impl<'db> Collector<'db> {
                     .members_of_container(
                         self.execution_container(),
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        if allow_imports {
-                            Some(GetMembers::Container(self.execution_container()))
-                        } else {
-                            None
-                        },
+                        Some(GetMembers::Container(self.execution_container())),
                     )
                     .into_iter()
                     .find_map(filter);
 
                 if let Some(symbol) = members {
-                    self.name_kinds.insert(expr.syntax().text_range(), symbol);
+                    self.name_kinds.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(self.arena[self.scope].container.into()),
                         symbol,
-                        range: expr.syntax().text_range(),
+                        name_range: range,
+                        range,
                     });
                 }
 
@@ -2194,29 +2192,26 @@ impl<'db> Collector<'db> {
                     .members_of_table(
                         self.root_table(),
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        if allow_imports {
-                            Some(GetMembers::Root)
-                        } else {
-                            None
-                        },
+                        Some(GetMembers::Root),
                     )
                     .into_iter()
                     .find_map(filter);
 
                 if let Some(symbol) = root {
-                    self.name_kinds.insert(expr.syntax().text_range(), symbol);
+                    self.name_kinds.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(Type::Table(self.root_table())),
                         symbol,
-                        range: expr.syntax().text_range(),
+                        name_range: range,
+                        range,
                     });
                 }
 
                 Some(AssignmentLeftHandSide::CanCreate {
                     parent: self.container.into(),
                     new_key: text.into_boxed_str(),
-                    name_range: expr.syntax().text_range(),
-                    range: expr.syntax().text_range(),
+                    name_range: range,
+                    range,
                 })
             }
             Expr::MemberAccess(expr) => {
@@ -2224,32 +2219,31 @@ impl<'db> Collector<'db> {
                 let member_part = expr.member_part()?;
 
                 let (name, text) = get_name(&member_part)?;
-                let offset = expr.syntax().text_range().end();
+                let range = expr.syntax().text_range();
+                let name_range = name.syntax().text_range();
+                let offset = range.end();
 
                 Some(
-                    self.members_of_type(
-                        obj,
-                        FindSymbol::BeforeIfInExecutionRange(offset),
-                        allow_imports,
-                    )
-                    .into_iter()
-                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
-                    .map_or_else(
-                        || AssignmentLeftHandSide::CanCreate {
-                            parent: obj,
-                            new_key: text.into_boxed_str(),
-                            name_range: name.syntax().text_range(),
-                            range: expr.syntax().text_range(),
-                        },
-                        |id| {
-                            self.name_kinds.insert(name.syntax().text_range(), id);
-                            AssignmentLeftHandSide::Exists {
-                                parent: Some(obj),
-                                symbol: id,
-                                range: expr.syntax().text_range(),
-                            }
-                        },
-                    ),
+                    self.members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), true)
+                        .into_iter()
+                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                        .map_or_else(
+                            || AssignmentLeftHandSide::CanCreate {
+                                parent: obj,
+                                new_key: text.into_boxed_str(),
+                                name_range,
+                                range,
+                            },
+                            |id| {
+                                self.name_kinds.insert(name_range, id);
+                                AssignmentLeftHandSide::Exists {
+                                    parent: Some(obj),
+                                    symbol: id,
+                                    name_range,
+                                    range,
+                                }
+                            },
+                        ),
                 )
             }
             Expr::ElementAccess(expr) => {
@@ -2265,63 +2259,62 @@ impl<'db> Collector<'db> {
                 };
 
                 let text = self.get(id).to_string();
-                let offset = expr.syntax().text_range().end();
+                let range = expr.syntax().text_range();
+                let name_range = index.syntax().text_range();
+                let offset = range.end();
 
                 Some(
-                    self.members_of_type(
-                        obj,
-                        FindSymbol::BeforeIfInExecutionRange(offset),
-                        allow_imports,
-                    )
-                    .into_iter()
-                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
-                    .map_or_else(
-                        || AssignmentLeftHandSide::CanCreate {
-                            parent: obj,
-                            new_key: text.into_boxed_str(),
-                            name_range: index.syntax().text_range(),
-                            range: expr.syntax().text_range(),
-                        },
-                        |id| {
-                            self.name_kinds.insert(index.syntax().text_range(), id);
-                            AssignmentLeftHandSide::Exists {
-                                parent: Some(obj),
-                                symbol: id,
-                                range: expr.syntax().text_range(),
-                            }
-                        },
-                    ),
+                    self.members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), true)
+                        .into_iter()
+                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                        .map_or_else(
+                            || AssignmentLeftHandSide::CanCreate {
+                                parent: obj,
+                                new_key: text.into_boxed_str(),
+                                name_range,
+                                range,
+                            },
+                            |id| {
+                                self.name_kinds.insert(range, id);
+                                AssignmentLeftHandSide::Exists {
+                                    parent: Some(obj),
+                                    symbol: id,
+                                    name_range,
+                                    range,
+                                }
+                            },
+                        ),
                 )
             }
             Expr::RootAccess(expr) => {
                 let (name, text) = get_name(expr)?;
-                let offset = expr.syntax().text_range().end();
-                let root_table = self.root_table();
+                let range = expr.syntax().text_range();
+                let name_range = name.syntax().text_range();
+                let offset = range.end();
+
+                let root = self.root_table();
                 Some(
                     self.members_of_table(
-                        root_table,
+                        root,
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        if allow_imports {
-                            Some(GetMembers::Root)
-                        } else {
-                            None
-                        },
+                        Some(GetMembers::Root),
                     )
                     .into_iter()
                     .find_map(|(name, id)| if name == text { Some(id) } else { None })
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
-                            parent: Type::Table(root_table),
+                            parent: Type::Table(root),
                             new_key: text.into_boxed_str(),
-                            name_range: name.syntax().text_range(),
-                            range: expr.syntax().text_range(),
+                            name_range,
+                            range,
                         },
                         |id| {
-                            self.name_kinds.insert(name.syntax().text_range(), id);
+                            self.name_kinds.insert(name_range, id);
                             AssignmentLeftHandSide::Exists {
-                                parent: Some(Type::Table(root_table)),
+                                parent: Some(Type::Table(root)),
                                 symbol: id,
-                                range: expr.syntax().text_range(),
+                                name_range,
+                                range,
                             }
                         },
                     ),
@@ -2371,7 +2364,7 @@ impl<'db> Collector<'db> {
             | BinaryOperator::MultiplyAssign
             | BinaryOperator::DivideAssign
             | BinaryOperator::ModuloAssign => {
-                let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l, true));
+                let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
 
                 let save_container = self.special_container;
                 if let Some(container) = lhs_container(left_kind.as_ref()) {
@@ -2421,6 +2414,7 @@ impl<'db> Collector<'db> {
             Some(AssignmentLeftHandSide::Exists {
                 parent,
                 symbol,
+                name_range,
                 range,
             }) => {
                 if let Some(parent) = parent {
@@ -2428,9 +2422,21 @@ impl<'db> Collector<'db> {
                         Some(ExpressionKind::Literal(Type::String(None))),
                         right_kind,
                     ];
-                    if self.call_new_slot(parent, &arguments, range).is_none() {
+                    let Some(container) = self.call_new_slot(parent, &arguments, range) else {
                         return right_kind;
-                    }
+                    };
+
+                    let name = self.get(symbol).name.clone();
+
+                    let symbol = self.symbol(Symbol {
+                        name: name.clone(),
+                        typ: self.expr_to_type(right_kind),
+                        kind: SymbolKind::Property,
+                        name_range,
+                        range: expr_range,
+                    });
+
+                    self.add_container_member(container, name, symbol);
                 }
 
                 if matches!(
@@ -2473,7 +2479,7 @@ impl<'db> Collector<'db> {
     }
 
     fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
-        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l, false));
+        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
         let save_container = self.special_container;
         if let Some(container) = lhs_container(left_kind.as_ref()) {
             self.special_container = Some(container);
@@ -2485,7 +2491,7 @@ impl<'db> Collector<'db> {
     }
 
     fn assign_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
-        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l, true));
+        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
 
         let save_container = self.special_container;
         if let Some(container) = lhs_container(left_kind.as_ref()) {
@@ -2506,6 +2512,7 @@ impl<'db> Collector<'db> {
                 parent,
                 symbol,
                 range,
+                ..
             }) => {
                 if !self.get(symbol).kind.is_modifiable() {
                     let name = &self.get(symbol).name;
@@ -2752,6 +2759,7 @@ impl<'db> Collector<'db> {
                 parent,
                 symbol,
                 range,
+                ..
             }) => {
                 let Some(typ) = self.call_arithmetic(
                     Some(ExpressionKind::Symbol(symbol)),
@@ -2894,13 +2902,13 @@ impl<'db> Collector<'db> {
     }
 
     fn prefix_increment_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?, true);
+        let operand = self.assignment_lhs(&expr.operand()?);
         let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand, increment, BinaryOperator::AddAssign)
     }
 
     fn prefix_decrement_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?, true);
+        let operand = self.assignment_lhs(&expr.operand()?);
         let decrement = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand, decrement, BinaryOperator::SubtractAssign)
     }
@@ -2914,21 +2922,21 @@ impl<'db> Collector<'db> {
     }
 
     fn postfix_increment_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?, true);
+        let operand = self.assignment_lhs(&expr.operand()?);
         let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::AddAssign);
         operand?.into()
     }
 
     fn postfix_decrement_operator(&mut self, expr: &PostfixUpdateExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?, true);
+        let operand = self.assignment_lhs(&expr.operand()?);
         let increment = Some(ExpressionKind::Literal(Type::Integer(Some(1))));
         self.arithmetic_assign_operator(operand.clone(), increment, BinaryOperator::SubtractAssign);
         operand?.into()
     }
 
     fn delete_expression(&mut self, expr: &DeleteExpression) -> NullableExprKind {
-        let operand = self.assignment_lhs(&expr.operand()?, true);
+        let operand = self.assignment_lhs(&expr.operand()?);
         match operand {
             Some(AssignmentLeftHandSide::CanCreate { parent, range, .. })
             | Some(AssignmentLeftHandSide::NonStringKey { parent, range, .. }) => {
