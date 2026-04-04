@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, File, FileState, line_index, parse};
+use ide::{Database, File, FinishedFile, Source, line_index, parse};
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind, Url};
 use rustc_hash::FxHashMap;
 
@@ -24,13 +24,13 @@ pub fn handle_hover(
         return Ok(None);
     };
 
-    let file_state = FileState::Finished(db, file);
-    let Some(id) = file_state.symbol_at(token.text_range()) else {
+    let finished_file = FinishedFile::new(db, file);
+    let Some(id) = finished_file.symbol_at(token.text_range()) else {
         return Ok(None);
     };
 
-    let symbol = file_state.get(id);
-    let content = symbol.display(&file_state).to_string();
+    let symbol = finished_file.get(id);
+    let content = symbol.display(&finished_file).to_string();
 
     Ok(Some(Hover {
         contents: HoverContents::Markup(MarkupContent {

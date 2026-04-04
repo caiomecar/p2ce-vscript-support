@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, File, FileState, SymbolKind, Type, line_index};
+use ide::{Database, File, FinishedFile, Source, SymbolKind, Type, line_index};
 use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult, Url};
 use rustc_hash::FxHashMap;
 
@@ -16,9 +16,9 @@ pub fn handle_semantic_tokens(
     };
 
     let line_idx = line_index(db, file);
-    let file_state = FileState::Finished(db, file);
+    let finished_file = FinishedFile::new(db, file);
 
-    let mut entries: Vec<_> = file_state.name_kinds().iter().collect();
+    let mut entries: Vec<_> = finished_file.name_kinds().iter().collect();
     entries.sort_by_key(|(range, _)| range.start());
 
     let mut tokens = Vec::new();
@@ -26,7 +26,7 @@ pub fn handle_semantic_tokens(
     let mut prev_start = 0u32;
 
     for (range, id) in entries {
-        let symbol = file_state.get(*id);
+        let symbol = finished_file.get(*id);
 
         let (token_type, modifiers) = match symbol.kind {
             SymbolKind::Local => match symbol.typ {
@@ -52,7 +52,6 @@ pub fn handle_semantic_tokens(
         let start = lsp_range.start.character;
         let length = lsp_range.end.character - lsp_range.start.character;
 
-        // LSP semantic tokens are delta-encoded
         let delta_line = line - prev_line;
         let delta_start = if delta_line == 0 {
             start - prev_start

@@ -1,7 +1,7 @@
 use crate::conversions;
 use ::line_index::LineIndex;
 use anyhow::Result;
-use ide::{Database, File, FileState, Symbol, SymbolKind, Type, line_index};
+use ide::{Database, File, FinishedFile, Source, Symbol, SymbolKind, Type, line_index};
 use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind, Url,
 };
@@ -19,9 +19,12 @@ pub fn handle_document_symbols(
     };
 
     let line_idx = line_index(db, file);
-    let file_state = FileState::Finished(db, file);
+    let finished_file = FinishedFile::new(db, file);
 
-    let mut symbols: Vec<_> = file_state.all_symbols().map(|(_, symbol)| symbol).collect();
+    let mut symbols: Vec<_> = finished_file
+        .all_symbols()
+        .map(|(_, symbol)| symbol)
+        .collect();
 
     symbols.sort_by(|a, b| {
         a.range

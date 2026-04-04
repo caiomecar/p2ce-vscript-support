@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{ArenaId, Database, File, FileState, line_index, parse};
+use ide::{ArenaId, Database, File, FinishedFile, Source, line_index, parse};
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Url};
 use rustc_hash::FxHashMap;
 
@@ -26,14 +26,14 @@ pub fn handle_go_to_definition(
         return Ok(None);
     };
 
-    let file_state = FileState::Finished(db, file);
-    let Some(id) = file_state.symbol_at(token.text_range()) else {
+    let finished_file = FinishedFile::new(db, file);
+    let Some(id) = finished_file.symbol_at(token.text_range()) else {
         return Ok(None);
     };
 
     let file = id.file();
     let line_idx = line_index(db, file);
-    let symbol = file_state.get(id);
+    let symbol = finished_file.get(id);
 
     let Some(range) = conversions::range(line_idx, symbol.name_range) else {
         eprintln!("Couldn't convert text_range at '{uri}'");

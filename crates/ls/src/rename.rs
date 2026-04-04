@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use ide::{ArenaId, Database, File, FileState, line_index, parse};
+use ide::{ArenaId, Database, File, FinishedFile, Source, line_index, parse};
 use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
 use rustc_hash::FxHashMap;
 
@@ -26,8 +26,8 @@ pub fn handle_rename(
         return Ok(None);
     };
 
-    let file_state = FileState::Finished(db, file);
-    let Some(symbol_id) = file_state.symbol_at(token.text_range()) else {
+    let finished_file = FinishedFile::new(db, file);
+    let Some(symbol_id) = finished_file.symbol_at(token.text_range()) else {
         return Ok(None);
     };
 
@@ -36,7 +36,7 @@ pub fn handle_rename(
         return Ok(None);
     }
 
-    let edits = file_state
+    let edits = finished_file
         .name_kinds()
         .iter()
         .filter_map(|(range, id)| {

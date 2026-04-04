@@ -9,8 +9,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{TextRange, TextSize};
 
 use crate::{
-    arena::{ClassId, Container, EnumId, FunctionId, SourceArena, SymbolId, TableData, TableId},
-    collector::Collector,
+    arena::{
+        ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, SymbolId, TableData, TableId,
+    },
     db::Db,
 };
 
@@ -69,14 +70,14 @@ non_container_members!(builtin_table_members => table);
 non_container_members!(builtin_class_members => class);
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum GetMembers {
+pub enum GetMembers {
     Container(Container),
     Const,
     Root,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum GetMembersInner {
+pub enum GetMembersInner {
     Container(Container),
     RootAsSource,
     Root,
@@ -90,37 +91,37 @@ pub enum FindSymbol {
     BeforeIfInExecutionRange(TextSize),
 }
 
-#[derive(Clone, Copy)]
-pub enum FileState<'db> {
-    // We cannot use .source_symbol on a file that wasn't
-    // finished otherwise we get cycle
-    InProcess(&'db Collector<'db>),
-    Finished(&'db dyn Db, File),
-}
-
 #[derive(Debug)]
 pub enum FunctionIdResolution {
     Function(FunctionId),
     DefaultConstructor,
 }
 
-impl<'db> FileState<'db> {
-    pub fn get<T>(&self, id: T) -> &'db T::Data
+/// This trait exists to share behaviour between Collector and SourceFile
+/// Which might (or might not) use the same functions. Note that
+/// SourceSymbol is immutable once constructed so there's no mutable methods
+pub trait Source {
+    fn file(&self) -> File;
+    fn db(&self) -> &dyn Db;
+    fn arena(&self) -> &SourceArena;
+    fn imports(&self) -> &FxHashMap<Container, Vec<File>>;
+    fn scope(&self, offset: TextSize) -> ScopeId;
+    fn root_table(&self) -> TableId;
+    fn const_table(&self) -> TableId;
+    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind>;
+    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId>;
+    fn diagnostics(&self) -> &[Diagnostic];
+
+    fn get<T>(&self, id: T) -> &T::Data
     where
         T: ArenaId,
-        SourceArena: std::ops::Index<Idx<T::Data>, Output = T::Data>,
-    {
-        match self {
-            FileState::InProcess(collector) => collector.get(id),
-            FileState::Finished(db, _) => id.get_data(*db),
-        }
-    }
+        SourceArena: std::ops::Index<Idx<T::Data>, Output = T::Data>;
 
-    pub fn all_symbols(&self) -> impl Iterator<Item = (Idx<Symbol>, &Symbol)> {
+    fn all_symbols(&self) -> impl Iterator<Item = (Idx<Symbol>, &Symbol)> {
         self.arena().all_symbols()
     }
 
-    pub fn to_function_id(&self, typ: Type) -> Option<FunctionIdResolution> {
+    fn to_function_id(&self, typ: Type) -> Option<FunctionIdResolution> {
         match typ {
             Type::Class(id) => {
                 let class = self.get(id);
@@ -155,44 +156,10 @@ impl<'db> FileState<'db> {
         }
     }
 
-    fn file(&self) -> File {
-        match self {
-            FileState::InProcess(collector) => collector.file(),
-            FileState::Finished(_, file) => *file,
-        }
-    }
-
-    fn arena(&self) -> &SourceArena {
-        match self {
-            FileState::InProcess(collector) => collector.arena(),
-            FileState::Finished(db, file) => source_symbol(*db, *file).arena(),
-        }
-    }
-
-    fn db(&self) -> &dyn Db {
-        match self {
-            FileState::InProcess(collector) => collector.db(),
-            FileState::Finished(db, _) => *db,
-        }
-    }
-
-    fn imports(&self) -> &FxHashMap<Container, Vec<File>> {
-        match self {
-            FileState::InProcess(collector) => collector.imports(),
-            FileState::Finished(db, file) => {
-                let source_symbol = source_symbol(*db, *file);
-                source_symbol.imports()
-            }
-        }
-    }
-
     fn local_members(&self, offset: TextSize) -> SymbolTable {
-        let mut scope = Some(match self {
-            FileState::InProcess(collector) => collector.scope(),
-            FileState::Finished(db, file) => source_symbol(*db, *file).arena().scope_at(offset),
-        });
-
+        let mut scope = Some(self.scope(offset));
         let mut result = SymbolTable::default();
+
         while let Some(current_scope) = scope {
             let new = self.arena()[current_scope].locals.clone();
             for (k, v) in new {
@@ -205,30 +172,6 @@ impl<'db> FileState<'db> {
         }
 
         result
-    }
-
-    fn root_table(&self) -> TableId {
-        match self {
-            FileState::InProcess(collector) => {
-                TableId::new(collector.file(), collector.root_table())
-            }
-            FileState::Finished(db, file) => {
-                let source_symbol = source_symbol(*db, *file);
-                TableId::new(*file, source_symbol.root_table())
-            }
-        }
-    }
-
-    fn const_table(&self) -> TableId {
-        match self {
-            FileState::InProcess(collector) => {
-                TableId::new(collector.file(), collector.const_table())
-            }
-            FileState::Finished(db, file) => {
-                let source_symbol = source_symbol(*db, *file);
-                TableId::new(*file, source_symbol.const_table())
-            }
-        }
     }
 
     fn table_members(&self, table: TableId) -> SymbolTable {
@@ -403,7 +346,7 @@ impl<'db> FileState<'db> {
         result
     }
 
-    pub fn symbols_at(&self, offset: TextSize) -> Vec<SymbolId> {
+    fn symbols_at(&self, offset: TextSize) -> Vec<SymbolId> {
         let mut taken_names = FxHashSet::default();
         let mut items = Vec::new();
 
@@ -458,12 +401,7 @@ impl<'db> FileState<'db> {
         items
     }
 
-    pub fn members_of_type(
-        &self,
-        typ: Type,
-        settings: FindSymbol,
-        allow_imports: bool,
-    ) -> SymbolTable {
+    fn members_of_type(&self, typ: Type, settings: FindSymbol, allow_imports: bool) -> SymbolTable {
         match typ {
             Type::Table(id) => self.members_of_table(
                 id,
@@ -549,12 +487,7 @@ impl<'db> FileState<'db> {
                 })
                 .collect(),
             FindSymbol::BeforeIfInExecutionRange(offset) => {
-                let scope = match self {
-                    FileState::InProcess(collector) => collector.scope(),
-                    FileState::Finished(db, file) => {
-                        source_symbol(*db, *file).arena().scope_at(offset)
-                    }
-                };
+                let scope = self.scope(offset);
                 let execution_range = self.arena()[scope].execution_range;
                 self.table_members(table)
                     .into_iter()
@@ -605,12 +538,7 @@ impl<'db> FileState<'db> {
                 })
                 .collect(),
             FindSymbol::BeforeIfInExecutionRange(offset) => {
-                let scope = match self {
-                    FileState::InProcess(collector) => collector.scope(),
-                    FileState::Finished(db, file) => {
-                        source_symbol(*db, *file).arena().scope_at(offset)
-                    }
-                };
+                let scope = self.scope(offset);
                 let execution_range = self.arena()[scope].execution_range;
                 self.class_members(class)
                     .into_iter()
@@ -638,7 +566,14 @@ impl<'db> FileState<'db> {
         members
     }
 
-    pub fn expr_to_type(&self, expr: NullableExprKind) -> Type {
+    fn clone_members(&self, superclass: ClassId) -> SymbolTable {
+        let symbol = self.get(superclass);
+        let members = symbol.members.clone();
+
+        members
+    }
+
+    fn expr_to_type(&self, expr: NullableExprKind) -> Type {
         match expr {
             Some(ExpressionKind::Literal(typ)) => typ,
             Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ,
@@ -646,36 +581,78 @@ impl<'db> FileState<'db> {
         }
     }
 
-    pub fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind> {
-        match self {
-            FileState::InProcess(collector) => collector.expr_kinds(),
-            FileState::Finished(db, file) => {
-                let source = source_symbol(*db, *file);
-                source.expr_kinds()
-            }
-        }
-    }
-
-    pub fn expr_kind_at(&self, range: TextRange) -> NullableExprKind {
+    fn expr_kind_at(&self, range: TextRange) -> NullableExprKind {
         self.expr_kinds().get(&range).cloned()
     }
 
-    pub fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId> {
-        match self {
-            FileState::InProcess(collector) => collector.name_kinds(),
-            FileState::Finished(db, file) => {
-                let source = source_symbol(*db, *file);
-                source.name_kinds()
-            }
-        }
-    }
-
-    pub fn symbol_at(&self, range: TextRange) -> Option<SymbolId> {
+    fn symbol_at(&self, range: TextRange) -> Option<SymbolId> {
         self.name_kinds().get(&range).cloned()
     }
 
-    pub fn type_at(&self, text_range: TextRange) -> Type {
+    fn type_at(&self, text_range: TextRange) -> Type {
         self.expr_to_type(self.expr_kind_at(text_range))
+    }
+}
+
+pub struct FinishedFile<'db>(&'db dyn Db, File);
+
+impl<'db> FinishedFile<'db> {
+    pub fn new(db: &'db dyn Db, file: File) -> FinishedFile<'db> {
+        Self(db, file)
+    }
+
+    fn source(&self) -> &SourceSymbol {
+        source_symbol(self.0, self.1)
+    }
+}
+
+impl<'db> Source for FinishedFile<'db> {
+    fn arena(&self) -> &SourceArena {
+        &self.source().arena
+    }
+
+    fn get<T>(&self, id: T) -> &T::Data
+    where
+        T: ArenaId,
+        SourceArena: std::ops::Index<Idx<T::Data>, Output = T::Data>,
+    {
+        id.get_data(self.0)
+    }
+
+    fn file(&self) -> File {
+        self.1
+    }
+
+    fn db(&self) -> &dyn Db {
+        self.0
+    }
+
+    fn imports(&self) -> &FxHashMap<Container, Vec<File>> {
+        &self.source().imports
+    }
+
+    fn scope(&self, offset: TextSize) -> ScopeId {
+        self.source().arena.scope_at(offset)
+    }
+
+    fn root_table(&self) -> TableId {
+        TableId::new(self.1, self.source().root_table)
+    }
+
+    fn const_table(&self) -> TableId {
+        TableId::new(self.1, self.source().const_table)
+    }
+
+    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind> {
+        &self.source().expr_kinds
+    }
+
+    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId> {
+        &self.source().name_kinds
+    }
+
+    fn diagnostics(&self) -> &[Diagnostic] {
+        &self.source().diagnostics
     }
 }
 
@@ -691,47 +668,4 @@ pub struct SourceSymbol {
     expr_kinds: FxHashMap<TextRange, ExpressionKind>,
     name_kinds: FxHashMap<TextRange, SymbolId>,
     diagnostics: Vec<Diagnostic>,
-}
-
-pub trait SourceSymbolic {
-    fn imports(&self) -> &FxHashMap<Container, Vec<File>>;
-
-    fn arena(&self) -> &SourceArena;
-
-    fn const_table(&self) -> Idx<TableData>;
-    fn root_table(&self) -> Idx<TableData>;
-
-    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind>;
-    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId>;
-    fn diagnostics(&self) -> &[Diagnostic];
-}
-
-impl SourceSymbolic for SourceSymbol {
-    fn imports(&self) -> &FxHashMap<Container, Vec<File>> {
-        &self.imports
-    }
-
-    fn arena(&self) -> &SourceArena {
-        &self.arena
-    }
-
-    fn const_table(&self) -> Idx<TableData> {
-        self.const_table
-    }
-
-    fn root_table(&self) -> Idx<TableData> {
-        self.root_table
-    }
-
-    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind> {
-        &self.expr_kinds
-    }
-
-    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId> {
-        &self.name_kinds
-    }
-
-    fn diagnostics(&self) -> &[Diagnostic] {
-        &self.diagnostics
-    }
 }

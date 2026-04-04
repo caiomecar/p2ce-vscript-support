@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ide::{
-    Database, ExpressionKind, File, FileState, FunctionIdResolution, ParamsState, Type, line_index,
-    parse,
+    Database, ExpressionKind, File, FinishedFile, FunctionIdResolution, ParamsState, Source, Type,
+    line_index, parse,
 };
 use lsp_types::{
     ParameterInformation, ParameterLabel, SignatureHelp, SignatureHelpParams, SignatureInformation,
@@ -42,18 +42,18 @@ pub fn handle_signature_help(
         return Ok(None);
     };
 
-    let file_state = FileState::Finished(db, file);
-    let kind = file_state.expr_kind_at(callee.syntax().text_range());
+    let finished_file = FinishedFile::new(db, file);
+    let kind = finished_file.expr_kind_at(callee.syntax().text_range());
     let (name, typ) = match kind {
         Some(ExpressionKind::Literal(typ)) => ("".to_owned(), typ),
         Some(ExpressionKind::Symbol(id)) => {
-            let symbol = file_state.get(id);
+            let symbol = finished_file.get(id);
             (symbol.name.clone(), symbol.typ)
         }
         None => return Ok(None),
     };
 
-    let id = match file_state.to_function_id(typ) {
+    let id = match finished_file.to_function_id(typ) {
         Some(FunctionIdResolution::Function(id)) => id,
         Some(FunctionIdResolution::DefaultConstructor) => {
             return Ok(Some(SignatureHelp {
@@ -84,7 +84,7 @@ pub fn handle_signature_help(
         }
     }
 
-    let func = file_state.get(id);
+    let func = finished_file.get(id);
     let mut label = format!("{}(", name);
     let mut param_infos = Vec::new();
 
@@ -95,7 +95,7 @@ pub fn handle_signature_help(
 
         let start = label.len();
 
-        let param = file_state.get(*param_id);
+        let param = finished_file.get(*param_id);
         label.push_str(&param.name);
         let typ = param.typ;
         if typ != Type::Unknown {

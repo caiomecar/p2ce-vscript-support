@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, File, FileState, line_index, parse};
+use ide::{Database, File, FinishedFile, Source, line_index, parse};
 use lsp_types::{Location, ReferenceParams, Url};
 use rustc_hash::FxHashMap;
 
@@ -24,12 +24,12 @@ pub fn handle_references(
         return Ok(None);
     };
 
-    let file_state = FileState::Finished(db, file);
-    let Some(reference_id) = file_state.symbol_at(token.text_range()) else {
+    let finished_file = FinishedFile::new(db, file);
+    let Some(reference_id) = finished_file.symbol_at(token.text_range()) else {
         return Ok(None);
     };
 
-    let locations = file_state
+    let locations = finished_file
         .name_kinds()
         .iter()
         .filter_map(|(range, id)| {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, File, FileState, FindSymbol, SymbolKind, Type, line_index, parse};
+use ide::{Database, File, FindSymbol, FinishedFile, Source, SymbolKind, Type, line_index, parse};
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse, Url};
 use rustc_hash::FxHashMap;
 use sq_3_parser::{AstNode, SyntaxKind, ast};
@@ -36,7 +36,7 @@ pub fn handle_completions(
             .find_map(|n| ast::MemberAccessExpression::cast(n))
     });
 
-    let file_state = FileState::Finished(db, file);
+    let finished_file = FinishedFile::new(db, file);
 
     // 3. Decide if we're in member access
     let symbols = if let Some(member) = member {
@@ -45,8 +45,8 @@ pub fn handle_completions(
         if offset <= range.end() {
             // still inside or right after member access → show members
             if let Some(obj) = member.object() {
-                let typ = file_state.type_at(obj.syntax().text_range());
-                file_state
+                let typ = finished_file.type_at(obj.syntax().text_range());
+                finished_file
                     .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
                     .into_values()
                     .collect()
@@ -54,16 +54,16 @@ pub fn handle_completions(
                 Vec::new()
             }
         } else {
-            file_state.symbols_at(offset)
+            finished_file.symbols_at(offset)
         }
     } else {
-        file_state.symbols_at(offset)
+        finished_file.symbols_at(offset)
     };
 
     let items: Vec<CompletionItem> = symbols
         .iter()
         .filter_map(|id| {
-            let symbol = file_state.get(*id);
+            let symbol = finished_file.get(*id);
             Some(CompletionItem {
                 label: symbol.name.clone(),
                 kind: Some(match symbol.typ {

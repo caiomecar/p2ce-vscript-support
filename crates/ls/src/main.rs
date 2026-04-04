@@ -11,7 +11,7 @@ mod signature_help;
 use std::time::Instant;
 
 use anyhow::Result;
-use ide::{Database, File, SourceSymbolic, line_index, parse, source_symbol};
+use ide::{Database, File, FinishedFile, Source, line_index, parse};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{
@@ -284,9 +284,9 @@ fn handle_request(
 }
 
 fn publish_diagnostics(conn: &Connection, db: &Database, uri: Url, file: File) -> Result<()> {
-    let parse = parse(db, file);
-    let source_symbol = source_symbol(db, file);
     let line_index = line_index(db, file);
+    let parse = parse(db, file);
+    let finished_file = FinishedFile::new(db, file);
 
     let diagnostics = parse
         .errors()
@@ -296,7 +296,7 @@ fn publish_diagnostics(conn: &Connection, db: &Database, uri: Url, file: File) -
             range: conversions::range(&line_index, error.range()).unwrap(),
             ..Default::default()
         })
-        .chain(source_symbol.diagnostics().iter().map(|diagnostic| {
+        .chain(finished_file.diagnostics().iter().map(|diagnostic| {
             let (severity, tags) = match diagnostic.severity {
                 ide::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
                 ide::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),

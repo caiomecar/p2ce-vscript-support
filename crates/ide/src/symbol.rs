@@ -2,7 +2,7 @@ use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
 
 use crate::{
-    FileState,
+    FinishedFile, Source,
     arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId},
 };
 
@@ -86,17 +86,14 @@ impl std::fmt::Display for Type {
 }
 
 impl Symbol {
-    pub fn display<'a>(&'a self, file_state: &'a FileState<'a>) -> SymbolDisplay<'a> {
-        SymbolDisplay {
-            symbol: self,
-            file_state,
-        }
+    pub fn display<'a>(&'a self, file: &'a FinishedFile) -> SymbolDisplay<'a> {
+        SymbolDisplay { symbol: self, file }
     }
 }
 
 pub struct SymbolDisplay<'a> {
     symbol: &'a Symbol,
-    file_state: &'a FileState<'a>,
+    file: &'a FinishedFile<'a>,
 }
 
 impl std::fmt::Display for SymbolDisplay<'_> {
@@ -112,7 +109,7 @@ impl std::fmt::Display for SymbolDisplay<'_> {
                     Type::Float(Some(value)) => value.to_string(),
                     Type::Boolean(Some(value)) => value.to_string(),
                     Type::String(Some(id)) => {
-                        format!("\"{}\"", self.file_state.get(id))
+                        format!("\"{}\"", self.file.get(id))
                     }
                     _ => return write!(f, "const {}", s.name),
                 };
@@ -122,13 +119,13 @@ impl std::fmt::Display for SymbolDisplay<'_> {
 
         match s.typ {
             Type::Function(id) => {
-                let func = self.file_state.get(id);
+                let func = self.file.get(id);
                 write!(f, "function {}(", s.name)?;
                 for (i, &param) in func.params.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    let param = self.file_state.get(param);
+                    let param = self.file.get(param);
                     if param.typ != Type::Unknown {
                         write!(f, "{}: {}", param.name, param.typ)?;
                     } else {
