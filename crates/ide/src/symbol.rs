@@ -6,13 +6,21 @@ use crate::{
     arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId},
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
+pub enum Static {
+    #[default]
+    NoSupport,
+    No,
+    Yes,
+}
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Symbol {
     pub name: String,
     pub typ: Type,
     pub kind: SymbolKind,
     pub name_range: TextRange,
     pub range: TextRange,
+    pub statik: Static,
 }
 
 /// To represent multiple symbols with the same name
@@ -68,12 +76,13 @@ impl Type {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     Local,
     Constant,
     Enum,
     EnumMember,
+    #[default]
     Property,
 }
 

@@ -47,17 +47,22 @@ pub fn handle_completions(
             if let Some(obj) = member.object() {
                 let typ = finished_file.type_at(obj.syntax().text_range());
                 finished_file
-                    .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
+                    .members_of_type(
+                        typ,
+                        FindSymbol::BeforeIfInExecutionRange(offset),
+                        true,
+                        true,
+                    )
                     .into_values()
                     .collect()
             } else {
                 Vec::new()
             }
         } else {
-            finished_file.symbols_at(offset)
+            finished_file.symbols_at(offset, true)
         }
     } else {
-        finished_file.symbols_at(offset)
+        finished_file.symbols_at(offset, true)
     };
 
     let items: Vec<CompletionItem> = symbols

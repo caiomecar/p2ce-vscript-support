@@ -151,6 +151,16 @@ pub trait IsClass: AstNode<Language = SquirrelLanguage> {
     }
 }
 
+pub trait IsClassMember: AstNode<Language = SquirrelLanguage> {
+    fn attributes(&self) -> Option<Attributes> {
+        support::child(self.syntax())
+    }
+
+    fn static_keyword(&self) -> Option<SyntaxToken> {
+        support::token(self.syntax(), SyntaxKind::StaticKeyword)
+    }
+}
+
 ast_node!(Name, Name);
 impl Name {
     pub fn identifier(&self) -> Option<SyntaxToken> {
@@ -785,6 +795,7 @@ impl PostCallInitialiser {
 
 ast_node!(Property, Property);
 impl HasDoc for Property {}
+impl IsClassMember for Property {}
 
 impl Property {
     pub fn name(&self) -> Option<MemberName> {
@@ -827,6 +838,7 @@ ast_enum!(MemberName {
 ast_node!(Constructor, Constructor);
 impl HasDoc for Constructor {}
 impl IsFunction for Constructor {}
+impl IsClassMember for Constructor {}
 impl Constructor {
     pub fn constructor_keyword(&self) -> Option<SyntaxToken> {
         support::token(&self.0, SyntaxKind::ConstructorKeyword)
@@ -837,6 +849,7 @@ ast_node!(Method, Method);
 impl HasDoc for Method {}
 impl HasName for Method {}
 impl IsFunction for Method {}
+impl IsClassMember for Method {}
 
 ast_enum!(Member {
     Property(Property),

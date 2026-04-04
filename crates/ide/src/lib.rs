@@ -15,7 +15,7 @@ use crate::{
         ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, SymbolId, TableData, TableId,
     },
     db::Db,
-    symbol::{FlatSymbolTable, to_flat_symbol_table},
+    symbol::{FlatSymbolTable, Static, to_flat_symbol_table},
 };
 
 pub use arena::{ArenaId, FunctionData, ParamsState};
@@ -47,7 +47,7 @@ pub enum ExpressionKind {
 
 pub type NullableExprKind = Option<ExpressionKind>;
 
-macro_rules! non_container_members {
+macro_rules! builtin_members {
     ($func:ident => $ty:ident) => {
         fn $func(db: &dyn Db) -> FlatSymbolTable {
             if let Some(builtins) = db.builtins().map(|b| &b.$ty) {
@@ -59,18 +59,18 @@ macro_rules! non_container_members {
     };
 }
 
-non_container_members!(integer_members => integer);
-non_container_members!(float_members => float);
-non_container_members!(boolean_members => boolean);
-non_container_members!(string_members => string);
-non_container_members!(array_members => array);
-non_container_members!(function_members => function);
-non_container_members!(generator_members => generator);
-non_container_members!(thread_members => thread);
-non_container_members!(weakref_members => weakref);
-non_container_members!(instance_members => instance);
-non_container_members!(builtin_table_members => table);
-non_container_members!(builtin_class_members => class);
+builtin_members!(integer_members => integer);
+builtin_members!(float_members => float);
+builtin_members!(boolean_members => boolean);
+builtin_members!(string_members => string);
+builtin_members!(array_members => array);
+builtin_members!(function_members => function);
+builtin_members!(generator_members => generator);
+builtin_members!(thread_members => thread);
+builtin_members!(weakref_members => weakref);
+builtin_members!(instance_members => instance);
+builtin_members!(builtin_table_members => table);
+builtin_members!(builtin_class_members => class);
 
 #[derive(Debug, Clone, Copy)]
 pub enum GetMembers {
@@ -226,9 +226,14 @@ pub trait Source {
         // include just root_table where it's not put in the root table?
         // First iterate through possi
         let (first_settings, second_settings, container) = match settings {
-            GetMembers::Container(container) => {
-                (GetMembersInner::Container(container), None, container)
-            }
+            GetMembers::Container(container) => (
+                GetMembersInner::Container(container),
+                None,
+                match container {
+                    Container::Instance(id) => Container::Class(id),
+                    _ => container,
+                },
+            ),
             GetMembers::Const => (
                 GetMembersInner::ConstAsSource,
                 Some(GetMembersInner::Const),
@@ -286,7 +291,7 @@ pub trait Source {
     ) -> FlatSymbolTable {
         let mut result = match settings {
             GetMembersInner::Container(container) => {
-                self.members_of_container(container, FindSymbol::Any, None)
+                self.members_of_container(container, FindSymbol::Any, None, false)
             }
             GetMembersInner::ConstAsSource => {
                 let source = source_symbol(self.db(), import);
@@ -365,7 +370,7 @@ pub trait Source {
         result
     }
 
-    fn symbols_at(&self, offset: TextSize) -> Vec<SymbolId> {
+    fn symbols_at(&self, offset: TextSize, filter_by_static: bool) -> Vec<SymbolId> {
         let mut taken_names = FxHashSet::default();
         let mut items = Vec::new();
 
@@ -402,6 +407,7 @@ pub trait Source {
                 container,
                 FindSymbol::BeforeIfInExecutionRange(offset),
                 Some(GetMembers::Container(container)),
+                filter_by_static,
             )
             .into_iter()
             .filter_map(&mut filter),
@@ -425,6 +431,7 @@ pub trait Source {
         typ: Type,
         settings: FindSymbol,
         allow_imports: bool,
+        filter_by_static: bool,
     ) -> FlatSymbolTable {
         match typ {
             Type::Table(id) => self.members_of_table(
@@ -445,6 +452,7 @@ pub trait Source {
                     None
                 },
                 false,
+                filter_by_static,
             ),
             Type::Instance(id) => self.members_of_class(
                 id,
@@ -455,6 +463,7 @@ pub trait Source {
                     None
                 },
                 true,
+                filter_by_static,
             ),
             Type::Enum(id) => self.enum_members(id),
             Type::Integer(_) => integer_members(self.db()),
@@ -476,10 +485,16 @@ pub trait Source {
         container: Container,
         settings: FindSymbol,
         imports: Option<GetMembers>,
+        filter_by_static: bool,
     ) -> FlatSymbolTable {
         match container {
             Container::Table(id) => self.members_of_table(id, settings, imports),
-            Container::Class(id) => self.members_of_class(id, settings, imports, false),
+            Container::Class(id) => {
+                self.members_of_class(id, settings, imports, false, filter_by_static)
+            }
+            Container::Instance(id) => {
+                self.members_of_class(id, settings, imports, true, filter_by_static)
+            }
             Container::Enum(id) => self.enum_members(id),
         }
     }
@@ -562,6 +577,7 @@ pub trait Source {
         settings: FindSymbol,
         imports: Option<GetMembers>,
         for_instance: bool,
+        filter_by_static: bool,
     ) -> FlatSymbolTable {
         let mut members = if for_instance {
             instance_members(self.db())
@@ -618,8 +634,47 @@ pub trait Source {
             }
         }
 
-        for (k, v) in additional {
-            members.insert(k, v);
+        if filter_by_static {
+            let statics: Vec<_> = if for_instance {
+                additional
+                    .iter()
+                    .filter_map(|(name, id)| {
+                        let symbol = self.get(*id);
+                        if matches!(symbol.statik, Static::Yes) {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            } else {
+                additional
+                    .iter()
+                    .filter_map(|(name, id)| {
+                        let symbol = self.get(*id);
+                        if matches!(symbol.statik, Static::No) {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            };
+
+            // Just not overwriting the 'members' with symbols that don't pass the filter is not enough
+            // Internally the name will be overwritten, however we can avoid showing this name to the user
+            // instead of misleadingly showing the default member
+            for (k, v) in additional {
+                members.insert(k, v);
+            }
+
+            for name in statics {
+                members.remove(&name);
+            }
+        } else {
+            for (k, v) in additional {
+                members.insert(k, v);
+            }
         }
 
         members

@@ -57,13 +57,20 @@ arena_id!(FunctionId => FunctionData);
 arena_id!(ArrayId => ArrayData);
 arena_id!(StringId => Box<str>);
 
-// Containers are used for and stored on the scope stack
-// They cannot be shared between files
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Container {
     Table(TableId),
-    Class(ClassId),
     Enum(EnumId),
+    // Both classes and instances take their members
+    // from the same spot (outside of builtins). And
+    // squirrel is bad enough to allow accessing non-static
+    // members as a class and static members as an instance.
+    // Solution: we normally resolve ignoring static and
+    // non-static properties, however for completions we don't
+    // show non-static members when accessing class
+    // and vise versa (the constructor is always avoided)
+    Class(ClassId),
+    Instance(ClassId),
 }
 
 impl From<Container> for Type {
@@ -71,6 +78,7 @@ impl From<Container> for Type {
         match value {
             Container::Table(idx) => Type::Table(idx),
             Container::Class(idx) => Type::Class(idx),
+            Container::Instance(idx) => Type::Instance(idx),
             Container::Enum(idx) => Type::Enum(idx),
         }
     }
@@ -82,7 +90,7 @@ impl TryFrom<Type> for Container {
         Ok(match value {
             Type::Table(id) => Container::Table(id),
             Type::Class(id) => Container::Class(id),
-            Type::Instance(id) => Container::Class(id),
+            Type::Instance(id) => Container::Instance(id),
             Type::Enum(id) => Container::Enum(id),
             _ => return Err(()),
         })
