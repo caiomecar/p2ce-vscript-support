@@ -1257,6 +1257,7 @@ impl<'db> Collector<'db> {
                 name_range: final_name.syntax().text_range(),
                 range: stmt.syntax().text_range(),
             });
+
             self.add_current_container_member(final_text, symbol);
 
             self.collect_function(function.idx(), stmt);
@@ -1283,7 +1284,7 @@ impl<'db> Collector<'db> {
             self.members_of_table(
                 self.root_table(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
-                Some(GetMembers::Container(self.execution_container())),
+                Some(GetMembers::Root),
             )
             .into_iter()
             .find_map(|(name, id)| if text == name { Some(id) } else { None })
