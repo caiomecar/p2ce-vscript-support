@@ -476,20 +476,25 @@ impl BlockStatement {
 }
 
 ast_node!(IfStatement, IfStatement);
+ast_node!(IfElseBranch, IfElseBranch);
 
 impl IfStatement {
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 
-    pub fn then_branch(&self) -> Option<Stmt> {
-        support::children(&self.0).next()
+    pub fn statement(&self) -> Option<Stmt> {
+        support::child(&self.0)
     }
 
-    // It's impossible to have else branch but not have then branch
-    // Therefore it's possible to use .nth here instead of using a wrapper
-    pub fn else_branch(&self) -> Option<Stmt> {
-        support::children(&self.0).nth(1)
+    pub fn else_branch(&self) -> Option<IfElseBranch> {
+        support::child(&self.0)
+    }
+}
+
+impl IfElseBranch {
+    pub fn statement(&self) -> Option<Stmt> {
+        support::child(&self.0)
     }
 }
 

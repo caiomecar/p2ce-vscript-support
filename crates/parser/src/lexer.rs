@@ -45,7 +45,7 @@ static KEYWORDS: phf::Map<&'static str, SyntaxKind> = phf_map! {
     "__LINE__" => SyntaxKind::LineKeyword,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct Token {
     pub kind: SyntaxKind,
     pub range: TextRange,
@@ -70,15 +70,6 @@ pub(crate) fn tokenise(text: &str) -> (Vec<Token>, Vec<SyntaxError>) {
     }
 
     (tokens, lexer.errors)
-}
-
-impl Token {
-    pub fn dummy() -> Self {
-        Self {
-            kind: SyntaxKind::Unknown,
-            range: TextRange::empty(TextSize::new(0)),
-        }
-    }
 }
 
 impl<'a> Lexer<'a> {

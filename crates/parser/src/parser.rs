@@ -74,8 +74,9 @@ enum MemberObject {
     PostCallInitialiser,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum ParsingObjectSeparator {
+    #[default]
     None,
     Comma,
     Semicolon,
@@ -94,6 +95,7 @@ pub fn parse(tokens: Vec<Token>) -> (Vec<Event>, Vec<SyntaxError>) {
     (parser.events, parser.errors)
 }
 
+#[derive(Debug, Default)]
 struct Parser {
     tokens: Vec<Token>,
     // We keep track of index of the token we've put into events(meaning that it is
@@ -115,6 +117,7 @@ struct Parser {
     preceding_comments_index: Option<usize>,
 
     has_preceding_new_line: bool,
+    has_new_line_after_comment: bool,
 
     prev_token: Token,
     object_separator: ParsingObjectSeparator,
@@ -127,14 +130,7 @@ impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
-            consumed_index: 0,
-            lookahead_index: 0,
-            preceding_comments_index: None,
-            has_preceding_new_line: false,
-            prev_token: Token::dummy(),
-            object_separator: ParsingObjectSeparator::None,
-            errors: Vec::new(),
-            events: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -218,6 +214,7 @@ impl Parser {
             "Trying to finish marker that was finished or dropped"
         );
 
+        self.preceding_comments_index = None;
         self.events[marker.0] = Event::Start { kind };
         self.events.push(Event::Finish);
     }
@@ -322,19 +319,23 @@ impl Parser {
             match self.token() {
                 SyntaxKind::Whitespace | SyntaxKind::Unknown => {}
                 SyntaxKind::LineFeed => {
-                    // If there're more than 1 new line it between
-                    // - don't attach the comments to the next node
-                    if self.has_preceding_new_line {
-                        self.preceding_comments_index = None;
-                    } else {
-                        self.has_preceding_new_line = true;
+                    self.has_preceding_new_line = true;
+                    if self.preceding_comments_index.is_some() {
+                        // If there's more than 1 new line in between
+                        // - don't attach the comments to the next node
+                        if self.has_new_line_after_comment {
+                            self.preceding_comments_index = None;
+                            self.has_new_line_after_comment = false;
+                        } else {
+                            self.has_new_line_after_comment = true;
+                        }
                     }
                 }
                 SyntaxKind::LineComment => {
                     if self.preceding_comments_index.is_none() {
                         self.preceding_comments_index = Some(self.lookahead_index);
                     }
-                    self.has_preceding_new_line = false;
+                    self.has_new_line_after_comment = false;
                 }
                 SyntaxKind::BlockComment | SyntaxKind::DocComment => {
                     self.preceding_comments_index = Some(self.lookahead_index);
@@ -1440,8 +1441,11 @@ impl Parser {
         // Normally only parse_source_file or parse_block_statment should use parse_end, otherwise the semicolon
         // Breaks higher construct
         self.parse_statement(/* parse_end */ true);
-        if self.try_bump(SyntaxKind::ElseKeyword) {
+        if self.at(SyntaxKind::ElseKeyword) {
+            let m = self.start();
+            self.bump();
             self.parse_statement(/* parse_end */ true);
+            self.finish(m, SyntaxKind::IfElseBranch);
         }
         self.finish(m, SyntaxKind::IfStatement);
     }

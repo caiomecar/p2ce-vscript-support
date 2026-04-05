@@ -1,8 +1,9 @@
 use rowan::Language;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Default, Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 pub enum SyntaxKind {
+    #[default]
     Unknown = 0,
     Eof,
 
@@ -129,6 +130,8 @@ pub enum SyntaxKind {
     VariableDeclarationList,
     VariableDeclaration,
     Initialiser,
+
+    IfElseBranch,
 
     CatchClause,
 

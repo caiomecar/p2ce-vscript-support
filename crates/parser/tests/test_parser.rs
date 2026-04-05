@@ -85,7 +85,7 @@ mod tests {
             panic!("expected if")
         };
         assert!(i.condition().is_some());
-        assert!(i.then_branch().is_some());
+        assert!(i.statement().is_some());
         assert!(i.else_branch().is_none());
     }
 
@@ -96,8 +96,9 @@ mod tests {
             panic!("expected if")
         };
         assert!(i.condition().is_some());
-        assert!(i.then_branch().is_some());
+        assert!(i.statement().is_some());
         assert!(i.else_branch().is_some());
+        assert!(i.else_branch().unwrap().statement().is_some())
     }
 
     #[test]
@@ -879,7 +880,7 @@ mod tests {
 
     #[test]
     fn test_local_variable_doc() {
-        let stmt = first_stmt("/**abc*/\nlocal a = 2;");
+        let stmt = first_stmt("\n/**abc*/\nlocal a = 2;");
         let Stmt::LocalVariable(lv) = stmt else {
             panic!("expected local variable");
         };
