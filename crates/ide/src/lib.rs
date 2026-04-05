@@ -635,45 +635,29 @@ pub trait Source {
         }
 
         if filter_by_static {
-            let statics: Vec<_> = if for_instance {
-                additional
-                    .iter()
-                    .filter_map(|(name, id)| {
-                        let symbol = self.get(*id);
-                        if matches!(symbol.statik, Static::Yes) {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
+            let avoid_static = if for_instance {
+                Static::Yes
             } else {
-                additional
-                    .iter()
-                    .filter_map(|(name, id)| {
-                        let symbol = self.get(*id);
-                        if matches!(symbol.statik, Static::No) {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
+                Static::No
             };
 
             // Just not overwriting the 'members' with symbols that don't pass the filter is not enough
-            // Internally the name will be overwritten, however we can avoid showing this name to the user
-            // instead of misleadingly showing the default member
-            for (k, v) in additional {
-                members.insert(k, v);
+            // Internally the name will be overwritten, but if we don't overwrite it on our side we will
+            // show a misleading symbol. Instead we can avoid showing these names to the user by removing
+            // them from the table
+            for (name, id) in additional {
+                let symbol = self.get(id);
+                if symbol.statik != avoid_static {
+                    members.insert(name, id);
+                } else {
+                    members.remove(&name);
+                }
             }
 
-            for name in statics {
-                members.remove(&name);
-            }
+            members.remove("constructor");
         } else {
-            for (k, v) in additional {
-                members.insert(k, v);
+            for (name, id) in additional {
+                members.insert(name, id);
             }
         }
 
