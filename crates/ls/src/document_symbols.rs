@@ -1,20 +1,23 @@
 use crate::conversions;
 use ::line_index::LineIndex;
 use anyhow::Result;
-use ide::{Database, File, FinishedFile, Source, Symbol, SymbolKind, Type, line_index};
+use ide::{Database, FinishedFile, Source, Symbol, SymbolKind, Type, line_index};
 use lsp_types::{
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind, Url,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
 };
-use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
 
 pub fn handle_document_symbols(
     db: &Database,
-    docs: &FxHashMap<Url, File>,
     params: DocumentSymbolParams,
 ) -> Result<Option<DocumentSymbolResponse>> {
     let uri = params.text_document.uri;
-    let Some(&file) = docs.get(&uri) else {
+
+    let Ok(path) = uri.to_file_path() else {
+        return Ok(None);
+    };
+
+    let Some(file) = db.get_file(&path) else {
         return Ok(None);
     };
 

@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub use arena::{ArenaId, FunctionData, ParamsState};
-pub use db::{Database, File, line_index, parse, source_symbol};
+pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
 pub use symbol::{Symbol, SymbolKind, SymbolTable, Type};
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -34,6 +34,7 @@ pub enum DiagnosticSeverity {
     #[default]
     Error,
     Warning,
+    Information,
     Unnecessary,
 }
 
@@ -73,7 +74,7 @@ builtin_members!(builtin_table_members => table);
 builtin_members!(builtin_class_members => class);
 
 #[derive(Debug, Clone, Copy)]
-pub enum GetMembers {
+pub enum ImportMembers {
     Container(Container),
     Const,
     Root,
@@ -89,7 +90,6 @@ pub enum GetMembersInner {
 }
 
 pub enum FindSymbol {
-    Any,
     OnlyBefore(TextSize),
     BeforeIfInExecutionRange(TextSize),
 }
@@ -98,6 +98,13 @@ pub enum FindSymbol {
 pub enum FunctionIdResolution {
     Function(FunctionId),
     DefaultConstructor,
+}
+
+#[derive(Debug)]
+pub enum FileTableType {
+    Root,
+    Const,
+    Source,
 }
 
 /// This trait exists to share behaviour between Collector and SourceFile
@@ -216,7 +223,7 @@ pub trait Source {
         class.members.clone()
     }
 
-    fn import_members(&self, settings: GetMembers) -> FlatSymbolTable {
+    fn import_members(&self, settings: ImportMembers) -> FlatSymbolTable {
         let mut already_included = FxHashSet::default();
         already_included.insert(self.file());
         let mut result = FlatSymbolTable::default();
@@ -226,25 +233,28 @@ pub trait Source {
         // include just root_table where it's not put in the root table?
         // First iterate through possi
         let (first_settings, second_settings, container) = match settings {
-            GetMembers::Container(container) => (
+            ImportMembers::Container(container) => (
                 GetMembersInner::Container(container),
                 None,
+                // Fix later
                 match container {
                     Container::Instance(id) => Container::Class(id),
                     _ => container,
                 },
             ),
-            GetMembers::Const => (
+            ImportMembers::Const => (
                 GetMembersInner::ConstAsSource,
                 Some(GetMembersInner::Const),
                 Container::Table(self.const_table()),
             ),
-            GetMembers::Root => (
+            ImportMembers::Root => (
                 GetMembersInner::RootAsSource,
                 Some(GetMembersInner::Root),
                 Container::Table(self.root_table()),
             ),
         };
+
+        let is_root = matches!(settings, ImportMembers::Root);
 
         let imports = self.imports();
 
@@ -252,6 +262,10 @@ pub trait Source {
             for import in imports {
                 if !already_included.insert(*import) {
                     continue;
+                }
+
+                if is_root {
+                    dbg!(import);
                 }
 
                 result.extend(self.import_members_inner(
@@ -289,60 +303,25 @@ pub trait Source {
         already_included: &mut FxHashSet<File>,
         settings: GetMembersInner,
     ) -> FlatSymbolTable {
+        let imp = FinishedFile::new(self.db(), import);
         let mut result = match settings {
-            GetMembersInner::Container(container) => {
-                self.members_of_container(container, FindSymbol::Any, None, false)
-            }
-            GetMembersInner::ConstAsSource => {
-                let source = source_symbol(self.db(), import);
-                self.members_of_table(
-                    TableId::new(import, source.const_table),
-                    FindSymbol::Any,
-                    None,
-                )
+            GetMembersInner::Container(_) => imp.top_level_members(FileTableType::Source),
+            GetMembersInner::ConstAsSource => imp
+                .top_level_members(FileTableType::Const)
                 .into_iter()
-                .chain(self.members_of_table(
-                    TableId::new(import, source.source_table),
-                    FindSymbol::Any,
-                    None,
-                ))
-                .collect()
-            }
-            GetMembersInner::Const => {
-                let source = source_symbol(self.db(), import);
-                self.members_of_table(
-                    TableId::new(import, source.const_table),
-                    FindSymbol::Any,
-                    None,
-                )
-            }
-            GetMembersInner::RootAsSource => {
-                let source = source_symbol(self.db(), import);
-                self.members_of_table(
-                    TableId::new(import, source.root_table),
-                    FindSymbol::Any,
-                    None,
-                )
+                .chain(imp.top_level_members(FileTableType::Source))
+                .collect(),
+            GetMembersInner::Const => imp.top_level_members(FileTableType::Const),
+            GetMembersInner::RootAsSource => imp
+                .top_level_members(FileTableType::Root)
                 .into_iter()
-                .chain(self.members_of_table(
-                    TableId::new(import, source.source_table),
-                    FindSymbol::Any,
-                    None,
-                ))
-                .collect()
-            }
-            GetMembersInner::Root => {
-                let source = source_symbol(self.db(), import);
-                self.members_of_table(
-                    TableId::new(import, source.root_table),
-                    FindSymbol::Any,
-                    None,
-                )
-            }
+                .chain(imp.top_level_members(FileTableType::Source))
+                .collect(),
+            GetMembersInner::Root => imp.top_level_members(FileTableType::Root),
         };
 
         if let GetMembersInner::Container(container) = settings {
-            let Some(imports) = self.imports().get(&container) else {
+            let Some(imports) = imp.imports().get(&container) else {
                 return result;
             };
 
@@ -357,7 +336,7 @@ pub trait Source {
             return result;
         }
 
-        for imports in self.imports().values() {
+        for imports in imp.imports().values() {
             for import in imports {
                 if !already_included.insert(*import) {
                     continue;
@@ -382,7 +361,7 @@ pub trait Source {
             }
         };
 
-        let scope = self.arena().scope_at(offset);
+        let scope = self.scope(offset);
 
         items.extend(
             self.local_members(offset)
@@ -394,7 +373,7 @@ pub trait Source {
             self.members_of_table(
                 self.const_table(),
                 FindSymbol::OnlyBefore(offset),
-                Some(GetMembers::Const),
+                ImportMembers::Const,
             )
             .into_iter()
             .filter_map(&mut filter),
@@ -406,7 +385,6 @@ pub trait Source {
             self.members_of_container(
                 container,
                 FindSymbol::BeforeIfInExecutionRange(offset),
-                Some(GetMembers::Container(container)),
                 filter_by_static,
             )
             .into_iter()
@@ -417,11 +395,18 @@ pub trait Source {
             self.members_of_table(
                 self.root_table(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
-                Some(GetMembers::Root),
+                ImportMembers::Root,
             )
             .into_iter()
             .filter_map(&mut filter),
         );
+
+        dbg!(self.imports());
+        dbg!(self.members_of_table(
+            self.root_table(),
+            FindSymbol::BeforeIfInExecutionRange(offset),
+            ImportMembers::Root,
+        ));
 
         items
     }
@@ -430,38 +415,23 @@ pub trait Source {
         &self,
         typ: Type,
         settings: FindSymbol,
-        allow_imports: bool,
         filter_by_static: bool,
     ) -> FlatSymbolTable {
         match typ {
-            Type::Table(id) => self.members_of_table(
-                id,
-                settings,
-                if allow_imports {
-                    Some(GetMembers::Container(Container::Table(id)))
-                } else {
-                    None
-                },
-            ),
+            Type::Table(id) => {
+                self.members_of_table(id, settings, ImportMembers::Container(Container::Table(id)))
+            }
             Type::Class(id) => self.members_of_class(
                 id,
                 settings,
-                if allow_imports {
-                    Some(GetMembers::Container(Container::Class(id)))
-                } else {
-                    None
-                },
+                ImportMembers::Container(Container::Class(id)),
                 false,
                 filter_by_static,
             ),
             Type::Instance(id) => self.members_of_class(
                 id,
                 settings,
-                if allow_imports {
-                    Some(GetMembers::Container(Container::Class(id)))
-                } else {
-                    None
-                },
+                ImportMembers::Container(Container::Class(id)),
                 true,
                 filter_by_static,
             ),
@@ -484,17 +454,26 @@ pub trait Source {
         &self,
         container: Container,
         settings: FindSymbol,
-        imports: Option<GetMembers>,
         filter_by_static: bool,
     ) -> FlatSymbolTable {
         match container {
-            Container::Table(id) => self.members_of_table(id, settings, imports),
-            Container::Class(id) => {
-                self.members_of_class(id, settings, imports, false, filter_by_static)
+            Container::Table(id) => {
+                self.members_of_table(id, settings, ImportMembers::Container(container))
             }
-            Container::Instance(id) => {
-                self.members_of_class(id, settings, imports, true, filter_by_static)
-            }
+            Container::Class(id) => self.members_of_class(
+                id,
+                settings,
+                ImportMembers::Container(container),
+                false,
+                filter_by_static,
+            ),
+            Container::Instance(id) => self.members_of_class(
+                id,
+                settings,
+                ImportMembers::Container(container),
+                true,
+                filter_by_static,
+            ),
             Container::Enum(id) => self.enum_members(id),
         }
     }
@@ -503,10 +482,10 @@ pub trait Source {
         &self,
         table: TableId,
         settings: FindSymbol,
-        imports: Option<GetMembers>,
+        imports: ImportMembers,
     ) -> FlatSymbolTable {
         let mut members = match imports {
-            None | Some(GetMembers::Const) => {
+            ImportMembers::Const => {
                 // This incorrectly calls table builtin methods on const instead of the root when in name
                 // expression, e.g. `keys()`. It also breaks redefinition of builtin methods, e.g.
                 // `class keys {}` which should normally work
@@ -516,7 +495,6 @@ pub trait Source {
         };
 
         let additional: FlatSymbolTable = match settings {
-            FindSymbol::Any => to_flat_symbol_table(self.table_members(table)),
             FindSymbol::OnlyBefore(offset) => self
                 .table_members(table)
                 .into_iter()
@@ -557,11 +535,9 @@ pub trait Source {
             }
         };
 
-        if let Some(imports) = imports {
-            let imports = self.import_members(imports);
-            for (k, v) in imports {
-                members.insert(k, v);
-            }
+        let imports = self.import_members(imports);
+        for (k, v) in imports {
+            members.insert(k, v);
         }
 
         for (k, v) in additional {
@@ -575,7 +551,7 @@ pub trait Source {
         &self,
         class: ClassId,
         settings: FindSymbol,
-        imports: Option<GetMembers>,
+        imports: ImportMembers,
         for_instance: bool,
         filter_by_static: bool,
     ) -> FlatSymbolTable {
@@ -586,7 +562,6 @@ pub trait Source {
         };
 
         let additional: FlatSymbolTable = match settings {
-            FindSymbol::Any => to_flat_symbol_table(self.class_members(class)),
             FindSymbol::OnlyBefore(offset) => self
                 .class_members(class)
                 .into_iter()
@@ -627,11 +602,9 @@ pub trait Source {
             }
         };
 
-        if let Some(imports) = imports {
-            let imports = self.import_members(imports);
-            for (k, v) in imports {
-                members.insert(k, v);
-            }
+        let imports = self.import_members(imports);
+        for (k, v) in imports {
+            members.insert(k, v);
         }
 
         if filter_by_static {
@@ -744,6 +717,17 @@ pub struct FinishedFile<'db>(&'db dyn Db, File);
 impl<'db> FinishedFile<'db> {
     pub fn new(db: &'db dyn Db, file: File) -> FinishedFile<'db> {
         Self(db, file)
+    }
+
+    fn top_level_members(&self, from: FileTableType) -> FlatSymbolTable {
+        let source = self.source();
+        let table = match from {
+            FileTableType::Root => source.root_table,
+            FileTableType::Const => source.const_table,
+            FileTableType::Source => source.source_table,
+        };
+
+        to_flat_symbol_table(self.table_members(TableId::new(self.1, table)))
     }
 
     fn source(&self) -> &SourceSymbol {

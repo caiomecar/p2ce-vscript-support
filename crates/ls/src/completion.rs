@@ -1,18 +1,18 @@
 use anyhow::Result;
-use ide::{Database, File, FindSymbol, FinishedFile, Source, SymbolKind, Type, line_index, parse};
-use lsp_types::{CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse, Url};
-use rustc_hash::FxHashMap;
+use ide::{Database, FindSymbol, FinishedFile, Source, SymbolKind, Type, line_index, parse};
+use lsp_types::{CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse};
 use sq_3_parser::{AstNode, SyntaxKind, ast};
 
 use crate::conversions;
 
-pub fn handle_completions(
-    db: &Database,
-    docs: &FxHashMap<Url, File>,
-    params: CompletionParams,
-) -> Result<CompletionResponse> {
+pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<CompletionResponse> {
     let uri = params.text_document_position.text_document.uri;
-    let Some(&file) = docs.get(&uri) else {
+
+    let Ok(path) = uri.to_file_path() else {
+        return Ok(CompletionResponse::Array(Vec::new()));
+    };
+
+    let Some(file) = db.get_file(&path) else {
         return Ok(CompletionResponse::Array(Vec::new()));
     };
 
@@ -47,12 +47,7 @@ pub fn handle_completions(
             if let Some(obj) = member.object() {
                 let typ = finished_file.type_at(obj.syntax().text_range());
                 finished_file
-                    .members_of_type(
-                        typ,
-                        FindSymbol::BeforeIfInExecutionRange(offset),
-                        true,
-                        true,
-                    )
+                    .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
                     .into_values()
                     .collect()
             } else {

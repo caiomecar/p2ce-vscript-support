@@ -1,3 +1,7 @@
+function DoIncludeScript(file, scope);
+
+function IncludeScript(file, scope = null);
+
 function AddThinkToEnt(entity, think_name);
 
 class Vector {

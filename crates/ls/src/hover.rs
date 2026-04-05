@@ -1,17 +1,17 @@
 use anyhow::Result;
-use ide::{Database, File, FinishedFile, Source, line_index, parse};
-use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind, Url};
-use rustc_hash::FxHashMap;
+use ide::{Database, FinishedFile, Source, line_index, parse};
+use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 
 use crate::conversions;
 
-pub fn handle_hover(
-    db: &Database,
-    docs: &FxHashMap<Url, File>,
-    params: HoverParams,
-) -> Result<Option<Hover>> {
+pub fn handle_hover(db: &Database, params: HoverParams) -> Result<Option<Hover>> {
     let uri = params.text_document_position_params.text_document.uri;
-    let Some(&file) = docs.get(&uri) else {
+
+    let Ok(path) = uri.to_file_path() else {
+        return Ok(None);
+    };
+
+    let Some(file) = db.get_file(&path) else {
         return Ok(None);
     };
 

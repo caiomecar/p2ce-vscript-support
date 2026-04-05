@@ -71,8 +71,13 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn should_substitute(&self) -> bool {
-        matches!(self, Type::Unknown | Type::Null)
+    pub fn should_substitute_with(&self, other: Type) -> bool {
+        match (self, other) {
+            // We want to replace null with unknown to not error out
+            (Type::Null, Type::Unknown) => true,
+            (Type::Unknown, _) => true,
+            _ => false,
+        }
     }
 }
 

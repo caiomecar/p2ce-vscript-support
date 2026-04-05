@@ -1,20 +1,19 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use ide::{ArenaId, Database, File, FinishedFile, Source, line_index, parse};
-use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
-use rustc_hash::FxHashMap;
+use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse};
+use lsp_types::{RenameParams, TextEdit, WorkspaceEdit};
 
 use crate::conversions;
 
-pub fn handle_rename(
-    db: &Database,
-    docs: &FxHashMap<Url, File>,
-    params: RenameParams,
-) -> Result<Option<WorkspaceEdit>> {
+pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
     let uri = params.text_document_position.text_document.uri;
-    let Some(&file) = docs.get(&uri) else {
-        eprintln!("Couldn't find file '{uri}'");
+
+    let Ok(path) = uri.to_file_path() else {
+        return Ok(None);
+    };
+
+    let Some(file) = db.get_file(&path) else {
         return Ok(None);
     };
 

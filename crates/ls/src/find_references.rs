@@ -1,18 +1,17 @@
 use anyhow::Result;
-use ide::{Database, File, FinishedFile, Source, line_index, parse};
-use lsp_types::{Location, ReferenceParams, Url};
-use rustc_hash::FxHashMap;
+use ide::{Database, FinishedFile, Source, line_index, parse};
+use lsp_types::{Location, ReferenceParams};
 
 use crate::conversions;
 
-pub fn handle_references(
-    db: &Database,
-    docs: &FxHashMap<Url, File>,
-    params: ReferenceParams,
-) -> Result<Option<Vec<Location>>> {
+pub fn handle_references(db: &Database, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
     let uri = params.text_document_position.text_document.uri;
-    let Some(&file) = docs.get(&uri) else {
-        eprintln!("Couldn't find file '{uri}'");
+
+    let Ok(path) = uri.to_file_path() else {
+        return Ok(None);
+    };
+
+    let Some(file) = db.get_file(&path) else {
         return Ok(None);
     };
 

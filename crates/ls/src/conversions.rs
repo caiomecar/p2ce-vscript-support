@@ -1,5 +1,7 @@
+use std::path::Path;
+
 use line_index::{LineIndex, TextRange, TextSize, WideEncoding, WideLineCol};
-use lsp_types::{Position, Range};
+use lsp_types::{Position, Range, Url};
 
 pub fn test_size(line_index: &LineIndex, position: Position) -> Option<TextSize> {
     let wide = WideLineCol {
@@ -31,4 +33,8 @@ pub fn range(line_index: &LineIndex, range: TextRange) -> Option<Range> {
         start: position(line_index, range.start())?,
         end: position(line_index, range.end())?,
     })
+}
+
+pub fn to_uri(path: &Path) -> Url {
+    Url::from_file_path(path).unwrap()
 }

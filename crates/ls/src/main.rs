@@ -8,10 +8,11 @@ mod rename;
 mod semantic_tokens;
 mod signature_help;
 
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::Result;
-use ide::{Database, File, FinishedFile, Source, line_index, parse};
+use ide::{Database, DbConfig, File, FinishedFile, Source, line_index, parse};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{
@@ -25,7 +26,6 @@ use lsp_types::{
     SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
     SemanticTokensServerCapabilities, SignatureHelpOptions, SignatureHelpParams,
 };
-use serde::Deserialize; // for METHOD consts
 // for METHOD consts
 use lsp_types::{
     Diagnostic,
@@ -37,14 +37,11 @@ use lsp_types::{
     ServerCapabilities,
     TextDocumentSyncCapability,
     TextDocumentSyncKind,
-    Url,
     // notifications
     notification::{DidChangeTextDocument, DidOpenTextDocument, PublishDiagnostics},
     request::Completion,
 };
 use salsa::Setter;
-
-use rustc_hash::FxHashMap;
 
 use crate::completion::handle_completions;
 use crate::document_symbols::handle_document_symbols;
@@ -54,16 +51,6 @@ use crate::hover::handle_hover;
 use crate::rename::handle_rename;
 use crate::semantic_tokens::handle_semantic_tokens;
 use crate::signature_help::handle_signature_help;
-
-#[derive(Deserialize)]
-struct InitOptions {
-    #[serde(rename = "builtinsPath")]
-    builtins: Option<String>,
-    #[serde(rename = "squirrelLibPath")]
-    squirrel_lib: Option<String>,
-    #[serde(rename = "vscriptLibPath")]
-    vscript_lib: Option<String>,
-}
 
 fn main() -> Result<()> {
     let (connection, io_threads) = Connection::stdio();
@@ -115,50 +102,42 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn insert_path(
-    path: &str,
-    file: File,
-    docs: &mut FxHashMap<Url, File>,
-    file_to_url: &mut FxHashMap<File, Url>,
-) {
-    match Url::from_file_path(&path) {
-        Ok(url) => {
-            docs.insert(url.clone(), file);
-            file_to_url.insert(file, url);
-        }
-        Err(_) => {
-            eprintln!("Couldn't convert path {path} to url");
-        }
-    };
-}
-
 fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     let init: InitializeParams = serde_json::from_value(params)?;
-    let mut db = Database::default();
-    let mut docs: FxHashMap<Url, File> = FxHashMap::default();
-    let mut file_to_url: FxHashMap<File, Url> = FxHashMap::default();
 
-    if let Some(options) = init.initialization_options {
-        let opts: InitOptions = serde_json::from_value(options).unwrap();
+    let config = match init.initialization_options {
+        Some(serde_json::Value::Object(map)) => {
+            let tf2_root_path = map
+                .get("tf2Root")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from);
 
-        if let Some(path) = opts.builtins {
-            let text = std::fs::read_to_string(path.clone()).unwrap();
-            let file = db.init_builtins(text);
-            insert_path(&path, file, &mut docs, &mut file_to_url);
+            let builtins_path = map
+                .get("builtinsPath")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from);
+
+            let squirrel_lib_path = map
+                .get("squirrelLibPath")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from);
+
+            let vscript_lib_path = map
+                .get("vscriptLibPath")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from);
+
+            DbConfig {
+                tf2_root_path,
+                builtins_path,
+                squirrel_lib_path,
+                vscript_lib_path,
+            }
         }
+        _ => DbConfig::default(),
+    };
 
-        if let Some(path) = opts.squirrel_lib {
-            let text = std::fs::read_to_string(path.clone()).unwrap();
-            let file = db.init_squirrel_lib(text);
-            insert_path(&path, file, &mut docs, &mut file_to_url);
-        }
-
-        if let Some(path) = opts.vscript_lib {
-            let text = std::fs::read_to_string(path.clone()).unwrap();
-            let file = db.init_vscript_lib(text);
-            insert_path(&path, file, &mut docs, &mut file_to_url);
-        }
-    }
+    let mut db = Database::new(config);
 
     for msg in &connection.receiver {
         match msg {
@@ -167,16 +146,14 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
                     break;
                 }
                 let now = Instant::now();
-                if let Err(err) = handle_request(&connection, &req, &db, &docs, &file_to_url) {
+                if let Err(err) = handle_request(&db, &connection, &req) {
                     eprintln!("[lsp] request {} failed: {err}", &req.method);
                 }
                 eprintln!("Handling request took {:?}", now.elapsed());
             }
             Message::Notification(note) => {
                 let now = Instant::now();
-                if let Err(err) =
-                    handle_notification(&connection, &note, &mut db, &mut docs, &mut file_to_url)
-                {
+                if let Err(err) = handle_notification(&mut db, &connection, &note) {
                     eprintln!("[lsp] notification {} failed: {err}", note.method);
                 }
                 eprintln!("Handling notification took {:?}", now.elapsed());
@@ -188,25 +165,26 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
 }
 
 fn handle_notification(
+    db: &mut Database,
     conn: &Connection,
     note: &lsp_server::Notification,
-    db: &mut Database,
-    docs: &mut FxHashMap<Url, File>,
-    file_to_url: &mut FxHashMap<File, Url>,
 ) -> Result<()> {
     match note.method.as_str() {
         DidOpenTextDocument::METHOD => {
             let p: DidOpenTextDocumentParams = serde_json::from_value(note.params.clone())?;
-            let uri = p.text_document.uri;
-            let file = File::new(db, p.text_document.text);
-            docs.insert(uri.clone(), file);
-            file_to_url.insert(file, uri.clone());
-            publish_diagnostics(conn, db, uri, file)?;
+            let Ok(path) = p.text_document.uri.to_file_path() else {
+                return Ok(()); // ignore untitled files
+            };
+            let file = db.open_file_with_text(path, p.text_document.text);
+            publish_diagnostics(&db, conn, file)?;
         }
         DidChangeTextDocument::METHOD => {
             let p: DidChangeTextDocumentParams = serde_json::from_value(note.params.clone())?;
-            let uri = p.text_document.uri;
-            let Some(&file) = docs.get(&uri) else {
+            let Ok(path) = p.text_document.uri.to_file_path() else {
+                return Ok(()); // ignore untitled files
+            };
+
+            let Some(file) = db.get_file(&path) else {
                 return Ok(());
             };
 
@@ -218,59 +196,54 @@ fn handle_notification(
                 text.replace_range(std::ops::Range::<usize>::from(text_range), &change.text);
             }
             file.set_text(db).to(text);
-            publish_diagnostics(conn, db, uri, file)?;
+
+            publish_diagnostics(db, conn, file)?;
         }
         _ => {}
     }
     Ok(())
 }
 
-fn handle_request(
-    conn: &Connection,
-    req: &ServerRequest,
-    db: &Database,
-    docs: &FxHashMap<Url, File>,
-    file_to_url: &FxHashMap<File, Url>,
-) -> Result<()> {
+fn handle_request(db: &Database, conn: &Connection, req: &ServerRequest) -> Result<()> {
     match req.method.as_str() {
         Completion::METHOD => {
             let params: CompletionParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_completions(db, docs, params)?;
+            let result = handle_completions(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         GotoDefinition::METHOD => {
             let params: GotoDefinitionParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_go_to_definition(db, docs, file_to_url, params)?;
+            let result = handle_go_to_definition(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         HoverRequest::METHOD => {
             let params: HoverParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_hover(db, docs, params)?;
+            let result = handle_hover(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         SemanticTokensFullRequest::METHOD => {
             let params: SemanticTokensParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_semantic_tokens(db, docs, params)?;
+            let result = handle_semantic_tokens(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         DocumentSymbolRequest::METHOD => {
             let params: DocumentSymbolParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_document_symbols(db, docs, params)?;
+            let result = handle_document_symbols(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         References::METHOD => {
             let params: ReferenceParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_references(db, docs, params)?;
+            let result = handle_references(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         Rename::METHOD => {
             let params: RenameParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_rename(db, docs, params)?;
+            let result = handle_rename(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         SignatureHelpRequest::METHOD => {
             let params: SignatureHelpParams = serde_json::from_value(req.params.clone())?;
-            let result = handle_signature_help(db, docs, params)?;
+            let result = handle_signature_help(db, params)?;
             send_ok(conn, req.id.clone(), &result)?;
         }
         _ => send_err(
@@ -283,7 +256,7 @@ fn handle_request(
     Ok(())
 }
 
-fn publish_diagnostics(conn: &Connection, db: &Database, uri: Url, file: File) -> Result<()> {
+fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<()> {
     let line_index = line_index(db, file);
     let parse = parse(db, file);
     let finished_file = FinishedFile::new(db, file);
@@ -300,6 +273,7 @@ fn publish_diagnostics(conn: &Connection, db: &Database, uri: Url, file: File) -
             let (severity, tags) = match diagnostic.severity {
                 ide::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
                 ide::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
+                ide::DiagnosticSeverity::Information => (DiagnosticSeverity::INFORMATION, None),
                 ide::DiagnosticSeverity::Unnecessary => (
                     DiagnosticSeverity::WARNING,
                     Some(vec![DiagnosticTag::UNNECESSARY]),
@@ -315,8 +289,12 @@ fn publish_diagnostics(conn: &Connection, db: &Database, uri: Url, file: File) -
         }))
         .collect();
 
+    let Some(path) = db.get_path(file) else {
+        return Ok(());
+    };
+
     let params = PublishDiagnosticsParams {
-        uri,
+        uri: conversions::to_uri(&path),
         diagnostics,
         version: None,
     };

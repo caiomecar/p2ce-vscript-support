@@ -1,25 +1,26 @@
 use anyhow::Result;
 use ide::{
-    Database, ExpressionKind, File, FinishedFile, FunctionIdResolution, ParamsState, Source, Type,
+    Database, ExpressionKind, FinishedFile, FunctionIdResolution, ParamsState, Source, Type,
     line_index, parse,
 };
 use lsp_types::{
     ParameterInformation, ParameterLabel, SignatureHelp, SignatureHelpParams, SignatureInformation,
-    Url,
 };
-use rustc_hash::FxHashMap;
 use sq_3_parser::{AstNode, ast};
 
 use crate::conversions;
 
 pub fn handle_signature_help(
     db: &Database,
-    docs: &FxHashMap<Url, File>,
     params: SignatureHelpParams,
 ) -> Result<Option<SignatureHelp>> {
     let uri = params.text_document_position_params.text_document.uri;
-    let Some(&file) = docs.get(&uri) else {
-        eprintln!("Couldn't find file '{uri}'");
+
+    let Ok(path) = uri.to_file_path() else {
+        return Ok(None);
+    };
+
+    let Some(file) = db.get_file(&path) else {
         return Ok(None);
     };
 

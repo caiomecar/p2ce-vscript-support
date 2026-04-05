@@ -1,17 +1,20 @@
 use anyhow::Result;
-use ide::{Database, File, FinishedFile, Source, SymbolKind, Type, line_index};
-use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult, Url};
-use rustc_hash::FxHashMap;
+use ide::{Database, FinishedFile, Source, SymbolKind, Type, line_index};
+use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 
 use crate::conversions;
 
 pub fn handle_semantic_tokens(
     db: &Database,
-    docs: &FxHashMap<Url, File>,
     params: SemanticTokensParams,
 ) -> Result<Option<SemanticTokensResult>> {
     let uri = params.text_document.uri;
-    let Some(&file) = docs.get(&uri) else {
+
+    let Ok(path) = uri.to_file_path() else {
+        return Ok(None);
+    };
+
+    let Some(file) = db.get_file(&path) else {
         return Ok(None);
     };
 

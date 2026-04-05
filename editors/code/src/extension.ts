@@ -53,6 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
         },
         initializationOptions: {
+            tf2Root: "/mnt/d/program files/steam/steamapps/common/team fortress 2",
             builtinsPath: path.join(stdlibPath, "builtins.nut"),
             squirrelLibPath: path.join(stdlibPath, "squirrel.nut"),
             vscriptLibPath: path.join(stdlibPath, "vscript.nut"),

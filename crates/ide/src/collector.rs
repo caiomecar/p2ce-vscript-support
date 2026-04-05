@@ -4,17 +4,17 @@ use sq_3_parser::{
     AstNode, TextRange, TextSize,
     ast::{self, *},
 };
-use std::{collections::VecDeque, mem::discriminant};
+use std::{collections::VecDeque, mem::discriminant, path::PathBuf};
 
 use crate::{
-    Diagnostic, DiagnosticSeverity, ExpressionKind, File, FindSymbol, GetMembers, NullableExprKind,
-    Source, SourceSymbol,
+    Diagnostic, DiagnosticSeverity, ExpressionKind, File, FindSymbol, ImportMembers,
+    NullableExprKind, Source, SourceSymbol,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ParamsState, Scope, ScopeId, SourceArena, StringId, SymbolId,
         TableData, TableId,
     },
-    db::Db,
+    db::{Db, ScriptResolutionError, SpecialFunction},
     symbol::{Static, Symbol, SymbolKind, SymbolTable, Type, insert_symbol},
 };
 
@@ -1423,7 +1423,6 @@ impl<'db> Collector<'db> {
             .members_of_container(
                 self.execution_container(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
-                Some(GetMembers::Container(self.execution_container())),
                 false,
             )
             .into_iter()
@@ -1433,7 +1432,7 @@ impl<'db> Collector<'db> {
             self.members_of_table(
                 self.root_table(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
-                Some(GetMembers::Root),
+                ImportMembers::Root,
             )
             .into_iter()
             .find_map(|(name, id)| if text == name { Some(id) } else { None })
@@ -1450,7 +1449,7 @@ impl<'db> Collector<'db> {
                     message: "Function statement does not lookup locals. Initial symbol not found"
                         .to_owned(),
                     range: names[0].syntax().text_range(),
-                    severity: DiagnosticSeverity::Warning,
+                    severity: DiagnosticSeverity::Information,
                     ..Default::default()
                 });
             }
@@ -1483,7 +1482,6 @@ impl<'db> Collector<'db> {
                 .members_of_container(
                     container,
                     FindSymbol::BeforeIfInExecutionRange(offset),
-                    Some(GetMembers::Container(container)),
                     false,
                 )
                 .into_iter()
@@ -1563,15 +1561,15 @@ impl<'db> Collector<'db> {
             self.collect_expr(&condition);
         }
 
-        if let Some(then_branch) = stmt.then_branch() {
-            self.enter_scope(then_branch.syntax().text_range());
-            self.collect_stmt(&then_branch);
+        if let Some(then_stmt) = stmt.statement() {
+            self.enter_scope(then_stmt.syntax().text_range());
+            self.collect_stmt(&then_stmt);
             self.exit_scope();
         }
 
-        if let Some(else_branch) = stmt.else_branch() {
-            self.enter_scope(else_branch.syntax().text_range());
-            self.collect_stmt(&else_branch);
+        if let Some(else_stmt) = stmt.else_branch().and_then(|e| e.statement()) {
+            self.enter_scope(else_stmt.syntax().text_range());
+            self.collect_stmt(&else_stmt);
             self.exit_scope();
         }
     }
@@ -1977,7 +1975,7 @@ impl<'db> Collector<'db> {
             self.members_of_table(
                 self.const_table(),
                 FindSymbol::OnlyBefore(offset),
-                Some(GetMembers::Const),
+                ImportMembers::Const,
             )
             .into_iter()
             .find_map(filter)
@@ -1987,7 +1985,6 @@ impl<'db> Collector<'db> {
             self.members_of_container(
                 self.execution_container(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
-                Some(GetMembers::Container(self.execution_container())),
                 false,
             )
             .into_iter()
@@ -1998,7 +1995,7 @@ impl<'db> Collector<'db> {
             self.members_of_table(
                 self.root_table(),
                 FindSymbol::BeforeIfInExecutionRange(offset),
-                Some(GetMembers::Root),
+                ImportMembers::Root,
             )
             .into_iter()
             .find_map(filter)
@@ -2038,7 +2035,7 @@ impl<'db> Collector<'db> {
         self.members_of_table(
             self.root_table(),
             FindSymbol::BeforeIfInExecutionRange(offset),
-            Some(GetMembers::Root),
+            ImportMembers::Root,
         )
         .into_iter()
         .find_map(|(name, id)| {
@@ -2087,12 +2084,7 @@ impl<'db> Collector<'db> {
         let offset = expr.syntax().text_range().end();
 
         let result = self
-            .members_of_type(
-                obj,
-                FindSymbol::BeforeIfInExecutionRange(offset),
-                true,
-                false,
-            )
+            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
@@ -2129,12 +2121,7 @@ impl<'db> Collector<'db> {
         let offset = expr.syntax().text_range().end();
 
         let result = self
-            .members_of_type(
-                obj,
-                FindSymbol::BeforeIfInExecutionRange(offset),
-                true,
-                false,
-            )
+            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
@@ -2145,7 +2132,12 @@ impl<'db> Collector<'db> {
                 }
             });
 
-        if result.is_none() && !matches!(obj, Type::Table(_) | Type::Class(_) | Type::Instance(_)) {
+        if result.is_none()
+            && !matches!(
+                obj,
+                Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown
+            )
+        {
             self.diagnostics.push(Diagnostic {
                 message: format!("'{obj}' has no member named '{text}'"),
                 range: expr.syntax().text_range(),
@@ -2154,6 +2146,91 @@ impl<'db> Collector<'db> {
         }
 
         result
+    }
+
+    fn include_script(&mut self, arguments: &[NullableExprKind], error_range: TextRange) {
+        let Some(path) = arguments.get(0) else {
+            // Case with no path will be handled in call_type
+            return;
+        };
+
+        let Type::String(str) = self.expr_to_type(*path) else {
+            // Same as above
+            return;
+        };
+
+        let Some(id) = str else {
+            self.diagnostics.push(Diagnostic {
+                message: format!(
+                    "Could not resolve the path statically, symbols will not be included"
+                ),
+                range: error_range,
+                severity: DiagnosticSeverity::Information,
+            });
+            return;
+        };
+
+        let path = PathBuf::from(self.get(id).to_string());
+
+        let file = match self.db.get_script(path) {
+            Ok(file) => file,
+            Err(ScriptResolutionError::AbsolutePath) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "The path must be relative".to_owned(),
+                    range: error_range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+                return;
+            }
+            Err(ScriptResolutionError::DoesntExist) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "Could not find the path".to_owned(),
+                    range: error_range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+                return;
+            }
+            Err(ScriptResolutionError::NoRootAssigned) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "TF2 Installation folder is not set, the symbols will not be included"
+                        .to_owned(),
+                    range: error_range,
+                    severity: DiagnosticSeverity::Information,
+                });
+                return;
+            }
+            Err(ScriptResolutionError::WrongExtension) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "The path must have none or '.nut' extension".to_owned(),
+                    range: error_range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+                return;
+            }
+        };
+
+        let destination = match arguments.get(1) {
+            Some(Some(expr)) => {
+                let typ = self.expr_to_type(Some(*expr));
+                let Ok(container) = Container::try_from(typ) else {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!("Type '{typ}' cannot receive new members"),
+                        range: error_range,
+                        severity: DiagnosticSeverity::Warning,
+                    });
+                    return;
+                };
+                container
+            }
+            Some(None) | None => self.execution_container(),
+        };
+
+        self.imports
+            .entry(destination)
+            .and_modify(|e| e.push(file))
+            .or_insert_with(|| vec![file]);
+
+        dbg!(&self.imports);
     }
 
     fn call_type(
@@ -2165,15 +2242,20 @@ impl<'db> Collector<'db> {
         match callable {
             Type::Function(id) => {
                 let is_variadic = matches!(self.get(id).params_state, ParamsState::VarArgs(_));
+                if !is_variadic && arguments.len() > self.get(id).params.len() {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!(
+                            "Passing {} parameters when only {} is possible ",
+                            arguments.len(),
+                            self.get(id).params.len()
+                        ),
+                        range: error_range,
+                        ..Default::default()
+                    });
+                }
+
                 for (count, argument_kind) in arguments.iter().cloned().enumerate() {
                     let Some(&param) = self.get(id).params.get(count) else {
-                        if !is_variadic {
-                            self.diagnostics.push(Diagnostic {
-                                message: "Passing more parameters than possible".to_owned(),
-                                range: error_range,
-                                ..Default::default()
-                            });
-                        }
                         continue;
                     };
 
@@ -2181,10 +2263,10 @@ impl<'db> Collector<'db> {
                         (Type::Unknown | Type::Null, required_kind) => {
                             // If passed in parameter has type of unknown
                             // we can coerce it to be the type of a required parameter
-                            if let Some(ExpressionKind::Symbol(id)) = argument_kind
-                                && !required_kind.should_substitute()
-                            {
-                                if let Some(symbol) = self.get_mut(id) {
+                            if let Some(ExpressionKind::Symbol(id)) = argument_kind {
+                                if let Some(symbol) = self.get_mut(id)
+                                    && symbol.typ.should_substitute_with(required_kind)
+                                {
                                     symbol.typ = required_kind;
                                 }
                             }
@@ -2210,20 +2292,36 @@ impl<'db> Collector<'db> {
                     }
                 }
 
-                let enough_parameters = match self.get(id).params_state {
-                    ParamsState::NoDefault => arguments.len() == self.get(id).params.len(),
-                    ParamsState::Default(from) | ParamsState::VarArgs(from) => {
-                        arguments.len() as u32 >= from
-                    }
+                let least_params_required = match self.get(id).params_state {
+                    ParamsState::NoDefault => self.get(id).params.len(),
+                    ParamsState::Default(from) | ParamsState::VarArgs(from) => from as usize,
                 };
 
-                if !enough_parameters {
+                if arguments.len() < least_params_required {
                     self.diagnostics.push(Diagnostic {
-                        message: "Insufficient number of parameters passed".to_owned(),
+                        message: format!(
+                            "Passing {} parameters when at least {} is required",
+                            arguments.len(),
+                            least_params_required
+                        ),
                         range: error_range,
                         ..Default::default()
                     });
                 }
+
+                match self.db.check_special(id) {
+                    Some(SpecialFunction::IncludeScript) => {
+                        self.include_script(arguments, error_range);
+                    }
+                    Some(SpecialFunction::DoIncludeScript) => {
+                        self.include_script(arguments, error_range);
+                    }
+                    Some(SpecialFunction::GetRootTable) => {
+                        // Overrides return
+                        return Some(Type::Table(self.root_table()));
+                    }
+                    None => {}
+                };
 
                 Some(if self.get(id).yielding.is_some() {
                     Type::Generator(id)
@@ -2319,7 +2417,7 @@ impl<'db> Collector<'db> {
                     .members_of_table(
                         self.const_table(),
                         FindSymbol::OnlyBefore(offset),
-                        Some(GetMembers::Const),
+                        ImportMembers::Const,
                     )
                     .into_iter()
                     .find_map(filter);
@@ -2338,7 +2436,6 @@ impl<'db> Collector<'db> {
                     .members_of_container(
                         self.execution_container(),
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        Some(GetMembers::Container(self.execution_container())),
                         false,
                     )
                     .into_iter()
@@ -2358,7 +2455,7 @@ impl<'db> Collector<'db> {
                     .members_of_table(
                         self.root_table(),
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        Some(GetMembers::Root),
+                        ImportMembers::Root,
                     )
                     .into_iter()
                     .find_map(filter);
@@ -2390,31 +2487,26 @@ impl<'db> Collector<'db> {
                 let offset = range.end();
 
                 Some(
-                    self.members_of_type(
-                        obj,
-                        FindSymbol::BeforeIfInExecutionRange(offset),
-                        true,
-                        false,
-                    )
-                    .into_iter()
-                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
-                    .map_or_else(
-                        || AssignmentLeftHandSide::CanCreate {
-                            parent: obj,
-                            new_key: text.into_boxed_str(),
-                            name_range,
-                            range,
-                        },
-                        |id| {
-                            self.name_kinds.insert(name_range, id);
-                            AssignmentLeftHandSide::Exists {
-                                parent: Some(obj),
-                                symbol: id,
+                    self.members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
+                        .into_iter()
+                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                        .map_or_else(
+                            || AssignmentLeftHandSide::CanCreate {
+                                parent: obj,
+                                new_key: text.into_boxed_str(),
                                 name_range,
                                 range,
-                            }
-                        },
-                    ),
+                            },
+                            |id| {
+                                self.name_kinds.insert(name_range, id);
+                                AssignmentLeftHandSide::Exists {
+                                    parent: Some(obj),
+                                    symbol: id,
+                                    name_range,
+                                    range,
+                                }
+                            },
+                        ),
                 )
             }
             Expr::ElementAccess(expr) => {
@@ -2435,31 +2527,26 @@ impl<'db> Collector<'db> {
                 let offset = range.end();
 
                 Some(
-                    self.members_of_type(
-                        obj,
-                        FindSymbol::BeforeIfInExecutionRange(offset),
-                        true,
-                        false,
-                    )
-                    .into_iter()
-                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
-                    .map_or_else(
-                        || AssignmentLeftHandSide::CanCreate {
-                            parent: obj,
-                            new_key: text.into_boxed_str(),
-                            name_range,
-                            range,
-                        },
-                        |id| {
-                            self.name_kinds.insert(range, id);
-                            AssignmentLeftHandSide::Exists {
-                                parent: Some(obj),
-                                symbol: id,
+                    self.members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
+                        .into_iter()
+                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                        .map_or_else(
+                            || AssignmentLeftHandSide::CanCreate {
+                                parent: obj,
+                                new_key: text.into_boxed_str(),
                                 name_range,
                                 range,
-                            }
-                        },
-                    ),
+                            },
+                            |id| {
+                                self.name_kinds.insert(range, id);
+                                AssignmentLeftHandSide::Exists {
+                                    parent: Some(obj),
+                                    symbol: id,
+                                    name_range,
+                                    range,
+                                }
+                            },
+                        ),
                 )
             }
             Expr::RootAccess(expr) => {
@@ -2473,7 +2560,7 @@ impl<'db> Collector<'db> {
                     self.members_of_table(
                         root,
                         FindSymbol::BeforeIfInExecutionRange(offset),
-                        Some(GetMembers::Root),
+                        ImportMembers::Root,
                     )
                     .into_iter()
                     .find_map(|(name, id)| if name == text { Some(id) } else { None })
@@ -2717,7 +2804,7 @@ impl<'db> Collector<'db> {
                     return right_kind;
                 };
 
-                if symbol.typ.should_substitute() && !typ.should_substitute() {
+                if symbol.typ.should_substitute_with(typ) {
                     symbol.typ = typ;
                 }
             }
@@ -2891,11 +2978,7 @@ impl<'db> Collector<'db> {
         let left = self.expr_to_type(left_kind);
         let right = self.expr_to_type(right_kind);
 
-        ExpressionKind::Literal(if left.should_substitute() {
-            right
-        } else {
-            left
-        })
+        ExpressionKind::Literal(if left == Type::Unknown { right } else { left })
     }
 
     fn arithmetic_operator(
@@ -2974,7 +3057,7 @@ impl<'db> Collector<'db> {
                     return right_kind;
                 };
 
-                if symbol.typ.should_substitute() && !typ.should_substitute() {
+                if symbol.typ.should_substitute_with(typ) {
                     symbol.typ = typ;
                 }
             }
