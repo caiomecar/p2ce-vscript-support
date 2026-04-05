@@ -6,7 +6,7 @@ use crate::{
     arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId},
 };
 
-#[derive(Debug, Default, PartialEq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum Static {
     #[default]
     NoSupport,
@@ -20,7 +20,6 @@ pub struct Symbol {
     pub kind: SymbolKind,
     pub name_range: TextRange,
     pub range: TextRange,
-    pub statik: Static,
 }
 
 /// To represent multiple symbols with the same name
@@ -81,20 +80,25 @@ impl Type {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     Local,
     Constant,
     Enum,
     EnumMember,
-    #[default]
-    Property,
+    Property(Static),
+}
+
+impl Default for SymbolKind {
+    fn default() -> Self {
+        Self::Property(Static::default())
+    }
 }
 
 impl SymbolKind {
     pub fn is_modifiable(self) -> bool {
         match self {
-            SymbolKind::Local | SymbolKind::Property => true,
+            SymbolKind::Local | SymbolKind::Property(_) => true,
             _ => false,
         }
     }
@@ -138,7 +142,11 @@ impl std::fmt::Display for SymbolDisplay<'_> {
         let s = self.symbol;
         match s.kind {
             SymbolKind::Local => write!(f, "local ")?,
-            SymbolKind::Property => {}
+            SymbolKind::Property(statik) => {
+                if statik == Static::Yes {
+                    write!(f, "static ")?;
+                }
+            }
             SymbolKind::Enum => return write!(f, "enum {}", s.name),
             SymbolKind::Constant | SymbolKind::EnumMember => {
                 let type_text = match s.typ {

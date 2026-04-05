@@ -37,7 +37,7 @@ pub fn handle_semantic_tokens(
                 Type::Class(_) => (2, 0),
                 _ => (0, 0),
             },
-            SymbolKind::Property => match symbol.typ {
+            SymbolKind::Property(_) => match symbol.typ {
                 Type::Function(_) => (1, 0),
                 Type::Class(_) => (2, 0),
                 _ => (3, 0),

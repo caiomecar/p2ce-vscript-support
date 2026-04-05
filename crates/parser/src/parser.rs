@@ -1140,11 +1140,11 @@ impl Parser {
                 range: TextRange::new(start, end),
             });
         }
-        self.expect_or_panic(SyntaxKind::OpenBracket);
         let index = self.start();
-        let expr = self.parse_expression();
-        self.finish_wrapper_or_drop(index, expr, SyntaxKind::Index);
+        self.expect_or_panic(SyntaxKind::OpenBracket);
+        self.parse_expression();
         self.expect(SyntaxKind::CloseBracket);
+        self.finish(index, SyntaxKind::Index);
         self.finish(m, SyntaxKind::ElementAccessExpression);
     }
 

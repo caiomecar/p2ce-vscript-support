@@ -11,14 +11,12 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{TextRange, TextSize};
 
 use crate::{
-    arena::{
-        ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, SymbolId, TableData, TableId,
-    },
+    arena::{ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, TableData, TableId},
     db::Db,
     symbol::{FlatSymbolTable, Static, to_flat_symbol_table},
 };
 
-pub use arena::{ArenaId, FunctionData, ParamsState};
+pub use arena::{ArenaId, FunctionData, ParamsState, SymbolId};
 pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
 pub use symbol::{Symbol, SymbolKind, SymbolTable, Type};
 
@@ -254,18 +252,12 @@ pub trait Source {
             ),
         };
 
-        let is_root = matches!(settings, ImportMembers::Root);
-
         let imports = self.imports();
 
         if let Some(imports) = imports.get(&container) {
             for import in imports {
                 if !already_included.insert(*import) {
                     continue;
-                }
-
-                if is_root {
-                    dbg!(import);
                 }
 
                 result.extend(self.import_members_inner(
@@ -349,64 +341,40 @@ pub trait Source {
         result
     }
 
-    fn symbols_at(&self, offset: TextSize, filter_by_static: bool) -> Vec<SymbolId> {
-        let mut taken_names = FxHashSet::default();
-        let mut items = Vec::new();
-
-        let mut filter = |(name, id)| {
-            if taken_names.insert(name) {
-                Some(id)
-            } else {
-                None
-            }
-        };
+    fn symbols_at(&self, offset: TextSize, filter_by_static: bool) -> FlatSymbolTable {
+        let mut items = FlatSymbolTable::default();
 
         let scope = self.scope(offset);
 
-        items.extend(
-            self.local_members(offset)
-                .into_iter()
-                .filter_map(&mut filter),
-        );
+        for (name, id) in self.local_members(offset) {
+            items.entry(name).or_insert(id);
+        }
 
-        items.extend(
-            self.members_of_table(
-                self.const_table(),
-                FindSymbol::OnlyBefore(offset),
-                ImportMembers::Const,
-            )
-            .into_iter()
-            .filter_map(&mut filter),
-        );
+        for (name, id) in self.members_of_table(
+            self.const_table(),
+            FindSymbol::OnlyBefore(offset),
+            ImportMembers::Const,
+        ) {
+            items.entry(name).or_insert(id);
+        }
 
         let container = self.arena()[scope].container;
 
-        items.extend(
-            self.members_of_container(
-                container,
-                FindSymbol::BeforeIfInExecutionRange(offset),
-                filter_by_static,
-            )
-            .into_iter()
-            .filter_map(&mut filter),
-        );
+        for (name, id) in self.members_of_container(
+            container,
+            FindSymbol::BeforeIfInExecutionRange(offset),
+            filter_by_static,
+        ) {
+            items.entry(name).or_insert(id);
+        }
 
-        items.extend(
-            self.members_of_table(
-                self.root_table(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
-                ImportMembers::Root,
-            )
-            .into_iter()
-            .filter_map(&mut filter),
-        );
-
-        dbg!(self.imports());
-        dbg!(self.members_of_table(
+        for (name, id) in self.members_of_table(
             self.root_table(),
             FindSymbol::BeforeIfInExecutionRange(offset),
             ImportMembers::Root,
-        ));
+        ) {
+            items.entry(name).or_insert(id);
+        }
 
         items
     }
@@ -620,10 +588,12 @@ pub trait Source {
             // them from the table
             for (name, id) in additional {
                 let symbol = self.get(id);
-                if symbol.statik != avoid_static {
-                    members.insert(name, id);
-                } else {
+                if let SymbolKind::Property(statik) = symbol.kind
+                    && statik == avoid_static
+                {
                     members.remove(&name);
+                } else {
+                    members.insert(name, id);
                 }
             }
 

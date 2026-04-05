@@ -1,7 +1,7 @@
 use la_arena::Idx;
 use rustc_hash::FxHashMap;
 use sq_3_parser::{
-    AstNode, TextRange, TextSize,
+    AstNode, SyntaxToken, TextRange, TextSize,
     ast::{self, *},
 };
 use std::{collections::VecDeque, mem::discriminant, path::PathBuf};
@@ -119,16 +119,21 @@ enum MetamethodErrors {
 }
 
 fn unquote_string(input: &str) -> String {
-    if let Some(stripped) = input.strip_prefix("@\"") {
-        // Verbatim string
-        let inner = stripped.strip_suffix('"').unwrap_or(stripped);
-        inner.replace("\"\"", "\\\"")
-    } else if let Some(stripped) = input.strip_prefix('"') {
-        // Normal string
-        stripped.strip_suffix('"').unwrap_or(stripped).to_string()
-    } else {
-        // Not quoted
-        input.to_string()
+    let stripped = input.strip_prefix('"').unwrap_or(input);
+    stripped.strip_suffix('"').unwrap_or(stripped).to_string()
+}
+
+fn unquote_verbatim_string(input: &str) -> String {
+    let stripped = input.strip_prefix("@\"").unwrap_or(input);
+    let stripped = stripped.strip_suffix('"').unwrap_or(stripped);
+
+    stripped.replace('\n', "\\n").replace('\r', "\\r")
+}
+
+fn unquote_from_token(token_result: (StringNameKind, SyntaxToken)) -> String {
+    match token_result.0 {
+        StringNameKind::Normal => unquote_string(token_result.1.text()),
+        StringNameKind::Verbatim => unquote_verbatim_string(token_result.1.text()),
     }
 }
 
@@ -873,7 +878,6 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     name: text.clone(),
                     typ: Type::Function(function),
-                    kind: SymbolKind::Property,
                     name_range: name.syntax().text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
@@ -893,7 +897,6 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     name: "constructor".to_owned(),
                     typ: Type::Function(function),
-                    kind: SymbolKind::Property,
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
@@ -923,10 +926,9 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     name: text.clone(),
                     typ: Type::Function(function),
-                    kind: SymbolKind::Property,
+                    kind: SymbolKind::Property(statik),
                     name_range: name.syntax().text_range(),
                     range: method.syntax().text_range(),
-                    statik,
                 });
                 self.add_current_container_member(text, symbol);
 
@@ -947,10 +949,9 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     name: "constructor".to_owned(),
                     typ: Type::Function(function),
-                    kind: SymbolKind::Property,
+                    kind: SymbolKind::Property(statik),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
-                    statik,
                 });
 
                 self.add_current_container_member("constructor".to_owned(), symbol);
@@ -976,10 +977,7 @@ impl<'db> Collector<'db> {
                 (name.syntax().text_range(), text)
             }
             MemberName::String(name) => {
-                let Some(token) = name
-                    .token()
-                    .map(|(_kind, token)| unquote_string(token.text()))
-                else {
+                let Some(token) = name.token().map(|result| unquote_from_token(result)) else {
                     return;
                 };
                 (name.syntax().text_range(), token)
@@ -999,7 +997,6 @@ impl<'db> Collector<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ: self.expr_to_type(value),
-            kind: SymbolKind::Property,
             name_range,
             range: property.syntax().text_range(),
             ..Default::default()
@@ -1028,10 +1025,7 @@ impl<'db> Collector<'db> {
                 (name.syntax().text_range(), text)
             }
             MemberName::String(name) => {
-                let Some(token) = name
-                    .token()
-                    .map(|(_kind, token)| unquote_string(token.text()))
-                else {
+                let Some(token) = name.token().map(|result| unquote_from_token(result)) else {
                     return;
                 };
                 (name.syntax().text_range(), token)
@@ -1051,10 +1045,9 @@ impl<'db> Collector<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ: self.expr_to_type(value),
-            kind: SymbolKind::Property,
+            kind: SymbolKind::Property(statik),
             name_range,
             range: property.syntax().text_range(),
-            statik,
         });
 
         self.add_current_container_member(text, symbol);
@@ -1400,7 +1393,6 @@ impl<'db> Collector<'db> {
             let symbol = self.symbol(Symbol {
                 name: final_text.clone(),
                 typ: Type::Function(function),
-                kind: SymbolKind::Property,
                 name_range: final_name.syntax().text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()
@@ -1510,7 +1502,6 @@ impl<'db> Collector<'db> {
         let symbol = self.symbol(Symbol {
             name: final_text.clone(),
             typ: Type::Function(function),
-            kind: SymbolKind::Property,
             name_range: final_name.syntax().text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
@@ -1904,11 +1895,20 @@ impl<'db> Collector<'db> {
 
                 ExpressionKind::Literal(Type::Float(Some(value)))
             }
-            LiteralExpressionKind::String | LiteralExpressionKind::VerbatimString => {
+            LiteralExpressionKind::String => {
                 let string = StringId::new(
                     self.file,
                     self.arena
                         .alloc(unquote_string(token.text()).into_boxed_str()),
+                );
+
+                ExpressionKind::Literal(Type::String(Some(string)))
+            }
+            LiteralExpressionKind::VerbatimString => {
+                let string = StringId::new(
+                    self.file,
+                    self.arena
+                        .alloc(unquote_verbatim_string(token.text()).into_boxed_str()),
                 );
 
                 ExpressionKind::Literal(Type::String(Some(string)))
@@ -2229,8 +2229,6 @@ impl<'db> Collector<'db> {
             .entry(destination)
             .and_modify(|e| e.push(file))
             .or_insert_with(|| vec![file]);
-
-        dbg!(&self.imports);
     }
 
     fn call_type(
@@ -2671,7 +2669,6 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     name: new_key.to_string(),
                     typ: self.expr_to_type(right_kind),
-                    kind: SymbolKind::Property,
                     name_range,
                     range: expr_range,
                     ..Default::default()
@@ -2717,7 +2714,6 @@ impl<'db> Collector<'db> {
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
                         typ: self.expr_to_type(right_kind),
-                        kind: SymbolKind::Property,
                         name_range,
                         range: expr_range,
                         ..Default::default()

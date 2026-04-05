@@ -50,7 +50,7 @@ pub fn handle_document_symbols(
             _ => match symbol.kind {
                 SymbolKind::Constant => LspSymbolKind::CONSTANT,
                 SymbolKind::EnumMember => LspSymbolKind::ENUM_MEMBER,
-                SymbolKind::Property => LspSymbolKind::FIELD,
+                SymbolKind::Property(_) => LspSymbolKind::FIELD,
                 _ => LspSymbolKind::VARIABLE,
             },
         };
