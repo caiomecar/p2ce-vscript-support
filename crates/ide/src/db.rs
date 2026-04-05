@@ -62,6 +62,7 @@ pub struct Builtins {
 #[derive(Debug, Clone, Copy)]
 pub enum SpecialFunction {
     GetRootTable,
+    GetConstTable,
     IncludeScript,
     DoIncludeScript,
 }
@@ -263,6 +264,7 @@ impl Database {
             // practice
             let kind = match name.as_str() {
                 "getroottable" => SpecialFunction::GetRootTable,
+                "getconsttable" => SpecialFunction::GetConstTable,
                 "IncludeScript" => SpecialFunction::IncludeScript,
                 "DoIncludeScript" => SpecialFunction::DoIncludeScript,
                 _ => return None,

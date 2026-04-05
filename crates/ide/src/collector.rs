@@ -2320,6 +2320,10 @@ impl<'db> Collector<'db> {
                         // Overrides return
                         return Some(Type::Table(self.root_table()));
                     }
+                    Some(SpecialFunction::GetConstTable) => {
+                        // Overrides return
+                        return Some(Type::Table(self.const_table()));
+                    }
                     None => {}
                 };
 
@@ -2425,7 +2429,7 @@ impl<'db> Collector<'db> {
                 if let Some(symbol) = consts {
                     self.name_kinds.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(Type::Table(self.const_table())),
+                        parent: None,
                         symbol,
                         name_range: range,
                         range,
@@ -2682,10 +2686,28 @@ impl<'db> Collector<'db> {
                 range,
             }) => {
                 if let Some(parent) = parent {
+                    // Problematic: when we have something like
+                    // ::a <- 1
+                    // a <- 1
+                    // The `parent` for the second assignment becomes the root which means that the code
+                    // below will add the symbol to the root table instead of adding it to the current
+                    // `this`, we also can't just map the root to `this` since it doesn't consider
+                    // ::a <- 1
+                    // ::a <- 1
+                    // Where both symbols should go to the root
+                    // to solve this we check if name_range == range which distinguishes plain name
+                    // expressions from other expressions
+                    let parent = if name_range == range {
+                        self.execution_container().into()
+                    } else {
+                        parent
+                    };
+
                     let arguments = vec![
                         Some(ExpressionKind::Literal(Type::String(None))),
                         right_kind,
                     ];
+
                     let Some(container) = self.call_new_slot(parent, &arguments, range) else {
                         return right_kind;
                     };
@@ -2702,12 +2724,8 @@ impl<'db> Collector<'db> {
                     });
 
                     self.add_container_member(container, name, symbol);
-                }
-
-                if matches!(
-                    self.get(symbol).kind,
-                    SymbolKind::Local | SymbolKind::Constant | SymbolKind::Enum
-                ) {
+                    // Parent is only None for locals and consts
+                } else {
                     // ```
                     // local a = 2
                     // a <- 1
@@ -3218,12 +3236,7 @@ impl<'db> Collector<'db> {
                     );
 
                     return Some(ExpressionKind::Literal(self.get(symbol).typ));
-                }
-
-                if matches!(
-                    self.get(symbol).kind,
-                    SymbolKind::Local | SymbolKind::Constant | SymbolKind::Enum
-                ) {
+                } else {
                     // ```
                     // local a = 2
                     // delete a
