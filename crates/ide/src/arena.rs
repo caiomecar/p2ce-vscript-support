@@ -55,7 +55,7 @@ arena_id!(ClassId => ClassData);
 arena_id!(EnumId => EnumData);
 arena_id!(FunctionId => FunctionData);
 arena_id!(ArrayId => ArrayData);
-arena_id!(StringId => Box<str>);
+arena_id!(StringId => StringData);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Container {
@@ -137,6 +137,12 @@ pub struct ArrayData {
     pub typ: Type,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct StringData {
+    pub text: Box<str>,
+    pub unquoted_range: TextRange,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scope {
     pub range: TextRange,
@@ -190,7 +196,7 @@ impl_source_arena! {
     enums:     EnumData,
     functions: FunctionData,
     arrays:    ArrayData,
-    strings:   Box<str>,
+    strings:   StringData,
 }
 
 impl SourceArena {

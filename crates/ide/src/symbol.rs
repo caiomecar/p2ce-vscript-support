@@ -154,7 +154,7 @@ impl std::fmt::Display for SymbolDisplay<'_> {
                     Type::Float(Some(value)) => value.to_string(),
                     Type::Boolean(Some(value)) => value.to_string(),
                     Type::String(Some(id)) => {
-                        format!("\"{}\"", self.file.get(id))
+                        format!("\"{}\"", self.file.get(id).text)
                     }
                     _ => return write!(f, "const {}", s.name),
                 };

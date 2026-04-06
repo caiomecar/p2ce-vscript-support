@@ -11,8 +11,8 @@ use crate::{
     NullableExprKind, Source, SourceSymbol,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
-        FunctionData, FunctionId, ParamsState, Scope, ScopeId, SourceArena, StringId, SymbolId,
-        TableData, TableId,
+        FunctionData, FunctionId, ParamsState, Scope, ScopeId, SourceArena, StringData, StringId,
+        SymbolId, TableData, TableId,
     },
     db::{Db, ScriptResolutionError, SpecialFunction},
     symbol::{Static, Symbol, SymbolKind, SymbolTable, Type, insert_symbol},
@@ -116,25 +116,6 @@ enum MetamethodErrors {
     No,
     Yes { keyword: &'static str },
     YesBinary { keyword: &'static str, right: Type },
-}
-
-fn unquote_string(input: &str) -> String {
-    let stripped = input.strip_prefix('"').unwrap_or(input);
-    stripped.strip_suffix('"').unwrap_or(stripped).to_string()
-}
-
-fn unquote_verbatim_string(input: &str) -> String {
-    let stripped = input.strip_prefix("@\"").unwrap_or(input);
-    let stripped = stripped.strip_suffix('"').unwrap_or(stripped);
-
-    stripped.replace('\n', "\\n").replace('\r', "\\r")
-}
-
-fn unquote_from_token(token_result: (StringNameKind, SyntaxToken)) -> String {
-    match token_result.0 {
-        StringNameKind::Normal => unquote_string(token_result.1.text()),
-        StringNameKind::Verbatim => unquote_verbatim_string(token_result.1.text()),
-    }
 }
 
 pub struct Collector<'db> {
@@ -377,6 +358,40 @@ impl<'db> Collector<'db> {
 
     fn array(&mut self, array: ArrayData) -> ArrayId {
         ArrayId::new(self.file, self.arena.alloc(array))
+    }
+
+    fn string(&mut self, token_result: (StringNameKind, SyntaxToken)) -> StringId {
+        let (left_offset, right_offset, text) = match token_result.0 {
+            StringNameKind::Normal => {
+                let input = token_result.1.text();
+                let (s, left) = input.strip_prefix('"').map_or((input, 0u32), |s| (s, 1));
+                let (s, right) = s.strip_suffix('"').map_or((s, 0u32), |s| (s, 1));
+
+                (left, right, s.to_owned())
+            }
+            StringNameKind::Verbatim => {
+                let input = token_result.1.text();
+                let (s, left) = input.strip_prefix("@\"").map_or((input, 0u32), |s| (s, 2));
+                let (s, right) = s.strip_suffix('"').map_or((s, 0u32), |s| (s, 1));
+
+                (left, right, s.replace('\n', "\\n").replace('\r', "\\r"))
+            }
+        };
+
+        let range = token_result.1.text_range();
+
+        let range = TextRange::new(
+            range.start() + TextSize::new(left_offset),
+            range.end() - TextSize::new(right_offset),
+        );
+
+        StringId::new(
+            self.file,
+            self.arena.alloc(StringData {
+                text: text.into_boxed_str(),
+                unquoted_range: range,
+            }),
+        )
     }
 
     fn clone_type(&mut self, typ: Type) -> Type {
@@ -977,10 +992,12 @@ impl<'db> Collector<'db> {
                 (name.syntax().text_range(), text)
             }
             MemberName::String(name) => {
-                let Some(token) = name.token().map(|result| unquote_from_token(result)) else {
+                let Some(id) = name.token().map(|result| self.string(result)) else {
                     return;
                 };
-                (name.syntax().text_range(), token)
+
+                let string = self.get(id);
+                (string.unquoted_range, string.text.to_string())
             }
             MemberName::Computed(name) => {
                 let Some(expr) = name.expression() else {
@@ -990,7 +1007,9 @@ impl<'db> Collector<'db> {
                 let Type::String(Some(id)) = typ else {
                     return;
                 };
-                (expr.syntax().text_range(), self.get(id).to_string())
+
+                let string = self.get(id);
+                (string.unquoted_range, string.text.to_string())
             }
         };
 
@@ -1025,10 +1044,12 @@ impl<'db> Collector<'db> {
                 (name.syntax().text_range(), text)
             }
             MemberName::String(name) => {
-                let Some(token) = name.token().map(|result| unquote_from_token(result)) else {
+                let Some(id) = name.token().map(|result| self.string(result)) else {
                     return;
                 };
-                (name.syntax().text_range(), token)
+
+                let string = self.get(id);
+                (string.unquoted_range, string.text.to_string())
             }
             MemberName::Computed(name) => {
                 let Some(expr) = name.expression() else {
@@ -1038,7 +1059,9 @@ impl<'db> Collector<'db> {
                 let Type::String(Some(id)) = typ else {
                     return;
                 };
-                (expr.syntax().text_range(), self.get(id).to_string())
+
+                let string = self.get(id);
+                (string.unquoted_range, string.text.to_string())
             }
         };
 
@@ -1896,20 +1919,12 @@ impl<'db> Collector<'db> {
                 ExpressionKind::Literal(Type::Float(Some(value)))
             }
             LiteralExpressionKind::String => {
-                let string = StringId::new(
-                    self.file,
-                    self.arena
-                        .alloc(unquote_string(token.text()).into_boxed_str()),
-                );
+                let string = self.string((StringNameKind::Normal, token));
 
                 ExpressionKind::Literal(Type::String(Some(string)))
             }
             LiteralExpressionKind::VerbatimString => {
-                let string = StringId::new(
-                    self.file,
-                    self.arena
-                        .alloc(unquote_verbatim_string(token.text()).into_boxed_str()),
-                );
+                let string = self.string((StringNameKind::Verbatim, token));
 
                 ExpressionKind::Literal(Type::String(Some(string)))
             }
@@ -2117,7 +2132,9 @@ impl<'db> Collector<'db> {
             return None;
         };
 
-        let text = self.get(id).to_string();
+        let string = self.get(id);
+        let text = string.text.to_string();
+        let name_range = string.unquoted_range;
         let offset = expr.syntax().text_range().end();
 
         let result = self
@@ -2125,7 +2142,7 @@ impl<'db> Collector<'db> {
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
-                    self.name_kinds.insert(index.syntax().text_range(), id);
+                    self.name_kinds.insert(name_range, id);
                     Some(ExpressionKind::Symbol(id))
                 } else {
                     None
@@ -2170,7 +2187,7 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let path = PathBuf::from(self.get(id).to_string());
+        let path = PathBuf::from(self.get(id).text.to_string());
 
         let file = match self.db.get_script(path) {
             Ok(file) => file,
@@ -2523,9 +2540,10 @@ impl<'db> Collector<'db> {
                     });
                 };
 
-                let text = self.get(id).to_string();
+                let string = self.get(id);
+                let text = string.text.to_string();
+                let name_range = string.unquoted_range;
                 let range = expr.syntax().text_range();
-                let name_range = index.syntax().text_range();
                 let offset = range.end();
 
                 Some(
@@ -2540,7 +2558,7 @@ impl<'db> Collector<'db> {
                                 range,
                             },
                             |id| {
-                                self.name_kinds.insert(range, id);
+                                self.name_kinds.insert(name_range, id);
                                 AssignmentLeftHandSide::Exists {
                                     parent: Some(obj),
                                     symbol: id,
