@@ -7,7 +7,7 @@ use lsp_types::{
     Command, CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse,
     CompletionTextEdit, InsertTextFormat, TextEdit,
 };
-use sq_3_parser::{AstNode, SyntaxKind, SyntaxNode, TextRange, TextSize, ast};
+use sq_3_parser::{AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize, ast};
 
 use crate::conversions;
 
@@ -188,6 +188,10 @@ pub fn can_use_identifier(name: &str) -> bool {
         return false;
     };
 
+    if KEYWORDS.contains_key(name) {
+        return name == "constructor";
+    }
+
     if !first.is_ascii_alphabetic() {
         return false;
     }
@@ -294,24 +298,76 @@ pub fn context_completions(
                 },
             )
         }
-        SyntaxKind::Identifier => {
+
+        SyntaxKind::BaseKeyword
+        | SyntaxKind::BreakKeyword
+        | SyntaxKind::CaseKeyword
+        | SyntaxKind::CatchKeyword
+        | SyntaxKind::ClassKeyword
+        | SyntaxKind::CloneKeyword
+        | SyntaxKind::ConstKeyword
+        | SyntaxKind::ContinueKeyword
+        | SyntaxKind::DefaultKeyword
+        | SyntaxKind::DeleteKeyword
+        | SyntaxKind::DoKeyword
+        | SyntaxKind::ElseKeyword
+        | SyntaxKind::EnumKeyword
+        | SyntaxKind::ExtendsKeyword
+        | SyntaxKind::FalseKeyword
+        | SyntaxKind::ForEachKeyword
+        | SyntaxKind::ForKeyword
+        | SyntaxKind::FunctionKeyword
+        | SyntaxKind::IfKeyword
+        | SyntaxKind::InKeyword
+        | SyntaxKind::InstanceOfKeyword
+        | SyntaxKind::LocalKeyword
+        | SyntaxKind::NullKeyword
+        | SyntaxKind::RawCallKeyword
+        | SyntaxKind::ResumeKeyword
+        | SyntaxKind::ReturnKeyword
+        | SyntaxKind::StaticKeyword
+        | SyntaxKind::SwitchKeyword
+        | SyntaxKind::ThisKeyword
+        | SyntaxKind::ThrowKeyword
+        | SyntaxKind::TrueKeyword
+        | SyntaxKind::TryKeyword
+        | SyntaxKind::TypeOfKeyword
+        | SyntaxKind::WhileKeyword
+        | SyntaxKind::YieldKeyword
+        | SyntaxKind::FileKeyword
+        | SyntaxKind::LineKeyword
+        | SyntaxKind::Identifier => {
             if !touching {
                 return Some(ContextCompletions::Flat);
             }
 
-            let Some(parent) = token.parent() else {
+            // It's either in 'Name' or 'Error' node
+            let Some(parent) = token.parent().and_then(|p| p.parent()) else {
                 return Some(ContextCompletions::Flat);
             };
 
-            Some(if ast::RootAccessExpression::can_cast(parent.kind()) {
-                ContextCompletions::Root
-                // Member access also wraps it in 'member' node
-            } else if let Some(node) = ast::MemberAccessExpression::cast(parent.parent()?) {
-                let typ = finished_file.type_at(node.object()?.syntax().text_range());
-                ContextCompletions::FromObject(typ, parent.text_range())
-            } else {
-                ContextCompletions::Flat
-            })
+            if ast::RootAccessExpression::can_cast(parent.kind()) {
+                return Some(ContextCompletions::Root);
+            }
+
+            // Member access also wraps it in 'member' node
+            let Some(member_access) = parent.parent() else {
+                return Some(ContextCompletions::Flat);
+            };
+
+            Some(
+                if let Some(node) = ast::MemberAccessExpression::cast(member_access) {
+                    let typ = finished_file.type_at(node.object()?.syntax().text_range());
+                    let range = if let Some(dot) = node.dot_token() {
+                        dot.text_range().cover(parent.text_range())
+                    } else {
+                        parent.text_range()
+                    };
+                    ContextCompletions::FromObject(typ, range)
+                } else {
+                    ContextCompletions::Flat
+                },
+            )
         }
         _ => Some(ContextCompletions::Flat),
     }

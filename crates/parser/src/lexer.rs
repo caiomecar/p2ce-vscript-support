@@ -4,7 +4,7 @@ use crate::cst::SyntaxKind;
 use phf::phf_map;
 use rowan::{TextRange, TextSize};
 
-static KEYWORDS: phf::Map<&'static str, SyntaxKind> = phf_map! {
+pub static KEYWORDS: phf::Map<&'static str, SyntaxKind> = phf_map! {
     "base" => SyntaxKind::BaseKeyword,
     "break" => SyntaxKind::BreakKeyword,
     "case" => SyntaxKind::CaseKeyword,

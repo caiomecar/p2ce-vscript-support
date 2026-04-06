@@ -8,6 +8,7 @@ use crate::{ast::SourceFile, parser::Event};
 use rowan::GreenNodeBuilder;
 
 pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
+pub use lexer::KEYWORDS;
 pub use rowan::{
     GreenNode, TextRange, TextSize,
     ast::{AstChildren, AstNode, AstPtr, SyntaxNodePtr},
