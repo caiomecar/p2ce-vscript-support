@@ -1173,7 +1173,7 @@ impl<'db> Collector<'db> {
     }
 
     fn collect_stmt(&mut self, stmt: &Stmt) {
-        if self.dead_code {
+        if self.dead_code && !matches!(stmt, Stmt::Empty(_)) {
             self.diagnostics.push(Diagnostic {
                 message: "Unreachable statement".to_owned(),
                 range: stmt.syntax().text_range(),

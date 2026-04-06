@@ -74,7 +74,7 @@ impl Type {
         match (self, other) {
             // We want to replace null with unknown to not error out
             (Type::Null, Type::Unknown) => true,
-            (Type::Unknown, _) => true,
+            (Type::Null | Type::Unknown, _) => true,
             _ => false,
         }
     }
