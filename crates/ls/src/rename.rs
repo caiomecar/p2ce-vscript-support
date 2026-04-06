@@ -26,7 +26,7 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<Works
     };
 
     let finished_file = FinishedFile::new(db, file);
-    let Some(symbol_id) = finished_file.symbol_at(token.text_range()) else {
+    let Some(symbol_id) = finished_file.symbol_at(&token) else {
         return Ok(None);
     };
 
@@ -36,7 +36,7 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<Works
     }
 
     let edits = finished_file
-        .name_kinds()
+        .range_to_symbol()
         .iter()
         .filter_map(|(range, id)| {
             if symbol_id != *id {

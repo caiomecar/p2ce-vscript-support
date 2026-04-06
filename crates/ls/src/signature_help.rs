@@ -44,7 +44,7 @@ pub fn handle_signature_help(
     };
 
     let finished_file = FinishedFile::new(db, file);
-    let kind = finished_file.expr_kind_at(callee.syntax().text_range());
+    let kind = finished_file.expr_at(callee.syntax().text_range());
     let (name, typ) = match kind {
         Some(ExpressionKind::Literal(typ)) => ("".to_owned(), typ),
         Some(ExpressionKind::Symbol(id)) => {

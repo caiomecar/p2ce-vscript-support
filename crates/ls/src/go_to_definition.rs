@@ -28,7 +28,7 @@ pub fn handle_go_to_definition(
     };
 
     let finished_file = FinishedFile::new(db, file);
-    let Some(id) = finished_file.symbol_at(token.text_range()) else {
+    let Some(id) = finished_file.symbol_at(&token) else {
         return Ok(None);
     };
 

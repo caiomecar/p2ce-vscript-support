@@ -21,7 +21,7 @@ pub fn handle_semantic_tokens(
     let line_idx = line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
 
-    let mut entries: Vec<_> = finished_file.name_kinds().iter().collect();
+    let mut entries: Vec<_> = finished_file.range_to_symbol().iter().collect();
     entries.sort_by_key(|(range, _)| range.start());
 
     let mut tokens = Vec::new();

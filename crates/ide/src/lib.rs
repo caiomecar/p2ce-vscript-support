@@ -8,7 +8,7 @@ use std::collections::hash_map::Entry;
 
 use la_arena::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
-use sq_3_parser::{TextRange, TextSize};
+use sq_3_parser::{SyntaxToken, TextRange, TextSize};
 
 use crate::{
     arena::{ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, TableData, TableId},
@@ -116,8 +116,8 @@ pub trait Source {
     fn scope(&self, offset: TextSize) -> ScopeId;
     fn root_table(&self) -> TableId;
     fn const_table(&self) -> TableId;
-    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind>;
-    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId>;
+    fn range_to_expr(&self) -> &FxHashMap<TextRange, ExpressionKind>;
+    fn range_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId>;
     fn diagnostics(&self) -> &[Diagnostic];
 
     fn get<T>(&self, id: T) -> &T::Data
@@ -669,16 +669,25 @@ pub trait Source {
         }
     }
 
-    fn expr_kind_at(&self, range: TextRange) -> NullableExprKind {
-        self.expr_kinds().get(&range).cloned()
+    fn expr_at(&self, range: TextRange) -> NullableExprKind {
+        self.range_to_expr().get(&range).cloned()
     }
 
-    fn symbol_at(&self, range: TextRange) -> Option<SymbolId> {
-        self.name_kinds().get(&range).cloned()
+    fn symbol_at(&self, token: &SyntaxToken) -> Option<SymbolId> {
+        let range = if let Some(ExpressionKind::Literal(Type::String(Some(id)))) =
+            self.expr_at(token.text_range())
+        {
+            let string = self.get(id);
+            string.unquoted_range
+        } else {
+            token.text_range()
+        };
+
+        self.range_to_symbol().get(&range).cloned()
     }
 
     fn type_at(&self, text_range: TextRange) -> Type {
-        self.expr_to_type(self.expr_kind_at(text_range))
+        self.expr_to_type(self.expr_at(text_range))
     }
 }
 
@@ -742,12 +751,12 @@ impl<'db> Source for FinishedFile<'db> {
         TableId::new(self.1, self.source().const_table)
     }
 
-    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind> {
-        &self.source().expr_kinds
+    fn range_to_expr(&self) -> &FxHashMap<TextRange, ExpressionKind> {
+        &self.source().range_to_expr
     }
 
-    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId> {
-        &self.source().name_kinds
+    fn range_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId> {
+        &self.source().range_to_symbol
     }
 
     fn diagnostics(&self) -> &[Diagnostic] {
@@ -764,7 +773,7 @@ pub struct SourceSymbol {
     root_table: Idx<TableData>,
     source_table: Idx<TableData>,
 
-    expr_kinds: FxHashMap<TextRange, ExpressionKind>,
-    name_kinds: FxHashMap<TextRange, SymbolId>,
+    range_to_expr: FxHashMap<TextRange, ExpressionKind>,
+    range_to_symbol: FxHashMap<TextRange, SymbolId>,
     diagnostics: Vec<Diagnostic>,
 }

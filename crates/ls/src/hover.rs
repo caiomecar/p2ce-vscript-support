@@ -25,7 +25,7 @@ pub fn handle_hover(db: &Database, params: HoverParams) -> Result<Option<Hover>>
     };
 
     let finished_file = FinishedFile::new(db, file);
-    let Some(id) = finished_file.symbol_at(token.text_range()) else {
+    let Some(id) = finished_file.symbol_at(&token) else {
         return Ok(None);
     };
 

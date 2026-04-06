@@ -150,8 +150,8 @@ pub struct Collector<'db> {
     function: Option<Idx<FunctionData>>,
     deferred_functions: VecDeque<DeferredFunction>,
 
-    expr_kinds: FxHashMap<TextRange, ExpressionKind>,
-    name_kinds: FxHashMap<TextRange, SymbolId>,
+    range_to_expr: FxHashMap<TextRange, ExpressionKind>,
+    range_to_symbol: FxHashMap<TextRange, SymbolId>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -184,12 +184,12 @@ impl<'db> Source for Collector<'db> {
         TableId::new(self.file, self.const_table)
     }
 
-    fn expr_kinds(&self) -> &FxHashMap<TextRange, ExpressionKind> {
-        &self.expr_kinds
+    fn range_to_expr(&self) -> &FxHashMap<TextRange, ExpressionKind> {
+        &self.range_to_expr
     }
 
-    fn name_kinds(&self) -> &FxHashMap<TextRange, SymbolId> {
-        &self.name_kinds
+    fn range_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId> {
+        &self.range_to_symbol
     }
 
     fn get<T>(&self, id: T) -> &T::Data
@@ -262,8 +262,8 @@ impl<'db> Collector<'db> {
             execution_range: node.syntax().text_range(),
             function: None,
             deferred_functions: VecDeque::new(),
-            expr_kinds: FxHashMap::default(),
-            name_kinds: FxHashMap::default(),
+            range_to_expr: FxHashMap::default(),
+            range_to_symbol: FxHashMap::default(),
             diagnostics: Vec::new(),
         };
 
@@ -299,8 +299,8 @@ impl<'db> Collector<'db> {
             const_table,
             root_table,
             source_table,
-            expr_kinds: collector.expr_kinds,
-            name_kinds: collector.name_kinds,
+            range_to_expr: collector.range_to_expr,
+            range_to_symbol: collector.range_to_symbol,
             diagnostics: collector.diagnostics,
         }
     }
@@ -320,7 +320,7 @@ impl<'db> Collector<'db> {
     fn symbol(&mut self, symbol: Symbol) -> SymbolId {
         let name_range = symbol.name_range;
         let id = SymbolId::new(self.file, self.arena.alloc(symbol));
-        self.name_kinds.insert(name_range, id);
+        self.range_to_symbol.insert(name_range, id);
         id
     }
 
@@ -374,7 +374,13 @@ impl<'db> Collector<'db> {
                 let (s, left) = input.strip_prefix("@\"").map_or((input, 0u32), |s| (s, 2));
                 let (s, right) = s.strip_suffix('"').map_or((s, 0u32), |s| (s, 1));
 
-                (left, right, s.replace('\n', "\\n").replace('\r', "\\r"))
+                (
+                    left,
+                    right,
+                    s.replace('\n', "\\n")
+                        .replace('\r', "\\r")
+                        .replace("\"\"", "\\\""),
+                )
             }
         };
 
@@ -1474,7 +1480,7 @@ impl<'db> Collector<'db> {
 
         let mut typ = self.get(id).typ;
         let key = names[0].syntax().text_range();
-        self.name_kinds.insert(key, id);
+        self.range_to_symbol.insert(key, id);
 
         for segment in &names[1..] {
             let Some(text) = segment.text() else {
@@ -1508,7 +1514,7 @@ impl<'db> Collector<'db> {
 
             typ = self.get(id).typ;
             let key = segment.syntax().text_range();
-            self.name_kinds.insert(key, id);
+            self.range_to_symbol.insert(key, id);
         }
 
         let arguments = vec![
@@ -1844,7 +1850,7 @@ impl<'db> Collector<'db> {
         };
         if let Some(kind) = kind {
             let key = expr.syntax().text_range();
-            self.expr_kinds.insert(key, kind);
+            self.range_to_expr.insert(key, kind);
         }
         kind
     }
@@ -2021,7 +2027,7 @@ impl<'db> Collector<'db> {
             .or_else(members)
             .or_else(root)
             .map(|id| {
-                self.name_kinds.insert(expr.syntax().text_range(), id);
+                self.range_to_symbol.insert(expr.syntax().text_range(), id);
                 if matches!(self.get(id).typ, Type::Enum(_))
                     && expr
                         .syntax()
@@ -2055,7 +2061,8 @@ impl<'db> Collector<'db> {
         .into_iter()
         .find_map(|(name, id)| {
             if name == text {
-                self.name_kinds.insert(name_node.syntax().text_range(), id);
+                self.range_to_symbol
+                    .insert(name_node.syntax().text_range(), id);
                 Some(ExpressionKind::Symbol(id))
             } else {
                 None
@@ -2103,7 +2110,8 @@ impl<'db> Collector<'db> {
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
-                    self.name_kinds.insert(name_node.syntax().text_range(), id);
+                    self.range_to_symbol
+                        .insert(name_node.syntax().text_range(), id);
                     Some(ExpressionKind::Symbol(id))
                 } else {
                     None
@@ -2142,7 +2150,7 @@ impl<'db> Collector<'db> {
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
-                    self.name_kinds.insert(name_range, id);
+                    self.range_to_symbol.insert(name_range, id);
                     Some(ExpressionKind::Symbol(id))
                 } else {
                     None
@@ -2423,7 +2431,7 @@ impl<'db> Collector<'db> {
                 let locals = self.local_members(offset).into_iter().find_map(filter);
 
                 if let Some(symbol) = locals {
-                    self.name_kinds.insert(range, symbol);
+                    self.range_to_symbol.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: None,
                         symbol,
@@ -2442,7 +2450,7 @@ impl<'db> Collector<'db> {
                     .find_map(filter);
 
                 if let Some(symbol) = consts {
-                    self.name_kinds.insert(range, symbol);
+                    self.range_to_symbol.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: None,
                         symbol,
@@ -2461,7 +2469,7 @@ impl<'db> Collector<'db> {
                     .find_map(filter);
 
                 if let Some(symbol) = members {
-                    self.name_kinds.insert(range, symbol);
+                    self.range_to_symbol.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(self.arena[self.scope].container.into()),
                         symbol,
@@ -2480,7 +2488,7 @@ impl<'db> Collector<'db> {
                     .find_map(filter);
 
                 if let Some(symbol) = root {
-                    self.name_kinds.insert(range, symbol);
+                    self.range_to_symbol.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(Type::Table(self.root_table())),
                         symbol,
@@ -2517,7 +2525,7 @@ impl<'db> Collector<'db> {
                                 range,
                             },
                             |id| {
-                                self.name_kinds.insert(name_range, id);
+                                self.range_to_symbol.insert(name_range, id);
                                 AssignmentLeftHandSide::Exists {
                                     parent: Some(obj),
                                     symbol: id,
@@ -2558,7 +2566,7 @@ impl<'db> Collector<'db> {
                                 range,
                             },
                             |id| {
-                                self.name_kinds.insert(name_range, id);
+                                self.range_to_symbol.insert(name_range, id);
                                 AssignmentLeftHandSide::Exists {
                                     parent: Some(obj),
                                     symbol: id,
@@ -2592,7 +2600,7 @@ impl<'db> Collector<'db> {
                             range,
                         },
                         |id| {
-                            self.name_kinds.insert(name_range, id);
+                            self.range_to_symbol.insert(name_range, id);
                             AssignmentLeftHandSide::Exists {
                                 parent: Some(Type::Table(root)),
                                 symbol: id,
@@ -3349,7 +3357,7 @@ impl<'db> Collector<'db> {
 
     fn unused_variables_diagnostics(&mut self) {
         let mut seen: FxHashMap<SymbolId, bool> = FxHashMap::default();
-        for id in self.name_kinds().values() {
+        for id in self.range_to_symbol().values() {
             seen.entry(*id)
                 .and_modify(|used| *used = true)
                 .or_insert(false);

@@ -24,12 +24,12 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Result<Optio
     };
 
     let finished_file = FinishedFile::new(db, file);
-    let Some(reference_id) = finished_file.symbol_at(token.text_range()) else {
+    let Some(reference_id) = finished_file.symbol_at(&token) else {
         return Ok(None);
     };
 
     let locations = finished_file
-        .name_kinds()
+        .range_to_symbol()
         .iter()
         .filter_map(|(range, id)| {
             if reference_id != *id {
