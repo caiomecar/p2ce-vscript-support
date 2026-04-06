@@ -4,8 +4,8 @@ use ide::{
     line_index, parse,
 };
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse, CompletionTextEdit,
-    TextEdit,
+    Command, CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse,
+    CompletionTextEdit, InsertTextFormat, TextEdit,
 };
 use sq_3_parser::{AstNode, SyntaxKind, SyntaxNode, TextRange, TextSize, ast};
 
@@ -28,8 +28,6 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
     let syntax = parse(db, file).syntax();
 
     let finished_file = FinishedFile::new(db, file);
-
-    file.text(db);
 
     let symbols: Vec<(String, SymbolId, Option<CompletionTextEdit>, Option<String>)> =
         match context_completions(syntax, offset, &finished_file) {
@@ -96,10 +94,38 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
 
     let items: Vec<CompletionItem> = symbols
         .into_iter()
-        .filter_map(|(name, id, text_edit, filter_text)| {
+        .filter_map(|(name, id, mut text_edit, filter_text)| {
             let symbol = finished_file.get(id);
+            let (is_function, insert_text) =
+                if let Some(CompletionTextEdit::Edit(ref mut text_edit)) = text_edit {
+                    function_parantheses_text(&finished_file, id, text_edit.new_text.clone())
+                        .map_or((false, None), |text| {
+                            text_edit.new_text = text;
+                            (true, None)
+                        })
+                } else {
+                    function_parantheses_text(&finished_file, id, name.clone())
+                        .map_or((false, None), |text| (true, Some(text)))
+                };
+
+            let command = if is_function {
+                Some(Command {
+                    title: "Trigger Signature Help".to_owned(),
+                    command: "editor.action.triggerParameterHints".to_owned(),
+                    arguments: None,
+                })
+            } else {
+                None
+            };
+
+            let label = if is_function {
+                format!("{}()", name)
+            } else {
+                name
+            };
+
             Some(CompletionItem {
-                label: name,
+                label,
                 kind: Some(match symbol.typ {
                     Type::Enum(_) => CompletionItemKind::ENUM,
                     Type::Function(_) => CompletionItemKind::FUNCTION,
@@ -114,6 +140,9 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
                 }),
                 text_edit,
                 filter_text,
+                command,
+                insert_text,
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
                 ..Default::default()
             })
         })
@@ -132,6 +161,25 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
 /// prefix ^ for this completion
 pub fn get_prefix(text: &str, range: TextRange, offset: TextSize) -> &str {
     &text[range.start().into()..offset.into()]
+}
+
+pub fn function_parantheses_text(
+    finished_file: &FinishedFile,
+    id: SymbolId,
+    text: String,
+) -> Option<String> {
+    let symbol = finished_file.get(id);
+    // We don't use to_function_id so we don't get auto () on classes and such
+    let Type::Function(id) = symbol.typ else {
+        return None;
+    };
+
+    let func = finished_file.get(id);
+    Some(if func.params.is_empty() {
+        format!("{text}()")
+    } else {
+        format!("{text}($1)")
+    })
 }
 
 pub fn can_use_identifier(name: &str) -> bool {
