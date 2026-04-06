@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ide::{
-    Database, FindSymbol, FinishedFile, ImportMembers, Source, SymbolId, SymbolKind, Type,
+    Database, FindSymbol, FinishedFile, ImportMembers, Source, Symbol, SymbolKind, Type,
     line_index, parse,
 };
 use lsp_types::{
@@ -29,55 +29,105 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
 
     let finished_file = FinishedFile::new(db, file);
 
-    let symbols: Vec<(String, SymbolId, Option<CompletionTextEdit>, Option<String>)> =
+    Ok(CompletionResponse::Array(
         match context_completions(syntax, offset, &finished_file) {
             Some(ContextCompletions::Flat) => finished_file
                 .symbols_at(offset, true)
                 .into_iter()
-                .map(|(name, id)| (name, id, None, None))
-                .collect(),
-            Some(ContextCompletions::FromObject(typ, range)) => finished_file
-                .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
-                .into_iter()
-                .map(|(name, id)| {
-                    if !can_use_identifier(&name) {
-                        let new_text = format!("[\"{name}\"]");
-                        let edit = CompletionTextEdit::Edit(TextEdit {
-                            range: conversions::range(line_idx, range).unwrap(),
-                            new_text: new_text.clone(),
-                        });
+                .map(|(mut label, id)| {
+                    let symbol = finished_file.get(id);
+                    let kind = Some(to_completion_kind(symbol));
+                    let mut insert_text = None;
+                    let (insert_text_format, command) =
+                        modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                            .map(|(a, b)| (Some(a), Some(b)))
+                            .unwrap_or((None, None));
 
-                        let prefix = get_prefix(file.text(db), range, offset);
-
-                        (
-                            name.clone(),
-                            id,
-                            Some(edit),
-                            Some(format!("{prefix}{name}")),
-                        )
-                    } else {
-                        (name, id, None, None)
+                    CompletionItem {
+                        label,
+                        kind,
+                        insert_text,
+                        command,
+                        insert_text_format,
+                        ..Default::default()
                     }
                 })
                 .collect(),
-            Some(ContextCompletions::FromObjectAsString(typ, range)) => finished_file
+            Some(ContextCompletions::FromObject { typ, prefix_range }) => finished_file
                 .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
                 .into_iter()
-                .map(|(name, id)| {
-                    let new_text = format!("[\"{name}\"]");
-                    let edit = CompletionTextEdit::Edit(TextEdit {
-                        range: conversions::range(line_idx, range).unwrap(),
-                        new_text: new_text.clone(),
-                    });
+                .map(|(mut label, id)| {
+                    let symbol = finished_file.get(id);
+                    let kind = Some(to_completion_kind(symbol));
+                    if can_use_identifier(&label) {
+                        let mut insert_text = None;
+                        let (insert_text_format, command) = modify_if_function(
+                            &finished_file,
+                            symbol,
+                            &mut label,
+                            &mut insert_text,
+                        )
+                        .map(|(a, b)| (Some(a), Some(b)))
+                        .unwrap_or((None, None));
 
-                    let prefix = get_prefix(file.text(db), range, offset);
+                        return CompletionItem {
+                            label,
+                            kind,
+                            insert_text,
+                            command,
+                            insert_text_format,
+                            ..Default::default()
+                        };
+                    }
 
-                    (
-                        name.clone(),
-                        id,
-                        Some(edit),
-                        Some(format!("{prefix}{name}")),
-                    )
+                    let mut insert_text = Some(format!("[\"{label}\"]"));
+                    let additional_text_edits = Some(vec![TextEdit {
+                        range: conversions::range(line_idx, prefix_range).unwrap(),
+                        new_text: "".to_owned(),
+                    }]);
+
+                    let (insert_text_format, command) =
+                        modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                            .map(|(a, b)| (Some(a), Some(b)))
+                            .unwrap_or((None, None));
+
+                    CompletionItem {
+                        label,
+                        kind,
+                        insert_text,
+                        command,
+                        insert_text_format,
+                        additional_text_edits,
+                        ..Default::default()
+                    }
+                })
+                .collect(),
+            Some(ContextCompletions::FromObjectAsString { typ, replace_range }) => finished_file
+                .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
+                .into_iter()
+                .map(|(mut label, id)| {
+                    let symbol = finished_file.get(id);
+                    let kind = Some(to_completion_kind(symbol));
+
+                    let mut insert_text = Some(format!("{label}\"]"));
+                    let (insert_text_format, command) =
+                        modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                            .map(|(a, b)| (Some(a), Some(b)))
+                            .unwrap_or((None, None));
+
+                    let text_edit = Some(CompletionTextEdit::Edit(TextEdit {
+                        range: conversions::range(line_idx, replace_range).unwrap(),
+                        new_text: insert_text.unwrap(),
+                    }));
+
+                    CompletionItem {
+                        label,
+                        kind,
+                        text_edit,
+                        command,
+                        insert_text_format,
+                        ..Default::default()
+                    }
                 })
                 .collect(),
             Some(ContextCompletions::Root) => finished_file
@@ -87,99 +137,80 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
                     ImportMembers::Root,
                 )
                 .into_iter()
-                .map(|(name, id)| (name, id, None, None))
-                .collect(),
-            None => return Ok(CompletionResponse::Array(Vec::new())),
-        };
+                .map(|(mut label, id)| {
+                    let symbol = finished_file.get(id);
+                    let kind = Some(to_completion_kind(symbol));
+                    let mut insert_text = None;
+                    let (insert_text_format, command) =
+                        modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                            .map(|(a, b)| (Some(a), Some(b)))
+                            .unwrap_or((None, None));
 
-    let items: Vec<CompletionItem> = symbols
-        .into_iter()
-        .filter_map(|(name, id, mut text_edit, filter_text)| {
-            let symbol = finished_file.get(id);
-            let (is_function, insert_text) =
-                if let Some(CompletionTextEdit::Edit(ref mut text_edit)) = text_edit {
-                    function_parantheses_text(&finished_file, id, text_edit.new_text.clone())
-                        .map_or((false, None), |text| {
-                            text_edit.new_text = text;
-                            (true, None)
-                        })
-                } else {
-                    function_parantheses_text(&finished_file, id, name.clone())
-                        .map_or((false, None), |text| (true, Some(text)))
-                };
-
-            let command = if is_function {
-                Some(Command {
-                    title: "Trigger Signature Help".to_owned(),
-                    command: "editor.action.triggerParameterHints".to_owned(),
-                    arguments: None,
+                    CompletionItem {
+                        label,
+                        kind,
+                        insert_text,
+                        command,
+                        insert_text_format,
+                        ..Default::default()
+                    }
                 })
-            } else {
-                None
-            };
-
-            let label = if is_function {
-                format!("{}()", name)
-            } else {
-                name
-            };
-
-            Some(CompletionItem {
-                label,
-                kind: Some(match symbol.typ {
-                    Type::Enum(_) => CompletionItemKind::ENUM,
-                    Type::Function(_) => CompletionItemKind::FUNCTION,
-                    Type::Class(_) => CompletionItemKind::CLASS,
-                    _ => match symbol.kind {
-                        SymbolKind::Local => CompletionItemKind::VARIABLE,
-                        SymbolKind::Constant => CompletionItemKind::CONSTANT,
-                        SymbolKind::Property(_) => CompletionItemKind::FIELD,
-                        SymbolKind::Enum => CompletionItemKind::ENUM,
-                        SymbolKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
-                    },
-                }),
-                text_edit,
-                filter_text,
-                command,
-                insert_text,
-                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                ..Default::default()
-            })
-        })
-        .collect();
-
-    Ok(CompletionResponse::Array(items))
+                .collect(),
+            None => Vec::new(),
+        },
+    ))
 }
 
-/// When you set text_edit it starts to match against the string inside the range
-/// that text_edit is meant to replace, to actually get completions we also need
-/// to pass filter_text with the prefix that comes between edit text range
-/// and cursor offset
-/// E.g.
-/// a   [  "  |"]
-///     ______
-/// prefix ^ for this completion
-pub fn get_prefix(text: &str, range: TextRange, offset: TextSize) -> &str {
-    &text[range.start().into()..offset.into()]
+fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
+    match symbol.typ {
+        Type::Enum(_) => CompletionItemKind::ENUM,
+        Type::Function(_) => CompletionItemKind::FUNCTION,
+        Type::Class(_) => CompletionItemKind::CLASS,
+        _ => match symbol.kind {
+            SymbolKind::Local => CompletionItemKind::VARIABLE,
+            SymbolKind::Constant => CompletionItemKind::CONSTANT,
+            SymbolKind::Property(_) => CompletionItemKind::FIELD,
+            SymbolKind::Enum => CompletionItemKind::ENUM,
+            SymbolKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
+        },
+    }
 }
 
-pub fn function_parantheses_text(
+fn modify_if_function(
     finished_file: &FinishedFile,
-    id: SymbolId,
-    text: String,
-) -> Option<String> {
-    let symbol = finished_file.get(id);
-    // We don't use to_function_id so we don't get auto () on classes and such
+    symbol: &Symbol,
+    label: &mut String,
+    insert_text: &mut Option<String>,
+) -> Option<(InsertTextFormat, Command)> {
+    // we don't use finished_file.to_function_id since
+    // we don't want () autocompletion on classes and such
     let Type::Function(id) = symbol.typ else {
         return None;
     };
 
     let func = finished_file.get(id);
-    Some(if func.params.is_empty() {
-        format!("{text}()")
+    let text = if let Some(text) = insert_text {
+        text.as_str()
     } else {
-        format!("{text}($1)")
-    })
+        label.as_str()
+    };
+
+    if func.params.is_empty() {
+        *insert_text = Some(format!("{text}()"));
+        *label = format!("{label}()");
+        None
+    } else {
+        *insert_text = Some(format!("{text}($1)"));
+        *label = format!("{label}(…)");
+        Some((
+            InsertTextFormat::SNIPPET,
+            Command {
+                title: "Trigger Signature Help".to_owned(),
+                command: "editor.action.triggerParameterHints".to_owned(),
+                arguments: None,
+            },
+        ))
+    }
 }
 
 pub fn can_use_identifier(name: &str) -> bool {
@@ -208,8 +239,8 @@ pub fn can_use_identifier(name: &str) -> bool {
 pub enum ContextCompletions {
     Flat,
     Root,
-    FromObject(Type, TextRange),
-    FromObjectAsString(Type, TextRange),
+    FromObject { typ: Type, prefix_range: TextRange },
+    FromObjectAsString { typ: Type, replace_range: TextRange },
 }
 
 pub fn context_completions(
@@ -257,33 +288,42 @@ pub fn context_completions(
 
             let parent = index.parent()?;
             if let Some(node) = ast::ElementAccessExpression::cast(parent) {
+                let Type::String(Some(id)) = finished_file.type_at(token.text_range()) else {
+                    return None;
+                };
+
                 let typ = finished_file.type_at(node.object()?.syntax().text_range());
-                Some(ContextCompletions::FromObjectAsString(
-                    typ,
-                    index.text_range(),
-                ))
+                let unquoted_range = finished_file.get(id).unquoted_range;
+                let replace_range =
+                    TextRange::new(unquoted_range.start(), index.text_range().end());
+
+                Some(ContextCompletions::FromObjectAsString { typ, replace_range })
             } else {
                 None
             }
         }
-        SyntaxKind::OpenBracket => {
-            let Some(index) = token.parent() else {
-                return Some(ContextCompletions::Flat);
-            };
+        // SyntaxKind::OpenBracket => {
+        //     let Some(index) = token.parent() else {
+        //         return Some(ContextCompletions::Flat);
+        //     };
 
-            let Some(parent) = index.parent() else {
-                return Some(ContextCompletions::Flat);
-            };
+        //     let Some(parent) = index.parent() else {
+        //         return Some(ContextCompletions::Flat);
+        //     };
 
-            Some(
-                if let Some(node) = ast::ElementAccessExpression::cast(parent) {
-                    let typ = finished_file.type_at(node.object()?.syntax().text_range());
-                    ContextCompletions::FromObjectAsString(typ, index.text_range())
-                } else {
-                    ContextCompletions::Flat
-                },
-            )
-        }
+        //     Some(
+        //         if let Some(node) = ast::ElementAccessExpression::cast(parent) {
+        //             let typ = finished_file.type_at(node.object()?.syntax().text_range());
+        //             ContextCompletions::FromObjectAsString {
+        //                 typ,
+        //                 replace_range: index.text_range(),
+        //                 text_range: None,
+        //             }
+        //         } else {
+        //             ContextCompletions::Flat
+        //         },
+        //     )
+        // }
         SyntaxKind::Dot => {
             let Some(parent) = token.parent() else {
                 return Some(ContextCompletions::Flat);
@@ -292,7 +332,10 @@ pub fn context_completions(
             Some(
                 if let Some(node) = ast::MemberAccessExpression::cast(parent) {
                     let typ = finished_file.type_at(node.object()?.syntax().text_range());
-                    ContextCompletions::FromObject(typ, token.text_range())
+                    ContextCompletions::FromObject {
+                        typ,
+                        prefix_range: token.text_range().cover_offset(offset),
+                    }
                 } else {
                     ContextCompletions::Flat
                 },
@@ -356,14 +399,22 @@ pub fn context_completions(
             };
 
             Some(
-                if let Some(node) = ast::MemberAccessExpression::cast(member_access) {
-                    let typ = finished_file.type_at(node.object()?.syntax().text_range());
-                    let range = if let Some(dot) = node.dot_token() {
-                        dot.text_range().cover(parent.text_range())
+                if let Some(node) = ast::MemberAccessExpression::cast(member_access.clone()) {
+                    let object_range = node.object()?.syntax().text_range();
+                    let typ = finished_file.type_at(object_range);
+                    let prefix_range = if let Some(dot) = node.dot_token() {
+                        TextRange::new(dot.text_range().start(), parent.text_range().start())
                     } else {
-                        parent.text_range()
+                        TextRange::new(object_range.end(), parent.text_range().start())
                     };
-                    ContextCompletions::FromObject(typ, range)
+                    ContextCompletions::FromObject { typ, prefix_range }
+                // } else if let Some(node) = ast::ElementAccessExpression::cast(member_access) {
+                //     let typ = finished_file.type_at(node.object()?.syntax().text_range());
+                //     ContextCompletions::FromObject {
+                //         typ,
+                //         replace_range: parent.text_range(),
+                //         text_range: Some(token.text_range()),
+                //     }
                 } else {
                     ContextCompletions::Flat
                 },
