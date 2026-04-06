@@ -345,6 +345,10 @@ impl MemberAccessExpression {
         support::child(&self.0)
     }
 
+    pub fn dot_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.0, SyntaxKind::Dot)
+    }
+
     pub fn member_part(&self) -> Option<MemberPart> {
         support::child(&self.0)
     }

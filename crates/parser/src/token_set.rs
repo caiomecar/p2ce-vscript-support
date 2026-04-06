@@ -1,6 +1,6 @@
 use crate::cst::SyntaxKind;
 
-pub(crate) struct TokenSet(u128);
+pub struct TokenSet(u128);
 
 impl TokenSet {
     const fn new(kinds: &[SyntaxKind]) -> TokenSet {
@@ -31,7 +31,7 @@ impl TokenSet {
         TokenSet(self.0 & !other.0)
     }
 
-    pub(crate) const fn contains(&self, kind: SyntaxKind) -> bool {
+    pub const fn contains(&self, kind: SyntaxKind) -> bool {
         self.0 & mask(kind) != 0
     }
 }
@@ -44,31 +44,30 @@ const fn mask(kind: SyntaxKind) -> u128 {
     1u128 << (kind as u16)
 }
 
-pub(crate) const ALWAYS_RECOVER: TokenSet = TokenSet::new(&[
+pub const ALWAYS_RECOVER: TokenSet = TokenSet::new(&[
     SyntaxKind::Eof,
     SyntaxKind::OpenBrace,
     SyntaxKind::CloseBrace,
 ]);
 
-pub(crate) const END_OF_BLOCK: TokenSet = TokenSet::new(&[SyntaxKind::Eof, SyntaxKind::CloseBrace]);
+pub const END_OF_BLOCK: TokenSet = TokenSet::new(&[SyntaxKind::Eof, SyntaxKind::CloseBrace]);
 
-pub(crate) const END_OF_STATEMENT: TokenSet = TokenSet::new(&[
+pub const END_OF_STATEMENT: TokenSet = TokenSet::new(&[
     SyntaxKind::Eof,
     SyntaxKind::CloseBrace,
     SyntaxKind::Semicolon,
 ]);
 
-pub(crate) const END_OF_CASE_CLAUSE: TokenSet = TokenSet::new(&[
+pub const END_OF_CASE_CLAUSE: TokenSet = TokenSet::new(&[
     SyntaxKind::Eof,
     SyntaxKind::CloseBrace,
     SyntaxKind::CaseKeyword,
     SyntaxKind::DefaultKeyword,
 ]);
 
-pub(crate) const NAME: TokenSet =
-    TokenSet::new(&[SyntaxKind::Identifier, SyntaxKind::ConstructorKeyword]);
+pub const NAME: TokenSet = TokenSet::new(&[SyntaxKind::Identifier, SyntaxKind::ConstructorKeyword]);
 
-pub(crate) const ASSIGNMENT_OPERATORS: TokenSet = TokenSet::new(&[
+pub const ASSIGNMENT_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::Equals,
     SyntaxKind::PlusEquals,
     SyntaxKind::MinusEquals,
@@ -78,7 +77,7 @@ pub(crate) const ASSIGNMENT_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::LessThanMinus,
 ]);
 
-pub(crate) const BINARY_OPERATORS: TokenSet = TokenSet::new(&[
+pub const BINARY_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::BarBar,
     SyntaxKind::AmpersandAmpersand,
     SyntaxKind::Bar,
@@ -103,24 +102,24 @@ pub(crate) const BINARY_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::Percent,
 ]);
 
-pub(crate) const PREFIX_UNARY_OPERATORS: TokenSet = TokenSet::new(&[
+pub const PREFIX_UNARY_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::Minus,
     SyntaxKind::Exclamation,
     SyntaxKind::Tilde,
 ]);
 
-pub(crate) const UPDATE_OPERATORS: TokenSet =
+pub const UPDATE_OPERATORS: TokenSet =
     TokenSet::new(&[SyntaxKind::PlusPlus, SyntaxKind::MinusMinus]);
 
-pub(crate) const INIT_OPERATORS: TokenSet = TokenSet::new(&[
+pub const INIT_OPERATORS: TokenSet = TokenSet::new(&[
     SyntaxKind::Equals,
     SyntaxKind::Colon,
     SyntaxKind::LessThanMinus,
 ]);
 
-pub(crate) const SEPARATORS: TokenSet = TokenSet::new(&[SyntaxKind::Comma, SyntaxKind::Semicolon]);
+pub const SEPARATORS: TokenSet = TokenSet::new(&[SyntaxKind::Comma, SyntaxKind::Semicolon]);
 
-pub(crate) const EXPRESSIONS: TokenSet = TokenSet::new(&[
+pub const EXPRESSIONS: TokenSet = TokenSet::new(&[
     SyntaxKind::Minus,
     SyntaxKind::Tilde,
     SyntaxKind::Exclamation,
@@ -154,7 +153,7 @@ pub(crate) const EXPRESSIONS: TokenSet = TokenSet::new(&[
     SyntaxKind::OpenBracket,
 ]);
 
-pub(crate) const MEMBER_FIRST: TokenSet = TokenSet::new(&[
+pub const MEMBER_FIRST: TokenSet = TokenSet::new(&[
     SyntaxKind::Identifier,
     SyntaxKind::ConstructorKeyword,
     SyntaxKind::FunctionKeyword,
@@ -162,12 +161,12 @@ pub(crate) const MEMBER_FIRST: TokenSet = TokenSet::new(&[
     SyntaxKind::StaticKeyword,
 ]);
 
-pub(crate) const NON_MEMBER_FIRST_EXPRESSIONS: TokenSet = EXPRESSIONS.difference(MEMBER_FIRST);
+pub const NON_MEMBER_FIRST_EXPRESSIONS: TokenSet = EXPRESSIONS.difference(MEMBER_FIRST);
 
-pub(crate) const MEMBER_RECOVERY: TokenSet = NON_MEMBER_FIRST_EXPRESSIONS.union(INIT_OPERATORS);
+pub const MEMBER_RECOVERY: TokenSet = NON_MEMBER_FIRST_EXPRESSIONS.union(INIT_OPERATORS);
 
 // Other expressions make no sense when used as statements
-pub(crate) const COMMON_EXPRESSION_STATEMENTS: TokenSet = TokenSet::new(&[
+pub const COMMON_EXPRESSION_STATEMENTS: TokenSet = TokenSet::new(&[
     SyntaxKind::Identifier,
     SyntaxKind::ConstructorKeyword,
     SyntaxKind::ColonColon,
@@ -180,7 +179,7 @@ pub(crate) const COMMON_EXPRESSION_STATEMENTS: TokenSet = TokenSet::new(&[
     SyntaxKind::RawCallKeyword,
 ]);
 
-pub(crate) const STATEMENT: TokenSet = TokenSet::new(&[
+pub const STATEMENT: TokenSet = TokenSet::new(&[
     SyntaxKind::Semicolon,
     SyntaxKind::OpenBrace,
     SyntaxKind::IfKeyword,
@@ -202,32 +201,30 @@ pub(crate) const STATEMENT: TokenSet = TokenSet::new(&[
     SyntaxKind::ThrowKeyword,
 ]);
 
-pub(crate) const STATEMENT_OR_EXPRESSION: TokenSet = EXPRESSIONS.union(STATEMENT);
-pub(crate) const COMMON_STATEMENT_OR_EXPRESSION: TokenSet =
-    COMMON_EXPRESSION_STATEMENTS.union(STATEMENT);
+pub const STATEMENT_OR_EXPRESSION: TokenSet = EXPRESSIONS.union(STATEMENT);
+pub const COMMON_STATEMENT_OR_EXPRESSION: TokenSet = COMMON_EXPRESSION_STATEMENTS.union(STATEMENT);
 
-pub(crate) const VARIABLE_RECOVERY: TokenSet = COMMON_STATEMENT_OR_EXPRESSION.union(INIT_OPERATORS);
+pub const VARIABLE_RECOVERY: TokenSet = COMMON_STATEMENT_OR_EXPRESSION.union(INIT_OPERATORS);
 
-pub(crate) const PARAMETER_RECOVERY: TokenSet = VARIABLE_RECOVERY.union(TokenSet::new(&[
+pub const PARAMETER_RECOVERY: TokenSet = VARIABLE_RECOVERY.union(TokenSet::new(&[
     SyntaxKind::CloseParenthesis,
     SyntaxKind::DotDotDot,
 ]));
 
-pub(crate) const CATCH_RECOVERY: TokenSet =
+pub const CATCH_RECOVERY: TokenSet =
     VARIABLE_RECOVERY.union(TokenSet::new(&[SyntaxKind::CloseParenthesis]));
 
-pub(crate) const NAME_QUALIFIER: TokenSet =
-    TokenSet::new(&[SyntaxKind::Dot, SyntaxKind::ColonColon]);
+pub const NAME_QUALIFIER: TokenSet = TokenSet::new(&[SyntaxKind::Dot, SyntaxKind::ColonColon]);
 
 // if we see an equals sign we can parse it as nameless param
-pub(crate) const FUNCTION_NAME_RECOVERY: TokenSet = PARAMETER_RECOVERY.union(TokenSet::new(&[
+pub const FUNCTION_NAME_RECOVERY: TokenSet = PARAMETER_RECOVERY.union(TokenSet::new(&[
     SyntaxKind::OpenParenthesis,
     SyntaxKind::OpenBracket,
     SyntaxKind::CloseBracket,
     SyntaxKind::Dot,
 ]));
 
-pub(crate) const KEYWORDS: TokenSet = TokenSet::new(&[
+pub const KEYWORDS: TokenSet = TokenSet::new(&[
     SyntaxKind::BaseKeyword,
     SyntaxKind::BreakKeyword,
     SyntaxKind::CaseKeyword,
@@ -268,20 +265,20 @@ pub(crate) const KEYWORDS: TokenSet = TokenSet::new(&[
     SyntaxKind::LineKeyword,
 ]);
 
-pub(crate) const SWITCH_RECOVERY: TokenSet = STATEMENT_OR_EXPRESSION.union(TokenSet::new(&[
+pub const SWITCH_RECOVERY: TokenSet = STATEMENT_OR_EXPRESSION.union(TokenSet::new(&[
     SyntaxKind::Eof,
     SyntaxKind::CloseBrace,
     SyntaxKind::CaseKeyword,
     SyntaxKind::DefaultKeyword,
 ]));
 
-pub(crate) const CALL_ARGUMENTS_STOP: TokenSet = STATEMENT.union(TokenSet::new(&[
+pub const CALL_ARGUMENTS_STOP: TokenSet = STATEMENT.union(TokenSet::new(&[
     SyntaxKind::Eof,
     SyntaxKind::CloseParenthesis,
     SyntaxKind::CloseBrace,
 ]));
 
-pub(crate) const EXPRESSION_RECOVERY: TokenSet = TokenSet::besides(&[
+pub const EXPRESSION_RECOVERY: TokenSet = TokenSet::besides(&[
     SyntaxKind::Colon,
     SyntaxKind::DotDotDot,
     SyntaxKind::LessThanSlash,

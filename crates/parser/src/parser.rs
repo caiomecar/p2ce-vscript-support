@@ -1463,7 +1463,48 @@ impl Parser {
         self.finish(m, SyntaxKind::WhileStatement);
     }
 
-    // do { stuff } while (a--)
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "do { smth } while (yes);";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(parse.errors().is_empty());
+    /// let source_file = parse.source_file();
+    /// assert_eq!(source_file.statements().count(), 1);
+    /// let stmt = source_file.statements().next().unwrap();
+    /// let Stmt::DoWhile(w) = stmt else {
+    ///     panic!("expected do while")
+    /// };
+    /// assert!(matches!(
+    ///     w.body(),
+    ///     Some(Stmt::Block(_))
+    /// ));
+    /// assert!(matches!(
+    ///     w.condition(),
+    ///     Some(Expr::Name(_))
+    /// ));
+    /// ```
+    ///
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "do 123 while;";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert_eq!(parse.errors().len(), 1);
+    /// let source_file = parse.source_file();
+    /// assert_eq!(source_file.statements().count(), 1);
+    /// let stmt = source_file.statements().next().unwrap();
+    /// let Stmt::DoWhile(w) = stmt else {
+    ///     panic!("expected do while")
+    /// };
+    /// assert!(matches!(
+    ///     w.body(),
+    ///     Some(Stmt::Expression(_))
+    /// ));
+    /// assert!(w.condition().is_none());
+    /// ```
     fn parse_do_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::DoKeyword);
@@ -1477,7 +1518,58 @@ impl Parser {
         self.finish(m, SyntaxKind::DoWhileStatement);
     }
 
-    // for (local function a(){}; a != null; i++) { break }
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "for (local a = 1; a != null; a++) {}";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(parse.errors().is_empty());
+    /// let source_file = parse.source_file();
+    /// assert_eq!(source_file.statements().count(), 1);
+    /// let stmt = source_file.statements().next().unwrap();
+    /// let Stmt::For(f) = stmt else {
+    ///     panic!("expected for")
+    /// };
+    /// assert!(matches!(
+    ///     f.initialiser().unwrap().kind(),
+    ///     Some(ForInitialiserKind::LocalVariableDeclaration(_))
+    /// ));
+    /// assert!(matches!(
+    ///     f.condition().unwrap().expression(),
+    ///     Some(Expr::Binary(_))
+    /// ));
+    /// assert!(matches!(
+    ///     f.increment().unwrap().expression(),
+    ///     Some(Expr::PostfixUpdate(_))
+    /// ));
+    /// assert!(matches!(
+    ///     f.body(),
+    ///     Some(Stmt::Block(_))
+    /// ));
+    /// ```
+    ///
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "for (;;);";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(parse.errors().is_empty());
+    /// let source_file = parse.source_file();
+    /// assert_eq!(source_file.statements().count(), 1);
+    /// let stmt = source_file.statements().next().unwrap();
+    /// let Stmt::For(f) = stmt else {
+    ///     panic!("expected for")
+    /// };
+    /// assert!(f.initialiser().is_none());
+    /// assert!(f.condition().is_none());
+    /// assert!(f.increment().is_none());
+    /// assert!(matches!(
+    ///     f.body(),
+    ///     Some(Stmt::Empty(_))
+    /// ));
+    /// ```
     fn parse_for_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ForKeyword);
@@ -1485,7 +1577,7 @@ impl Parser {
         // Also parses '('
         self.parse_for_initialiser();
         self.parse_for_condition();
-        // Alsp parses ')'
+        // Also parses ')'
         self.parse_for_increment();
 
         self.parse_statement(/* parse_end */ false);
