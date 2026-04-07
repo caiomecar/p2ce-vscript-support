@@ -1,43 +1,5575 @@
-function DoIncludeScript(file, scope);
+// TF2 VScript Signatures
+// Generated from https://wiki.teamfortress.com/wiki/Team_Fortress_2/Scripting/Script_Functions
 
-function IncludeScript(file, scope = null);
 
-function AddThinkToEnt(entity, think_name);
+// ============================================================
+// CBaseEntity
+// ============================================================
 
-class Vector {
-    x = null
-    y = null
-    z = null
-
-    constructor(x = 0.0, y = 0.0, z = 0.0);
+/**
+ * Script handle class for entities. All entities have a script handle using this class,
+ * sometimes as one of its subclasses.
+ */
+class CBaseEntity {
+    /**
+     * Generate a synchronous I/O event. Unlike EntFireByHandle, this is processed immediately.
+     * Returns false if input is a null/empty string, or if the input wasn't handled.
+     * @param {string} input
+     * @param {string|null} param
+     * @param {entity|null} activator
+     * @param {entity|null} caller
+     * @returns {bool}
+     */
+    function AcceptInput(input, param, activator, caller);
 
     /**
+     * Adds the supplied flags to the Entity Flags in the entity. (m_iEFlags datamap)
+     * Note: Adding EFL_KILLME will make the entity unkillable, even on round resets, until the flag is removed.
+     * @param {integer} flags - See Constants.FEntityEFlags
+     */
+    function AddEFlags(flags);
+
+    /**
+     * Adds the supplied flags to another separate player-related entity flags system in the entity. (m_fFlags datamap)
+     * @param {integer} flags - See Constants.FPlayer
+     */
+    function AddFlag(flags);
+
+    /**
+     * Adds the supplied flags to the Solid Flags in the entity. (m_Collision.m_usSolidFlags datamap)
+     * @param {integer} flags - See Constants.FSolid
+     */
+    function AddSolidFlags(flags);
+
+    /**
+     * Apply a Velocity Impulse as a world space impulse vector.
+     * Works for most physics-based objects including dropped weapons and even dropped Sandviches.
+     * @param {Vector} impulse
+     */
+    function ApplyAbsVelocityImpulse(impulse);
+
+    /**
+     * Apply an Angular Velocity Impulse in entity local space.
+     * The direction of the input vector is the rotation axis, and the length is the magnitude of the impulse.
+     * @param {Vector} impulse
+     */
+    function ApplyLocalAngularVelocityImpulse(impulse);
+
+    /**
+     * Acts like the BecomeRagdoll input, with the required impulse value applied as a force on the ragdoll.
+     * Does NOT spawn a prop_ragdoll or any other entity.
+     * Warning: These are a special group of ragdolls that never disappear by default.
+     * @param {Vector} impulse
+     * @returns {bool}
+     */
+    function BecomeRagdollOnClient(impulse);
+
+    /**
+     * Sets the player-related entity flags to 0 on an entity, clearing them.
+     */
+    function ClearFlags();
+
+    /**
+     * Sets Solid Flags to 0 on an entity, clearing them.
+     */
+    function ClearSolidFlags();
+
+    /**
+     * Adds an I/O connection that will call the named function when the specified output fires.
+     * @param {string} output_name
+     * @param {string} function_name
+     */
+    function ConnectOutput(output_name, function_name);
+
+    /**
+     * Removes the entity. Simply calls UTIL_Remove.
+     */
+    function Destroy();
+
+    /**
+     * Disable drawing and transmitting the entity to clients. (adds EF_NODRAW)
+     */
+    function DisableDraw();
+
+    /**
+     * Removes a connected script function from an I/O event.
+     * @param {string} output_name
+     * @param {string} function_name
+     */
+    function DisconnectOutput(output_name, function_name);
+
+    /**
+     * Alternative dispatch spawn, same as the one in CEntities, for convenience.
+     * Note: Calling this on players will cause them to respawn.
+     */
+    function DispatchSpawn();
+
+    /**
+     * Plays a sound from this entity. The sound must be precached first for it to play.
+     * Warning: Looping sounds will not stop on the entity when it's destroyed and will persist forever!
+     * @param {string} sound_name
+     */
+    function EmitSound(sound_name);
+
+    /**
+     * Enable drawing and transmitting the entity to clients. (removes EF_NODRAW)
+     */
+    function EnableDraw();
+
+    /**
+     * Returns the entity index.
+     * @returns {integer}
+     */
+    function entindex();
+
+    /**
+     * Returns the entity's eye angles. Acts like GetAbsAngles if the entity does not support it.
+     * @returns {QAngle}
+     */
+    function EyeAngles();
+
+    /**
+     * Get vector to eye position - absolute coords. Acts like GetOrigin if the entity does not support it.
+     * @returns {Vector}
+     */
+    function EyePosition();
+
+    /**
+     * Returns the most-recent entity parented to this one.
+     * @returns {entity|null}
+     */
+    function FirstMoveChild();
+
+    /**
+     * Get the entity's pitch, yaw, and roll as QAngles.
+     * @returns {QAngle}
+     */
+    function GetAbsAngles();
+
+    /**
+     * Returns the current absolute velocity of the entity.
+     * @returns {Vector}
+     */
+    function GetAbsVelocity();
+
+    /**
+     * Get the local angular velocity - returns a Vector of pitch, yaw, and roll.
+     * @returns {Vector}
+     */
+    function GetAngularVelocity();
+
+    /**
+     * Returns any constant velocity currently being imparted onto the entity.
+     * @returns {Vector}
+     */
+    function GetBaseVelocity();
+
+    /**
+     * Get a vector containing max bounds, centered on object.
+     * @returns {Vector}
+     */
+    function GetBoundingMaxs();
+
+    /**
+     * Get a vector containing max bounds, centered on object, taking the object's orientation into account.
+     * @returns {Vector}
+     */
+    function GetBoundingMaxsOriented();
+
+    /**
+     * Get a vector containing min bounds, centered on object.
+     * @returns {Vector}
+     */
+    function GetBoundingMins();
+
+    /**
+     * Get a vector containing min bounds, centered on object, taking the object's orientation into account.
+     * @returns {Vector}
+     */
+    function GetBoundingMinsOriented();
+
+    /**
+     * Gets center point of the entity in world coordinates.
+     * @returns {Vector}
+     */
+    function GetCenter();
+
+    /**
+     * @returns {string}
+     */
+    function GetClassname();
+
+    /**
+     * Gets the current collision group of the entity.
+     * @returns {integer} - See Constants.ECollisionGroup
+     */
+    function GetCollisionGroup();
+
+    /**
+     * Get the entity's engine flags.
+     * @returns {integer} - See Constants.FEntityEFlags
+     */
+    function GetEFlags();
+
+    /**
+     * Get the entity's flags.
+     * @returns {integer} - See Constants.FPlayer
+     */
+    function GetFlags();
+
+    /**
+     * Get the entity as an EHANDLE.
+     * @returns {ehandle}
+     * @deprecated Leftover from earlier versions of VScript.
+     */
+    function GetEntityHandle();
+
+    /**
+     * @returns {integer}
+     */
+    function GetEntityIndex();
+
+    /**
+     * Get the forward vector of the entity.
+     * Note: If you intend to get a player's eye forward vector, use EyeAngles().Forward() instead.
+     * @returns {Vector}
+     */
+    function GetForwardVector();
+
+    /**
+     * Get PLAYER friction, ignored for objects.
+     * @returns {float}
+     */
+    function GetFriction();
+
+    /**
+     * @returns {float}
+     */
+    function GetGravity();
+
+    /**
+     * @returns {integer}
+     */
+    function GetHealth();
+
+    /**
+     * @returns {QAngle}
+     */
+    function GetLocalAngles();
+
+    /**
+     * @returns {Vector}
+     */
+    function GetLocalOrigin();
+
+    /**
+     * Get Entity relative velocity.
+     * @returns {Vector}
+     */
+    function GetLocalVelocity();
+
+    /**
+     * @returns {integer}
+     */
+    function GetMaxHealth();
+
+    /**
+     * Get a KeyValue class instance on this entity's model.
+     * @returns {CScriptKeyValues}
+     */
+    function GetModelKeyValues();
+
+    /**
+     * Returns the name of the model.
+     * @returns {string}
+     */
+    function GetModelName();
+
+    /**
+     * If in hierarchy, retrieves the entity's parent.
+     * @returns {entity|null}
+     */
+    function GetMoveParent();
+
+    /**
+     * @returns {integer}
+     */
+    function GetMoveType();
+
+    /**
+     * Get entity's targetname.
+     * @returns {string}
+     */
+    function GetName();
+
+    /**
+     * This is GetAbsOrigin with a funny script name for some reason.
+     * @returns {Vector}
+     */
+    function GetOrigin();
+
+    /**
+     * Gets this entity's owner.
+     * Note: This is a wrapper for m_hOwnerEntity netprop.
+     * @returns {entity|null}
+     */
+    function GetOwner();
+
+    /**
+     * @returns {Vector}
+     */
+    function GetPhysAngularVelocity();
+
+    /**
+     * @returns {Vector}
+     */
+    function GetPhysVelocity();
+
+    /**
+     * Get the entity name stripped of template unique decoration.
+     * @returns {string}
+     */
+    function GetPreTemplateName();
+
+    /**
+     * Get the right vector of the entity.
+     * @returns {Vector}
+     */
+    function GetRightVector();
+
+    /**
+     * If in hierarchy, walks up the hierarchy to find the root parent.
+     * @returns {entity|null}
+     */
+    function GetRootMoveParent();
+
+    /**
+     * Retrieve the unique identifier used to refer to the entity within the scripting system.
+     * @returns {string}
+     */
+    function GetScriptId();
+
+    /**
+     * Retrieve the script-side data associated with an entity.
+     * @returns {table|null}
+     */
+    function GetScriptScope();
+
+    /**
+     * Retrieve the name of the current script think func.
+     * @returns {string}
+     */
+    function GetScriptThinkFunc();
+
+    /**
+     * @returns {integer} - See ESolidType
+     */
+    function GetSolid();
+
+    /**
+     * Returns float duration of the sound. Actor model name is optional and can be left empty.
+     * Warning: Does not work on dedicated servers.
+     * @param {string} sound_name
+     * @param {string|null} actor_model_name
+     * @returns {float}
+     */
+    function GetSoundDuration(sound_name, actor_model_name);
+
+    /**
+     * @returns {integer} - See Constants.ETFTeam
+     */
+    function GetTeam();
+
+    /**
+     * Get the up vector of the entity.
+     * @returns {Vector}
+     */
+    function GetUpVector();
+
+    /**
+     * This function tells you how much of the entity is underwater.
+     * Returns 0=not underwater, 1=feet, 2=waist, 3=head.
+     * @returns {integer}
+     */
+    function GetWaterLevel();
+
+    /**
+     * Returns the type of water the entity is currently submerged in. 32=water, 16=slime.
+     * @returns {integer}
+     */
+    function GetWaterType();
+
+    /**
+     * Am I alive?
+     * @returns {bool}
+     */
+    function IsAlive();
+
+    /**
+     * @param {integer} flag - See Constants.FEntityEFlags
+     * @returns {bool}
+     */
+    function IsEFlagSet(flag);
+
+    /**
+     * Checks whether the entity is a player or not.
+     * @returns {bool}
+     */
+    function IsPlayer();
+
+    /**
+     * @returns {bool}
+     */
+    function IsSolid();
+
+    /**
+     * @param {integer} flag - See Constants.FSolid
+     * @returns {bool}
+     */
+    function IsSolidFlagSet(flag);
+
+    /**
+     * Checks whether the entity still exists.
+     * Useful when storing entity handles and needing to check if the entity was not deleted.
+     * @returns {bool}
+     */
+    function IsValid();
+
+    /**
+     * Executes KeyValue with a float.
+     * Warning: Does not update the internal network state of the entity.
+     * @param {string} key
+     * @param {float} value
+     * @returns {bool}
+     */
+    function KeyValueFromFloat(key, value);
+
+    /**
+     * Executes KeyValue with an int.
+     * Warning: Does not update the internal network state of the entity.
+     * @param {string} key
+     * @param {integer} value
+     * @returns {bool}
+     */
+    function KeyValueFromInt(key, value);
+
+    /**
+     * Executes KeyValue with a string.
+     * Warning: Does not update the internal network state of the entity.
+     * @param {string} key
+     * @param {string} value
+     * @returns {bool}
+     */
+    function KeyValueFromString(key, value);
+
+    /**
+     * Executes KeyValue with a vector.
+     * Warning: Does not update the internal network state of the entity.
+     * @param {string} key
+     * @param {Vector} value
+     * @returns {bool}
+     */
+    function KeyValueFromVector(key, value);
+
+    /**
+     * Removes the entity. Equivalent of firing the Kill I/O input, but instantaneous.
+     * Warning: This clears the owner entity before removing.
+     */
+    function Kill();
+
+    /**
+     * Returns the entity's local eye angles.
+     * @returns {QAngle}
+     */
+    function LocalEyeAngles();
+
+    /**
+     * Returns the next entity parented with the entity.
+     * @returns {entity|null}
+     */
+    function NextMovePeer();
+
+    /**
+     * Precache a model (.mdl) or sprite (.vmt). The extension must be specified.
+     * @param {string} model_name
+     */
+    function PrecacheModel(model_name);
+
+    /**
+     * Precache a soundscript or raw WAV/MP3 sound. Same as PrecacheSoundScript.
+     * @param {string} sound_script
+     */
+    function PrecacheScriptSound(sound_script);
+
+    /**
+     * Precache a soundscript or raw WAV/MP3 sound. Same as PrecacheScriptSound.
+     * @param {string} sound_script
+     */
+    function PrecacheSoundScript(sound_script);
+
+    /**
+     * @param {integer} flags - See Constants.FEntityEFlags
+     */
+    function RemoveEFlags(flags);
+
+    /**
+     * @param {integer} flags - See Constants.FPlayer
+     */
+    function RemoveFlag(flags);
+
+    /**
+     * @param {integer} flags - See Constants.FSolid
+     */
+    function RemoveSolidFlags(flags);
+
+    /**
+     * Set entity pitch, yaw, roll as QAngles. Does not work on players, use SnapEyeAngles instead.
+     * @param {QAngle} angles
+     */
+    function SetAbsAngles(angles);
+
+    /**
+     * Sets the current absolute velocity of the entity.
+     * Does nothing on VPhysics objects, use SetPhysVelocity instead.
+     * @param {Vector} velocity
+     */
+    function SetAbsVelocity(velocity);
+
+    /**
+     * Sets the absolute origin of the entity.
+     * @param {Vector} origin
+     */
+    function SetAbsOrigin(origin);
+
+    /**
+     * Set the local angular velocity.
+     * @param {float} pitch
+     * @param {float} yaw
+     * @param {float} roll
+     */
+    function SetAngularVelocity(pitch, yaw, roll);
+
+    /**
+     * Set the current collision group of the entity.
+     * @param {integer} group - See Constants.ECollisionGroup
+     */
+    function SetCollisionGroup(group);
+
+    /**
+     * Enables drawing if you pass true, disables drawing if you pass false.
+     * @param {bool} toggle
+     */
+    function SetDrawEnabled(toggle);
+
+    /**
+     * @param {integer} flags - See Constants.FEntityEFlags
+     */
+    function SetEFlags(flags);
+
+    /**
+     * Set the orientation of the entity to have this forward vector.
+     * @param {Vector} forward
+     */
+    function SetForwardVector(forward);
+
+    /**
+     * @param {float} friction
+     */
+    function SetFriction(friction);
+
+    /**
+     * Sets a multiplier for gravity. 1 is default gravity.
+     * Note: 0 gravity will not work, use 0.000001 as a workaround.
+     * @param {float} gravity
+     */
+    function SetGravity(gravity);
+
+    /**
+     * @param {integer} health
+     */
+    function SetHealth(health);
+
+    /**
+     * @param {QAngle} angles
+     */
+    function SetLocalAngles(angles);
+
+    /**
+     * @param {Vector} origin
+     */
+    function SetLocalOrigin(origin);
+
+    /**
+     * Sets the maximum health this entity can have. Does not update the current health.
+     * Note: Does nothing on players.
+     * @param {integer} health
+     */
+    function SetMaxHealth(health);
+
+    /**
+     * Set a model for this entity.
+     * Warning: Make sure the model was already precached before using this function or the game will crash!
+     * @param {string} model_name
+     */
+    function SetModel(model_name);
+
+    /**
+     * @param {integer} movetype - See Constants.EMoveType
+     * @param {integer} movecollide - See Constants.EMoveCollide
+     */
+    function SetMoveType(movetype, movecollide);
+
+    /**
+     * Sets this entity's owner.
+     * Note: This is a wrapper for m_hOwnerEntity netprop.
+     * @param {entity|null} entity
+     */
+    function SetOwner(entity);
+
+    /**
+     * @param {Vector} angular_velocity
+     */
+    function SetPhysAngularVelocity(angular_velocity);
+
+    /**
+     * @param {Vector} velocity
+     */
+    function SetPhysVelocity(velocity);
+
+    /**
+     * Sets the bounding box's scale for this entity.
+     * Warning: If any component of mins/maxs is backwards, the engine will exit with a fatal error.
+     * @param {Vector} mins
+     * @param {Vector} maxs
+     */
+    function SetSize(mins, maxs);
+
+    /**
+     * @param {integer} solid - See Constants.ESolidType
+     */
+    function SetSolid(solid);
+
+    /**
+     * @param {integer} flags - See Constants.FSolid
+     */
+    function SetSolidFlags(flags);
+
+    /**
+     * Sets entity team.
+     * Note: Use ForceChangeTeam on players instead.
+     * @param {integer} team - See Constants.ETFTeam
+     */
+    function SetTeam(team);
+
+    /**
+     * Sets how much of the entity is underwater. 0=not underwater, 1=feet, 2=waist, 3=head.
+     * @param {integer} water_level - See Constants.WATERLEVEL
+     */
+    function SetWaterLevel(water_level);
+
+    /**
+     * Set the type of water the entity is currently submerged in. 32=water, 16=slime.
+     * @param {integer} water_type
+     */
+    function SetWaterType(water_type);
+
+    /**
+     * Stops a sound on this entity.
+     * @param {string} sound_name
+     */
+    function StopSound(sound_name);
+
+    /**
+     * Deals damage to the entity.
+     * @param {float} damage
+     * @param {integer} damage_type - See Constants.FDmgType
+     * @param {entity} attacker
+     */
+    function TakeDamage(damage, damage_type, attacker);
+
+    /**
+     * Extended version of TakeDamage.
+     * Note: If damage_force is Vector(0,0,0), the game will automatically calculate it.
+     * @param {entity|null} inflictor
+     * @param {entity|null} attacker
+     * @param {entity|null} weapon
+     * @param {Vector} damage_force
+     * @param {Vector} damage_position
+     * @param {float} damage
+     * @param {integer} damage_type - See Constants.FDmgType
+     */
+    function TakeDamageEx(inflictor, attacker, weapon, damage_force, damage_position, damage, damage_type);
+
+    /**
+     * Extended version of TakeDamageEx that can apply a custom damage type.
+     * @param {entity|null} inflictor
+     * @param {entity|null} attacker
+     * @param {entity|null} weapon
+     * @param {Vector} damage_force
+     * @param {Vector} damage_position
+     * @param {float} damage
+     * @param {integer} damage_type - See Constants.FDmgType
+     * @param {integer} custom_damage_type - See Constants.ETFDmgCustom
+     */
+    function TakeDamageCustom(inflictor, attacker, weapon, damage_force, damage_position, damage, damage_type, custom_damage_type);
+
+    /**
+     * Teleports this entity. Set bools to false for properties you want unchanged.
+     * @param {bool} use_origin
+     * @param {Vector} origin
+     * @param {bool} use_angles
+     * @param {QAngle} angles
+     * @param {bool} use_velocity
+     * @param {Vector} velocity
+     */
+    function Teleport(use_origin, origin, use_angles, angles, use_velocity, velocity);
+
+    /**
+     * Clear the current script scope for this entity.
+     */
+    function TerminateScriptScope();
+
+    /**
+     * @param {integer} flags - See Constants.FPlayer
+     */
+    function ToggleFlag(flags);
+
+    /**
+     * Create a script scope for an entity if it doesn't already exist.
+     * @returns {bool}
+     */
+    function ValidateScriptScope();
+}
+
+// ============================================================
+// CBaseAnimating extends CBaseEntity
+// ============================================================
+
+/**
+ * Script handle class for animatable entities, such as props.
+ * @extends CBaseEntity
+ */
+class CBaseAnimating extends CBaseEntity {
+    /**
+     * Dispatch animation events to a CBaseAnimating entity.
+     * @param {CBaseAnimating} entity
+     */
+    function DispatchAnimEvents(entity);
+
+    /**
+     * Find a bodygroup ID by name. Returns -1 if the bodygroup does not exist.
+     * @param {string} name
+     * @returns {integer}
+     */
+    function FindBodygroupByName(name);
+
+    /**
+     * Get an attachment's angles as a QAngle, by ID.
+     * @param {integer} id
+     * @returns {QAngle}
+     */
+    function GetAttachmentAngles(id);
+
+    /**
+     * Get an attachment's parent bone index by ID.
+     * @param {integer} id
+     * @returns {integer}
+     */
+    function GetAttachmentBone(id);
+
+    /**
+     * Get an attachment's origin as a Vector, by ID.
+     * @param {integer} id
+     * @returns {Vector}
+     */
+    function GetAttachmentOrigin(id);
+
+    /**
+     * Get the bodygroup value by bodygroup ID.
+     * @param {integer} id
+     * @returns {integer}
+     */
+    function GetBodygroup(id);
+
+    /**
+     * Get the bodygroup's name by ID.
+     * @param {integer} id
+     * @returns {string}
+     */
+    function GetBodygroupName(id);
+
+    /**
+     * Get the bodygroup's name by group and part.
+     * @param {integer} group
+     * @param {integer} part
+     * @returns {string}
+     */
+    function GetBodygroupPartName(group, part);
+
+    /**
+     * Get the bone's angles as a QAngle, by ID.
+     * Warning: Bone transforms are cached; setting new sequences may cause stale bone data.
+     * @param {integer} id
+     * @returns {QAngle}
+     */
+    function GetBoneAngles(id);
+
+    /**
+     * Get the bone's origin Vector by ID.
+     * Warning: See GetBoneAngles warning.
+     * @param {integer} id
+     * @returns {Vector}
+     */
+    function GetBoneOrigin(id);
+
+    /**
+     * Gets the model's current animation cycle rate. Ranges from 0.0 to 1.0.
+     * @returns {float}
+     */
+    function GetCycle();
+
+    /**
+     * Get the model's scale.
+     * @returns {float}
+     */
+    function GetModelScale();
+
+    /**
+     * Get the current animation's playback rate.
+     * @returns {float}
+     */
+    function GetPlaybackRate();
+
+    /**
+     * Get the current-playing sequence's ID.
+     * @returns {integer}
+     */
+    function GetSequence();
+
+    /**
+     * Get the activity name for a sequence by sequence ID.
+     * @param {integer} id
+     * @returns {string}
+     */
+    function GetSequenceActivityName(id);
+
+    /**
+     * Get a sequence duration in seconds by sequence ID.
+     * @param {integer} id
+     * @returns {float}
+     */
+    function GetSequenceDuration(id);
+
+    /**
+     * Get a sequence name by sequence ID.
+     * @param {integer} id
+     * @returns {string}
+     */
+    function GetSequenceName(id);
+
+    /**
+     * Gets the current skin index.
+     * @returns {integer}
+     */
+    function GetSkin();
+
+    /**
+     * Ask whether the main sequence is done playing.
+     * @returns {bool}
+     */
+    function IsSequenceFinished();
+
+    /**
+     * Get the named activity index. Returns -1 if the activity does not exist.
+     * @param {string} activity
+     * @returns {integer}
+     */
+    function LookupActivity(activity);
+
+    /**
+     * Get the named attachment index. Returns 0 if the attachment does not exist.
+     * @param {string} name
+     * @returns {integer}
+     */
+    function LookupAttachment(name);
+
+    /**
+     * Get the named bone index. Returns -1 if the bone does not exist.
+     * @param {string} bone
+     * @returns {integer}
+     */
+    function LookupBone(bone);
+
+    /**
+     * Gets the pose parameter's index. Returns -1 if the pose parameter does not exist.
+     * @param {string} name
+     * @returns {integer}
+     */
+    function LookupPoseParameter(name);
+
+    /**
+     * Looks up a sequence by names of sequences or activities. Returns -1 if not found.
+     * @param {string} name
+     * @returns {integer}
+     */
+    function LookupSequence(name);
+
+    /**
+     * Reset a sequence by sequence ID. If the ID is different, switch to the new sequence.
+     * @param {integer} id
+     */
+    function ResetSequence(id);
+
+    /**
+     * Set the bodygroup by ID.
+     * @param {integer} id
+     * @param {integer} value
+     */
+    function SetBodygroup(id, value);
+
+    /**
+     * Sets the model's current animation cycle from 0 to 1.
+     * Note: Only works if m_bClientSideAnimation is set to false.
+     * @param {float} cycle
+     */
+    function SetCycle(cycle);
+
+    /**
+     * Set a model for this entity. Automatically precaches and maintains sequence/cycle if possible.
+     * @param {string} model_name
+     */
+    function SetModelSimple(model_name);
+
+    /**
+     * Changes a model's scale over time. Set change_duration to 0.0 to change instantly.
+     * @param {float} scale
+     * @param {float} change_duration
+     */
+    function SetModelScale(scale, change_duration);
+
+    /**
+     * Set the current animation's playback rate.
+     * @param {float} rate
+     */
+    function SetPlaybackRate(rate);
+
+    /**
+     * Sets a pose parameter value. Returns the effective value after clamping or looping.
+     * @param {integer} id
+     * @param {float} value
+     * @returns {float}
+     */
+    function SetPoseParameter(id, value);
+
+    /**
+     * Plays a sequence by sequence ID.
+     * Warning: Can cause animation stutters. Consider using ResetSequence instead.
+     * @param {integer} id
+     */
+    function SetSequence(id);
+
+    /**
+     * Sets the model's skin.
+     * @param {integer} index
+     */
+    function SetSkin(index);
+
+    /**
+     * Stop the current animation (same as SetPlaybackRate 0.0).
+     */
+    function StopAnimation();
+
+    /**
+     * Advance animation frame to some time in the future with an automatically calculated interval.
+     */
+    function StudioFrameAdvance();
+
+    /**
+     * Advance animation frame to some time in the future with a manual interval.
+     * @param {float} dt
+     */
+    function StudioFrameAdvanceManual(dt);
+}
+
+// ============================================================
+// CBaseCombatWeapon extends CBaseAnimating
+// ============================================================
+
+/**
+ * Script handle class for any weapon entities that can be part of a player's inventory.
+ * @extends CBaseAnimating
+ */
+class CBaseCombatWeapon extends CBaseAnimating {
+    /**
+     * Can this weapon be selected.
+     * @returns {bool}
+     */
+    function CanBeSelected();
+
+    /**
+     * Current ammo in clip1. Returns -1 if clip1 is not present.
+     * @returns {integer}
+     */
+    function Clip1();
+
+    /**
+     * Current ammo in clip2. Returns -1 if clip2 is not present.
+     * @returns {integer}
+     */
+    function Clip2();
+
+    /**
+     * Default size of clip1. Returns -1 if clip1 is not present.
+     * @returns {integer}
+     */
+    function GetDefaultClip1();
+
+    /**
+     * Default size of clip2. Returns -1 if clip2 is not present.
+     * @returns {integer}
+     */
+    function GetDefaultClip2();
+
+    /**
+     * Max size of clip1. Returns -1 if clip1 is not present.
+     * @returns {integer}
+     */
+    function GetMaxClip1();
+
+    /**
+     * Max size of clip2. Returns -1 if clip2 is not present.
+     * @returns {integer}
+     */
+    function GetMaxClip2();
+
+    /**
+     * Gets the weapon's internal name (not the targetname!)
+     * Warning: Conflicts with CBaseEntity's GetName. Use CBaseEntity.GetName.call(weapon) for targetname.
+     * @returns {string}
+     */
+    function GetName();
+
+    /**
+     * Gets the weapon's current position.
+     * @returns {integer}
+     */
+    function GetPosition();
+
+    /**
+     * Current primary ammo count.
+     * @returns {integer}
+     */
+    function GetPrimaryAmmoCount();
+
+    /**
+     * Returns the primary ammo type.
+     * @returns {integer}
+     */
+    function GetPrimaryAmmoType();
+
+    /**
+     * Gets the weapon's print name.
+     * @returns {string}
+     */
+    function GetPrintName();
+
+    /**
+     * Current secondary ammo count.
+     * @returns {integer}
+     */
+    function GetSecondaryAmmoCount();
+
+    /**
+     * Returns the secondary ammo type.
+     * @returns {integer}
+     */
+    function GetSecondaryAmmoType();
+
+    /**
+     * Gets the weapon's current slot.
+     * @returns {integer}
+     */
+    function GetSlot();
+
+    /**
+     * Get the weapon subtype.
+     * @returns {integer}
+     */
+    function GetSubType();
+
+    /**
+     * Get the weapon flags.
+     * @returns {integer}
+     */
+    function GetWeaponFlags();
+
+    /**
+     * Get the weapon weighting/importance.
+     * @returns {integer}
+     */
+    function GetWeight();
+
+    /**
+     * Do we have any ammo?
+     * @returns {bool}
+     */
+    function HasAnyAmmo();
+
+    /**
+     * Do we have any primary ammo?
+     * @returns {bool}
+     */
+    function HasPrimaryAmmo();
+
+    /**
+     * Do we have any secondary ammo?
+     * @returns {bool}
+     */
+    function HasSecondaryAmmo();
+
+    /**
+     * Are we allowed to switch to this weapon?
+     * @returns {bool}
+     */
+    function IsAllowedToSwitch();
+
+    /**
+     * Returns whether this is a melee weapon.
+     * @returns {bool}
+     */
+    function IsMeleeWeapon();
+
+    /**
+     * Force a primary attack.
+     * Warning: Hitscan and melee weapons require lag compensation information to be present.
+     */
+    function PrimaryAttack();
+
+    /**
+     * Force a secondary attack.
+     * Warning: See PrimaryAttack warning.
+     */
+    function SecondaryAttack();
+
+    /**
+     * Set current ammo in clip1.
+     * @param {integer} amount
+     */
+    function SetClip1(amount);
+
+    /**
+     * Set current ammo in clip2.
+     * @param {integer} amount
+     */
+    function SetClip2(amount);
+
+    /**
+     * Sets a custom view model for this weapon by model name.
+     * @param {string} model_name
+     */
+    function SetCustomViewModel(model_name);
+
+    /**
+     * Sets a custom view model for this weapon by modelindex.
+     * @param {integer} model_index
+     */
+    function SetCustomViewModelModelIndex(model_index);
+
+    /**
+     * Set the weapon subtype.
+     * @param {integer} subtype
+     */
+    function SetSubType(subtype);
+
+    /**
+     * Do we use clips for ammo 1?
+     * @returns {bool}
+     */
+    function UsesClipsForAmmo1();
+
+    /**
+     * Do we use clips for ammo 2?
+     * @returns {bool}
+     */
+    function UsesClipsForAmmo2();
+
+    /**
+     * Do we use primary ammo?
+     * @returns {bool}
+     */
+    function UsesPrimaryAmmo();
+
+    /**
+     * Do we use secondary ammo?
+     * @returns {bool}
+     */
+    function UsesSecondaryAmmo();
+
+    /**
+     * Is this weapon visible in weapon selection?
+     * @returns {bool}
+     */
+    function VisibleInWeaponSelection();
+}
+
+// ============================================================
+// CBaseFlex extends CBaseAnimating
+// ============================================================
+
+/**
+ * Animated characters who have vertex flex capability (e.g., facial expressions).
+ * @extends CBaseAnimating
+ */
+class CBaseFlex extends CBaseAnimating {
+    /**
+     * Play the specified .vcd file, causing the related characters to speak and subtitles to play.
+     * @param {string} scene_file
+     * @param {float} delay
+     * @returns {float}
+     */
+    function PlayScene(scene_file, delay);
+}
+
+// ============================================================
+// CBaseCombatCharacter extends CBaseFlex
+// ============================================================
+
+/**
+ * Combat entities with similar movement capabilities to a player.
+ * @extends CBaseFlex
+ */
+class CBaseCombatCharacter extends CBaseFlex {
+    /**
+     * Return the last nav area occupied, null if unknown.
+     * @returns {CTFNavArea|null}
+     */
+    function GetLastKnownArea();
+}
+
+// ============================================================
+// CBasePlayer extends CBaseCombatCharacter
+// ============================================================
+
+/**
+ * Script handle class for player entities.
+ * @extends CBaseCombatCharacter
+ */
+class CBasePlayer extends CBaseCombatCharacter {
+    /**
+     * Whether the player is being forced by SetForceLocalDraw to be drawn.
+     * @returns {bool}
+     */
+    function GetForceLocalDraw();
+
+    /**
+     * Get a vector containing max bounds of the player in local space.
+     * @returns {Vector}
+     */
+    function GetPlayerMaxs();
+
+    /**
+     * Get a vector containing min bounds of the player in local space.
+     * @returns {Vector}
+     */
+    function GetPlayerMins();
+
+    /**
+     * Gets the current overlay material set by SetScriptOverlayMaterial.
+     * @returns {string}
+     */
+    function GetScriptOverlayMaterial();
+
+    /**
+     * Returns true if the player is in noclip mode.
+     * @returns {bool}
+     */
+    function IsNoclipping();
+
+    /**
+     * Forces the player to be drawn as if they were in thirdperson.
+     * @param {bool} toggle
+     */
+    function SetForceLocalDraw(toggle);
+
+    /**
+     * Sets the overlay material that can't be overridden by other overlays.
+     * @param {string|null} material
+     */
+    function SetScriptOverlayMaterial(material);
+
+    /**
+     * Snap the player's eye angles to this.
+     * @param {QAngle} angles
+     */
+    function SnapEyeAngles(angles);
+
+    /**
+     * Ow! Punches the player's view.
+     * @param {QAngle} angle_offset
+     */
+    function ViewPunch(angle_offset);
+
+    /**
+     * Resets the player's view punch if the offset stays below the given tolerance.
+     * @param {float} tolerance
+     */
+    function ViewPunchReset(tolerance);
+}
+
+// ============================================================
+// CEconEntity extends CBaseAnimating
+// ============================================================
+
+/**
+ * Script handle class for economic equippables (hats and weapons).
+ * @extends CBaseAnimating
+ */
+class CEconEntity extends CBaseAnimating {
+    /**
+     * Add an attribute to the entity. Set duration to 0 or lower for infinite duration.
+     * Note: For players use AddCustomAttribute instead.
+     * @param {string} name
+     * @param {float} value
+     * @param {float} duration
+     */
+    function AddAttribute(name, value, duration);
+
+    /**
+     * Get an attribute float from the entity. Returns default_value if not found.
+     * @param {string} name
+     * @param {float} default_value
+     * @returns {float}
+     */
+    function GetAttribute(name, default_value);
+
+    /**
+     * Remove an attribute from the entity.
+     * Note: Static attributes cannot be removed with this method.
+     * @param {string} name
+     */
+    function RemoveAttribute(name);
+
+    /**
+     * Relinks attributes to provisioners.
+     */
+    function ReapplyProvision();
+}
+
+// ============================================================
+// CTFPlayer extends CBasePlayer (and CEconEntity indirectly)
+// ============================================================
+
+/**
+ * Script handle class for player entities of Team Fortress 2.
+ * @extends CBasePlayer
+ */
+class CTFPlayer extends CBasePlayer {
+    /**
+     * @param {integer} cond - See Constants.ETFCond
+     */
+    function AddCond(cond);
+
+    /**
+     * @param {integer} cond - See Constants.ETFCond
+     * @param {float} duration
+     * @param {entity|null} provider
+     */
+    function AddCondEx(cond, duration, provider);
+
+    /**
+     * Give the player some cash for MvM. New value is bounded between 0-30000.
+     * @param {integer} amount
+     */
+    function AddCurrency(amount);
+
+    /**
+     * Add a custom attribute to the player. Set duration to 0 or lower for infinite.
+     * Note: Does not work when applied in the player_spawn event.
+     * @param {string} name
+     * @param {float} value
+     * @param {float} duration
+     */
+    function AddCustomAttribute(name, value, duration);
+
+    /**
+     * Hides a HUD element(s).
+     * @param {integer} flags - See Constants.FHideHUD
+     */
+    function AddHudHideFlags(flags);
+
+    /**
+     * Apply a view punch along the pitch angle. Returns true if the punch was applied.
+     * @param {float} impulse
+     * @returns {bool}
+     */
+    function ApplyPunchImpulseX(impulse);
+
+    /**
+     * Make a player bleed for a set duration of time.
+     * @param {float} duration
+     */
+    function BleedPlayer(duration);
+
+    /**
+     * Make a player bleed with specific damage per tick and custom damage type.
+     * @param {float} duration
+     * @param {integer} damage
+     * @param {bool} endless
+     * @param {integer} custom_damage_type - See Constants.ETFDmgCustom
+     */
+    function BleedPlayerEx(duration, damage, endless, custom_damage_type);
+
+    /**
+     * Cancels any taunt in progress.
+     */
+    function CancelTaunt();
+
+    /**
+     * Can the player air dash/double jump?
+     * @returns {bool}
+     */
+    function CanAirDash();
+
+    /**
+     * @returns {bool}
+     */
+    function CanBeDebuffed();
+
+    /**
+     * @returns {bool}
+     */
+    function CanBreatheUnderwater();
+
+    /**
+     * Can the player duck?
+     * @returns {bool}
+     */
+    function CanDuck();
+
+    /**
+     * Can the player get wet by jarate/milk?
+     * @returns {bool}
+     */
+    function CanGetWet();
+
+    /**
+     * Can the player jump?
+     * @returns {bool}
+     */
+    function CanJump();
+
+    /**
+     * Can the player move?
+     * @returns {bool}
+     */
+    function CanPlayerMove();
+
+    /**
+     */
+    function ClearCustomModelRotation();
+
+    /**
+     */
+    function ClearSpells();
+
+    /**
+     * Stops active taunt from damaging or cancels Rock-Paper-Scissors result.
+     */
+    function ClearTauntAttack();
+
+    /**
+     * Performs taunts attacks if available.
+     */
+    function DoTauntAttack();
+
+    /**
+     * Force player to drop the flag (intelligence).
+     * @param {bool} silent
+     */
+    function DropFlag(silent);
+
+    /**
+     * Force player to drop the rune.
+     * @param {bool} apply_force
+     * @param {integer} team - See Constants.ETFTeam
+     */
+    function DropRune(apply_force, team);
+
+    /**
+     * Stops a looping taunt (obeys minimum time rules).
+     */
+    function EndLongTaunt();
+
+    /**
+     * Equips a wearable on the viewmodel.
+     * @param {entity} entity
+     */
+    function EquipWearableViewModel(entity);
+
+    /**
+     */
+    function ExtinguishPlayerBurning();
+
+    /**
+     * Makes e.g. a heavy go AAAAAAAAAaAaa like they are firing their minigun.
+     */
+    function FiringTalk();
+
+    /**
+     * Force player to change their team.
+     * @param {integer} team - See Constants.ETFTeam
+     * @param {bool} full_team_switch
+     */
+    function ForceChangeTeam(team, full_team_switch);
+
+    /**
+     * Force regenerates and respawns the player.
+     */
+    function ForceRegenerateAndRespawn();
+
+    /**
+     * Force respawns the player.
+     */
+    function ForceRespawn();
+
+    /**
+     * Get the player's current weapon.
+     * @returns {CTFWeapon|null}
+     */
+    function GetActiveWeapon();
+
+    /**
+     * @returns {integer}
+     */
+    function GetBackstabs();
+
+    /**
+     * @returns {integer}
+     */
+    function GetBonusPoints();
+
+    /**
+     * @returns {integer}
+     */
+    function GetBotType();
+
+    /**
+     * @returns {integer}
+     */
+    function GetBuildingsDestroyed();
+
+    /**
+     * @returns {integer}
+     */
+    function GetCaptures();
+
+    /**
+     * Gets the eye height of the player.
+     * @returns {Vector}
+     */
+    function GetClassEyeHeight();
+
+    /**
+     * Returns duration of the condition. Returns 0 if not applied. Returns -1 if infinite.
+     * @param {integer} cond - See Constants.ETFCond
+     * @returns {float}
+     */
+    function GetCondDuration(cond);
+
+    /**
+     * Get an attribute float from the player. Returns default_value if not found.
+     * @param {string} name
+     * @param {float} default_value
+     * @returns {float}
+     */
+    function GetCustomAttribute(name, default_value);
+
+    /**
+     * Get player's cash for MvM.
+     * @returns {integer}
+     */
+    function GetCurrency();
+
+    /**
+     * @returns {float}
+     */
+    function GetCurrentTauntMoveSpeed();
+
+    /**
+     * @returns {integer}
+     */
+    function GetDefenses();
+
+    /**
+     * @returns {integer}
+     */
+    function GetDisguiseAmmoCount();
+
+    /**
+     * @returns {CTFPlayer|null}
+     */
+    function GetDisguiseTarget();
+
+    /**
+     * @returns {integer}
+     */
+    function GetDisguiseTeam();
+
+    /**
+     * @returns {integer}
+     */
+    function GetDominations();
+
+    /**
+     * What entity is the player grappling?
+     * @returns {entity|null}
+     */
+    function GetGrapplingHookTarget();
+
+    /**
+     * @returns {integer}
+     */
+    function GetHeadshots();
+
+    /**
+     * @returns {integer}
+     */
+    function GetHealPoints();
+
+    /**
+     * Who is the medic healing?
+     * @returns {entity|null}
+     */
+    function GetHealTarget();
+
+    /**
+     * Gets current hidden HUD elements.
+     * @returns {integer} - See Constants.FHideHUD
+     */
+    function GetHudHideFlags();
+
+    /**
+     * @returns {integer}
+     */
+    function GetInvulns();
+
+    /**
+     * @returns {integer}
+     */
+    function GetKillAssists();
+
+    /**
+     * @returns {CTFWeapon|null}
+     */
+    function GetLastWeapon();
+
+    /**
+     * Get next change class time.
+     * @returns {float}
+     */
+    function GetNextChangeClassTime();
+
+    /**
+     * Get next change team time.
+     * @returns {float}
+     */
+    function GetNextChangeTeamTime();
+
+    /**
+     * Get next health regen time.
+     * @returns {float}
+     */
+    function GetNextRegenTime();
+
+    /**
+     * @returns {integer}
+     */
+    function GetPlayerClass();
+
+    /**
+     * @returns {float}
+     */
+    function GetRageMeter();
+
+    /**
+     * @returns {integer}
+     */
+    function GetResupplyPoints();
+
+    /**
+     * @returns {integer}
+     */
+    function GetRevenge();
+
+    /**
+     * @returns {float}
+     */
+    function GetScoutHypeMeter();
+
+    /**
+     * @returns {float}
+     */
+    function GetSpyCloakMeter();
+
+    /**
+     * @returns {integer}
+     */
+    function GetTeleports();
+
+    /**
+     * Timestamp until a taunt attack lasts. 0 if unavailable.
+     * @returns {float}
+     */
+    function GetTauntAttackTime();
+
+    /**
+     * Timestamp until taunt is stopped.
+     * @returns {float}
+     */
+    function GetTauntRemoveTime();
+
+    /**
+     * Timestamp when kart was reversed. FLT_MAX if yet to be done.
+     * @returns {float}
+     */
+    function GetVehicleReverseTime();
+
+    /**
+     * When did the player last call medic. 99999.9 if yet to be done.
+     * @returns {float}
+     */
+    function GetTimeSinceCalledForMedic();
+
+    /**
+     * @param {bool} remove
+     * @param {bool} refund
+     */
+    function GrantOrRemoveAllUpgrades(remove, refund);
+
+    /**
+     * Currently holding an item (e.g. capture flag)?
+     * @returns {bool}
+     */
+    function HasItem();
+
+    /**
+     * Spoofs a taunt command from the player.
+     * @param {integer} taunt_slot
+     */
+    function HandleTauntCommand(taunt_slot);
+
+    /**
+     * @returns {bool}
+     */
+    function InAirDueToExplosion();
+
+    /**
+     * @returns {bool}
+     */
+    function InAirDueToKnockback();
+
+    /**
+     * @param {integer} cond - See Constants.ETFCond
+     * @returns {bool}
+     */
+    function InCond(cond);
+
+    /**
+     * @returns {bool}
+     */
+    function IsAirDashing();
+
+    /**
+     * Returns true if the taunt will be stopped.
+     * @returns {bool}
+     */
+    function IsAllowedToRemoveTaunt();
+
+    /**
+     * @returns {bool}
+     */
+    function IsAllowedToTaunt();
+
+    /**
+     * Returns true if the player matches this bot type.
+     * @param {integer} type - See Constants.EBotType
+     * @returns {bool}
+     */
+    function IsBotOfType(type);
+
+    /**
+     * Is this player calling for medic?
+     * @returns {bool}
+     */
+    function IsCallingForMedic();
+
+    /**
+     * @returns {bool}
+     */
+    function IsCarryingRune();
+
+    /**
+     * @returns {bool}
+     */
+    function IsControlStunned();
+
+    /**
+     * @returns {bool}
+     */
+    function IsCritBoosted();
+
+    /**
+     * Returns true if the player is a puppet or AI bot.
+     * @returns {bool}
+     */
+    function IsFakeClient();
+
+    /**
+     * @returns {bool}
+     */
+    function IsFireproof();
+
+    /**
+     * @returns {bool}
+     */
+    function IsFullyInvisible();
+
+    /**
+     * @returns {bool}
+     */
+    function IsHypeBuffed();
+
+    /**
+     * @returns {bool}
+     */
+    function IsImmuneToPushback();
+
+    /**
+     * @returns {bool}
+     */
+    function IsInspecting();
+
+    /**
+     * @returns {bool}
+     */
+    function IsInvulnerable();
+
+    /**
+     * @returns {bool}
+     */
+    function IsJumping();
+
+    /**
+     * Is this player an MvM mini-boss?
+     * @returns {bool}
+     */
+    function IsMiniBoss();
+
+    /**
+     * @returns {bool}
+     */
+    function IsParachuteEquipped();
+
+    /**
+     * Returns true if we placed a sapper in the last few moments.
+     * @returns {bool}
+     */
+    function IsPlacingSapper();
+
+    /**
+     * @returns {bool}
+     */
+    function IsRageDraining();
+
+    /**
+     * @returns {bool}
+     */
+    function IsRegenerating();
+
+    /**
+     * Returns true if we are currently sapping.
+     * @returns {bool}
+     */
+    function IsSapping();
+
+    /**
+     * @returns {bool}
+     */
+    function IsSnared();
+
+    /**
+     * @returns {bool}
+     */
+    function IsStealthed();
+
+    /**
+     * @returns {bool}
+     */
+    function IsTaunting();
+
+    /**
+     * @returns {bool}
+     */
+    function IsUsingActionSlot();
+
+    /**
+     * @returns {bool}
+     */
+    function IsViewingCYOAPDA();
+
+    /**
+     * Resupplies a player. If refill_health_ammo is set, clears negative conds and gives health/ammo.
+     * @param {bool} refill_health_ammo
+     */
+    function Regenerate(refill_health_ammo);
+
+    /**
+     * Remove all player objects (e.g. dispensers/sentries).
+     * @param {bool} explode
+     */
+    function RemoveAllObjects(explode);
+
+    /**
+     * Removes a condition.
+     * @param {integer} cond - See Constants.ETFCond
+     */
+    function RemoveCond(cond);
+
+    /**
+     * Extended version of RemoveCond. Allows forcefully removing the condition.
+     * @param {integer} cond - See Constants.ETFCond
+     * @param {bool} ignore_duration
+     */
+    function RemoveCondEx(cond, ignore_duration);
+
+    /**
+     * Take away money from a player. Lower bounded to 0.
+     * @param {integer} amount
+     */
+    function RemoveCurrency(amount);
+
+    /**
+     * Remove a custom attribute from the player.
+     * @param {string} name
+     */
+    function RemoveCustomAttribute(name);
+
+    /**
+     * Undisguise a spy.
+     */
+    function RemoveDisguise();
+
+    /**
+     * Unhides a HUD element(s).
+     * @param {integer} flags - See Constants.FHideHUD
+     */
+    function RemoveHudHideFlags(flags);
+
+    /**
+     * Un-invisible a spy.
+     */
+    function RemoveInvisibility();
+
+    /**
+     */
+    function RemoveTeleportEffect();
+
+    /**
+     */
+    function ResetScores();
+
+    /**
+     */
+    function RollRareSpell();
+
+    /**
+     * @param {integer} cond - See Constants.ETFCond
+     * @param {float} duration
+     */
+    function SetCondDuration(cond, duration);
+
+    /**
+     * Set player's cash for MvM. Does not have any bounds checking.
+     * @param {integer} amount
+     */
+    function SetCurrency(amount);
+
+    /**
+     * @param {float} speed
+     */
+    function SetCurrentTauntMoveSpeed(speed);
+
+    /**
+     * Sets a custom player model without animations (model will T-pose).
+     * @param {string} model_name
+     */
+    function SetCustomModel(model_name);
+
+    /**
+     * @param {Vector} offset
+     */
+    function SetCustomModelOffset(offset);
+
+    /**
+     * @param {bool} toggle
+     */
+    function SetCustomModelRotates(toggle);
+
+    /**
+     * @param {QAngle} angles
+     */
+    function SetCustomModelRotation(angles);
+
+    /**
+     * @param {bool} toggle
+     */
+    function SetCustomModelVisibleToSelf(toggle);
+
+    /**
+     * Sets a custom player model with full animations.
+     * @param {string} model_name
+     */
+    function SetCustomModelWithClassAnimations(model_name);
+
+    /**
+     * @param {integer} count
+     */
+    function SetDisguiseAmmoCount(count);
+
+    /**
+     * @param {integer} toggle
+     */
+    function SetForcedTauntCam(toggle);
+
+    /**
+     * Set the player's target grapple entity.
+     * @param {entity|null} entity
+     * @param {bool} bleed
+     */
+    function SetGrapplingHookTarget(entity, bleed);
+
+    /**
+     * Force HUD hide flags to a value.
+     * @param {integer} flags - See Constants.FHideHUD
+     */
+    function SetHudHideFlags(flags);
+
+    /**
+     * Make this player an MvM mini-boss.
+     * @param {bool} toggle
+     */
+    function SetIsMiniBoss(toggle);
+
+    /**
+     * Set next change class time.
+     * @param {float} time
+     */
+    function SetNextChangeClassTime(time);
+
+    /**
+     * Set next change team time.
+     * @param {float} time
+     */
+    function SetNextChangeTeamTime(time);
+
+    /**
+     * Set next available resupply time.
+     * @param {float} time
+     */
+    function SetNextRegenTime(time);
+
+    /**
+     * Sets the player class. Updates the player's visuals and model.
+     * @param {integer} class_index - See Constants.ETFClass
+     */
+    function SetPlayerClass(class_index);
+
+    /**
+     * Sets rage meter from 0 - 100.
+     * @param {float} percent
+     */
+    function SetRageMeter(percent);
+
+    /**
+     * Rig the result of Rock-Paper-Scissors (0=rock, 1=paper, 2=scissors).
+     * @param {integer} result
+     */
+    function SetRPSResult(result);
+
+    /**
+     * Sets hype meter from 0 - 100.
+     * @param {float} percent
+     */
+    function SetScoutHypeMeter(percent);
+
+    /**
+     * Sets cloakmeter from 0 - 100.
+     * @param {float} percent
+     */
+    function SetSpyCloakMeter(percent);
+
+    /**
+     * Set the timestamp when kart was reversed.
+     * @param {float} time
+     */
+    function SetVehicleReverseTime(time);
+
+    /**
+     * @param {bool} toggle
+     */
+    function SetUseBossHealthBar(toggle);
+
+    /**
+     * Stops current taunt.
+     * @param {bool} remove_prop
+     */
+    function StopTaunt(remove_prop);
+
+    /**
+     * Stuns the player for a specified duration.
+     * @param {float} duration
+     * @param {float} move_speed_reduction
+     * @param {integer} flags - See Constants.TF_STUN
+     * @param {entity|null} attacker
+     */
+    function StunPlayer(duration, move_speed_reduction, flags, attacker);
+
+    /**
+     * Performs a taunt if allowed.
+     * @param {integer} taunt_index - See Constants.FTaunts
+     * @param {integer} taunt_concept - See Constants.MP_CONCEPT
+     */
+    function Taunt(taunt_index, taunt_concept);
+
+    /**
+     * Make the player attempt to pick up a building in front of them.
+     * @returns {bool}
+     */
+    function TryToPickupBuilding();
+
+    /**
+     * @param {integer} skin
+     */
+    function UpdateSkin(skin);
+
+    /**
+     * @param {integer} cond - See Constants.ETFCond
+     * @returns {bool}
+     */
+    function WasInCond(cond);
+
+    /**
+     * @param {CTFWeapon} weapon
+     * @returns {bool}
+     */
+    function Weapon_CanUse(weapon);
+
+    /**
+     * Equips a weapon in the player. Places it inside the m_hMyWeapons array.
+     * @param {CTFWeapon} weapon
+     */
+    function Weapon_Equip(weapon);
+
+    /**
+     * @param {CTFWeapon} weapon
+     */
+    function Weapon_SetLast(weapon);
+
+    /**
+     * The same as calling EyePosition.
+     * @returns {Vector}
+     */
+    function Weapon_ShootPosition();
+
+    /**
+     * Attempts a switch to the given weapon, if present in the player's inventory.
+     * @param {CTFWeapon} weapon
+     */
+    function Weapon_Switch(weapon);
+}
+
+// ============================================================
+// CTFBot extends CTFPlayer
+// ============================================================
+
+/**
+ * Script handle class for bot-controlled players (tf_bot).
+ * Note: Puppet bots do NOT inherit from this class.
+ * @extends CTFPlayer
+ */
+class CTFBot extends CTFPlayer {
+    /**
+     * Sets attribute flags on this TFBot.
+     * @param {integer} attribute - See Constants.FTFBotAttributeType
+     */
+    function AddBotAttribute(attribute);
+
+    /**
+     * Adds a bot tag.
+     * @param {string} tag
+     */
+    function AddBotTag(tag);
+
+    /**
+     * Adds weapon restriction flags.
+     * @param {integer} flags - See Constants.TFBotWeaponRestrictionType
+     */
+    function AddWeaponRestriction(flags);
+
+    /**
+     * Clears all attribute flags on this TFBot.
+     */
+    function ClearAllBotAttributes();
+
+    /**
+     * Clears bot tags.
+     */
+    function ClearAllBotTags();
+
+    /**
+     * Removes all weapon restriction flags.
+     */
+    function ClearAllWeaponRestrictions();
+
+    /**
+     * Clear current focus.
+     */
+    function ClearAttentionFocus();
+
+    /**
+     * Clear the given behavior flag(s) for this bot.
+     * @param {integer} flags - See Constants.TFBOT_BEHAVIOR
+     */
+    function ClearBehaviorFlag(flags);
+
+    /**
+     * Notice the threat after a delay in seconds.
+     * @param {entity} threat
+     * @param {float} delay
+     */
+    function DelayedThreatNotice(threat, delay);
+
+    /**
+     * Forces the current squad to be entirely disbanded by everyone.
+     */
+    function DisbandCurrentSquad();
+
+    /**
+     * Get the nav area of the closest vantage point (within distance).
+     * @param {float} max_distance
+     * @returns {CTFNavArea|null}
+     */
+    function FindVantagePoint(max_distance);
+
+    /**
+     * Give me an item!
+     * @param {string} item_name
+     */
+    function GenerateAndWearItem(item_name);
+
+    /**
+     * Get the given action point for this bot.
+     * @returns {entity|null}
+     */
+    function GetActionPoint();
+
+    /**
+     * Get all bot tags. The key is the index, and the value is the tag.
+     * @param {table} result
+     */
+    function GetAllBotTags(result);
+
+    /**
+     * Gets the home nav area of the bot.
+     * @returns {CTFNavArea|null}
+     */
+    function GetHomeArea();
+
+    /**
+     * Returns the bot's difficulty level.
+     * @returns {integer} - See Constants.ETFBotDifficultyType
+     */
+    function GetDifficulty();
+
+    /**
+     * Gets the max vision range override for the bot.
+     * @returns {float}
+     */
+    function GetMaxVisionRangeOverride();
+
+    /**
+     * Get this bot's current mission.
+     * @returns {integer} - See Constants.ETFBotMissionType
+     */
+    function GetMission();
+
+    /**
+     * Get this bot's current mission target.
+     * @returns {entity|null}
+     */
+    function GetMissionTarget();
+
+    /**
+     * Gets the nearest known sappable target.
+     * @returns {entity|null}
+     */
+    function GetNearestKnownSappableTarget();
+
+    /**
+     * Get this bot's previous mission.
+     * @returns {integer} - See Constants.ETFBotMissionType
+     */
+    function GetPrevMission();
+
+    /**
+     * Return the nav area of where we spawned.
+     * @returns {CTFNavArea|null}
+     */
+    function GetSpawnArea();
+
+    /**
+     * Gets our formation error coefficient.
+     * @returns {float}
+     */
+    function GetSquadFormationError();
+
+    /**
+     * Checks if this TFBot has the given attributes.
+     * @param {integer} attribute - See Constants.FTFBotAttributeType
+     * @returns {bool}
+     */
+    function HasBotAttribute(attribute);
+
+    /**
+     * Checks if this TFBot has the given bot tag.
+     * @param {string} tag
+     * @returns {bool}
+     */
+    function HasBotTag(tag);
+
+    /**
+     * Return true if the given mission is this bot's current mission.
+     * @param {integer} mission - See Constants.ETFBotMissionType
+     * @returns {bool}
+     */
+    function HasMission(mission);
+
+    /**
+     * Checks if this TFBot has the given weapon restriction flags.
+     * @param {integer} flags - See Constants.TFBotWeaponRestrictionType
+     * @returns {bool}
+     */
+    function HasWeaponRestriction(flags);
+
+    /**
+     * @returns {bool}
+     */
+    function IsAmmoFull();
+
+    /**
+     * @returns {bool}
+     */
+    function IsAmmoLow();
+
+    /**
+     * Is our attention focused right now?
+     * @returns {bool}
+     */
+    function IsAttentionFocused();
+
+    /**
+     * Is our attention focused on this entity.
+     * @param {entity} entity
+     * @returns {bool}
+     */
+    function IsAttentionFocusedOn(entity);
+
+    /**
+     * Return true if the given behavior flag(s) are set for this bot.
+     * @param {integer} flags - See Constants.TFBOT_BEHAVIOR
+     * @returns {bool}
+     */
+    function IsBehaviorFlagSet(flags);
+
+    /**
+     * Returns true/false if the bot's difficulty level matches.
+     * @param {integer} difficulty - See Constants.ETFBotDifficultyType
+     * @returns {bool}
+     */
+    function IsDifficulty(difficulty);
+
+    /**
+     * Checks if we are in a squad.
+     * @returns {bool}
+     */
+    function IsInASquad();
+
+    /**
+     * Return true if this bot has a current mission.
+     * @returns {bool}
+     */
+    function IsOnAnyMission();
+
+    /**
+     * Checks if the given weapon is restricted for use on the bot.
+     * @param {entity} weapon
+     * @returns {bool}
+     */
+    function IsWeaponRestricted(weapon);
+
+    /**
+     * Makes us leave the current squad (if any).
+     */
+    function LeaveSquad();
+
+    /**
+     * @param {float} duration
+     */
+    function PressAltFireButton(duration = -1.0);
+
+    /**
+     * @param {float} duration
+     */
+    function PressFireButton(duration = -1.0);
+
+    /**
+     * @param {float} duration
+     */
+    function PressSpecialFireButton(duration = -1.0);
+
+    /**
+     * Removes attribute flags on this TFBot.
+     * @param {integer} attribute - See Constants.FTFBotAttributeType
+     */
+    function RemoveBotAttribute(attribute);
+
+    /**
+     * Removes a bot tag.
+     * @param {string} tag
+     */
+    function RemoveBotTag(tag);
+
+    /**
+     * Removes weapon restriction flags.
+     * @param {integer} flags - See Constants.TFBotWeaponRestrictionType
+     */
+    function RemoveWeaponRestriction(flags);
+
+    /**
+     * Set the given action point for this bot.
+     * @param {entity|null} entity
+     */
+    function SetActionPoint(entity);
+
+    /**
+     * Sets our current attention focus to this entity.
+     * @param {entity|null} entity
+     */
+    function SetAttentionFocus(entity);
+
+    /**
+     * Sets if the bot should automatically jump, and how often.
+     * @param {float} min_time
+     * @param {float} max_time
+     */
+    function SetAutoJump(min_time, max_time);
+
+    /**
+     * Set the given behavior flag(s) for this bot.
+     * @param {integer} flags - See Constants.TFBOT_BEHAVIOR
+     */
+    function SetBehaviorFlag(flags);
+
+    /**
+     * Sets the bots difficulty level.
+     * @param {integer} difficulty - See Constants.ETFBotDifficultyType
+     */
+    function SetDifficulty(difficulty);
+
+    /**
+     * Set the home nav area of the bot.
+     * @param {CTFNavArea|null} area
+     */
+    function SetHomeArea(area);
+
+    /**
+     * Sets max vision range override for the bot.
+     * @param {float} range
+     */
+    function SetMaxVisionRangeOverride(range);
+
+    /**
+     * Set this bot's current mission to the given mission.
+     * @param {integer} mission - See Constants.ETFBotMissionType
+     * @param {bool} reset_behavior
+     */
+    function SetMission(mission, reset_behavior);
+
+    /**
+     * Set this bot's mission target to the given entity.
+     * @param {entity|null} entity
+     */
+    function SetMissionTarget(entity);
+
+    /**
+     * Set this bot's previous mission to the given mission.
+     * @param {integer} mission - See Constants.ETFBotMissionType
+     */
+    function SetPrevMission(mission);
+
+    /**
+     * Sets the scale override for the bot.
+     * @param {float} scale
+     */
+    function SetScaleOverride(scale);
+
+    /**
+     * Sets if the bot should build instantly.
+     * @param {bool} toggle
+     */
+    function SetShouldQuickBuild(toggle);
+
+    /**
+     * Sets our formation error coefficient.
+     * @param {float} coefficient
+     */
+    function SetSquadFormationError(coefficient);
+
+    /**
+     * Returns if the bot should automatically jump.
+     * @returns {bool}
+     */
+    function ShouldAutoJump();
+
+    /**
+     * Returns if the bot should build instantly.
+     * @returns {bool}
+     */
+    function ShouldQuickBuild();
+
+    /**
+     */
+    function UpdateDelayedThreatNotices();
+}
+
+// ============================================================
+// CTFBaseBoss extends NextBotCombatCharacter
+// ============================================================
+
+/**
+ * Base class intended for custom NPCs. Officially used as part of MvM tank.
+ * @extends NextBotCombatCharacter
+ */
+class CTFBaseBoss extends NextBotCombatCharacter {
+    /**
+     * Sets whether the entity should push away players intersecting its bounding box. On by default.
+     * @param {bool} toggle
+     */
+    function SetResolvePlayerCollisions(toggle);
+}
+
+// ============================================================
+// Convars (Game Instance)
+// ============================================================
+
+/**
+ * An interface to manipulate the convars on the server.
+ * Note: Protected convars (e.g. rcon_password) cannot be accessed.
+ */
+class Convars {
+    /**
+     * Returns the convar as a bool. May return null if no such convar.
+     * @param {string} name
+     * @returns {bool|null}
+     */
+    function GetBool(name);
+
+    /**
+     * Returns the convar value for the entindex as a string. Only works on FCVAR_USERINFO convars.
+     * @param {string} name
+     * @param {integer} entindex
+     * @returns {string}
+     */
+    function GetClientConvarValue(name, entindex);
+
+    /**
+     * Returns the convar as an int. May return null if no such convar.
+     * Warning: The entire convar list is searched each time (slow). Cache results if used often.
+     * @param {string} name
+     * @returns {integer|null}
+     */
+    function GetInt(name);
+
+    /**
+     * Returns the convar as a string. May return null if no such convar.
+     * Warning: See GetInt warning.
+     * @param {string} name
+     * @returns {string|null}
+     */
+    function GetStr(name);
+
+    /**
+     * Returns the convar as a float. May return null if no such convar.
+     * Warning: See GetInt warning.
+     * @param {string} name
+     * @returns {float|null}
+     */
+    function GetFloat(name);
+
+    /**
+     * Checks if the convar is allowed to be used (in cfg/vscript_convar_allowlist.txt).
+     * @param {string} name
+     * @returns {bool}
+     */
+    function IsConVarOnAllowList(name);
+
+    /**
+     * Sets the value of the convar. The convar must be in cfg/vscript_convar_allowlist.txt.
+     * The original value is saved and reset on map change.
+     * @param {string} name
+     * @param {any} value
+     */
+    function SetValue(name, value);
+}
+
+// ============================================================
+// CEntities (Game Instance: Entities)
+// ============================================================
+
+/**
+ * An interface to find and iterate over the script handles for the entities in play.
+ * Pass null to the previous parameter to start an iteration.
+ */
+class CEntities {
+    /**
+     * Creates an entity by classname. Returns null if no entity type could be inferred.
+     * @param {string} classname
+     * @returns {entity|null}
+     */
+    function CreateByClassname(classname);
+
+    /**
+     * Dispatches spawn of an entity. Use this on entities created via CreateByClassname.
+     * @param {entity} entity
+     */
+    function DispatchSpawn(entity);
+
+    /**
+     * Find entities by classname. Pass null to start, or previous entity to continue.
+     * @param {entity|null} previous
+     * @param {string} classname
+     * @returns {entity|null}
+     */
+    function FindByClassname(previous, classname);
+
+    /**
+     * Find entities by classname nearest to a point within a radius.
+     * @param {string} classname
+     * @param {Vector} center
+     * @param {float} radius
+     * @returns {entity|null}
+     */
+    function FindByClassnameNearest(classname, center, radius);
+
+    /**
+     * Find entities by classname within a radius. Pass null to start, or previous to continue.
+     * @param {entity|null} previous
+     * @param {string} classname
+     * @param {Vector} center
+     * @param {float} radius
+     * @returns {entity|null}
+     */
+    function FindByClassnameWithin(previous, classname, center, radius);
+
+    /**
+     * Find entities by model keyvalue. Pass null to start, or previous to continue.
+     * @param {entity|null} previous
+     * @param {string} model_name
+     * @returns {entity|null}
+     */
+    function FindByModel(previous, model_name);
+
+    /**
+     * Find entities by targetname keyvalue. Pass null to start, or previous to continue.
+     * @param {entity|null} previous
+     * @param {string} targetname
+     * @returns {entity|null}
+     */
+    function FindByName(previous, targetname);
+
+    /**
+     * Find entities by targetname nearest to a point within a radius.
+     * @param {string} targetname
+     * @param {Vector} center
+     * @param {float} radius
+     * @returns {entity|null}
+     */
+    function FindByNameNearest(targetname, center, radius);
+
+    /**
+     * Find entities by targetname within a radius. Pass null to start, or previous to continue.
+     * @param {entity|null} previous
+     * @param {string} targetname
+     * @param {Vector} center
+     * @param {float} radius
+     * @returns {entity|null}
+     */
+    function FindByNameWithin(previous, targetname, center, radius);
+
+    /**
+     * Find entities by their target keyvalue. Pass null to start, or previous to continue.
+     * @param {entity|null} previous
+     * @param {string} target
+     * @returns {entity|null}
+     */
+    function FindByTarget(previous, target);
+
+    /**
+     * Find entities within a radius. Pass null to start, or previous to continue.
+     * @param {entity|null} previous
+     * @param {Vector} center
+     * @param {float} radius
+     * @returns {entity|null}
+     */
+    function FindInSphere(previous, center, radius);
+
+    /**
+     * Begin an iteration over the list of entities. The first entity is always worldspawn.
+     * @returns {CBaseEntity}
+     */
+    function First();
+
+    /**
+     * Returns the next entity after the given one in the list.
+     * @param {entity|null} previous
+     * @returns {entity|null}
+     */
+    function Next(previous);
+}
+
+// ============================================================
+// CTFNavArea
+// ============================================================
+
+/**
+ * Script handle class for areas part of the navigation mesh.
+ */
+class CTFNavArea {
+    /**
+     * Add areas that connect TO this area by a ONE-WAY link.
+     * @param {CTFNavArea} area
+     * @param {integer} dir - See Constants.ENavDirType
+     */
+    function AddIncomingConnection(area, dir);
+
+    /**
+     * Clear TF-specific area attribute bits.
+     * @param {integer} bits - See Constants.FTFNavAttributeType
+     */
+    function ClearAttributeTF(bits);
+
+    /**
+     * Compute closest point within the portal between areas.
+     * @param {CTFNavArea} to
+     * @param {integer} dir - See Constants.ENavDirType
+     * @param {Vector} close_pos
+     * @returns {Vector}
+     */
+    function ComputeClosestPointInPortal(to, dir, close_pos);
+
+    /**
+     * Return direction from this area to the given point.
+     * @param {Vector} point
+     * @returns {integer}
+     */
+    function ComputeDirection(point);
+
+    /**
+     * Connect this area to given area in given direction.
+     * @param {CTFNavArea} area
+     * @param {integer} dir - See Constants.ENavDirType
+     */
+    function ConnectTo(area, dir);
+
+    /**
+     * Return true if other area is on or above this area, but no others.
+     * @param {CTFNavArea} area
+     * @returns {bool}
+     */
+    function Contains(area);
+
+    /**
+     * Return true if given point is on or above this area, but no others.
+     * @param {Vector} point
+     * @returns {bool}
+     */
+    function ContainsOrigin(point);
+
+    /**
+     * Draw area as a filled rectangle of the given color.
+     * @param {integer} r
+     * @param {integer} g
+     * @param {integer} b
+     * @param {integer} a
+     * @param {float} duration
+     * @param {bool} no_depth_test
+     * @param {float} margin
+     */
+    function DebugDrawFilled(r, g, b, a, duration, no_depth_test, margin);
+
+    /**
+     * Disconnect this area from given area.
+     * @param {CTFNavArea} area
+     */
+    function Disconnect(area);
+
+    /**
+     * Get random origin within extent of area.
+     * @returns {Vector}
+     */
+    function FindRandomSpot();
+
+    /**
+     * Return the n'th adjacent area in the given direction.
+     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} n
+     * @returns {CTFNavArea|null}
+     */
+    function GetAdjacentArea(dir, n);
+
+    /**
+     * Fills a passed in table with all adjacent areas in the given direction.
+     * @param {integer} dir - See Constants.ENavDirType
+     * @param {table} result
+     */
+    function GetAdjacentAreas(dir, result);
+
+    /**
+     * Get the number of adjacent areas in the given direction.
+     * @param {integer} dir - See Constants.ENavDirType
+     * @returns {integer}
+     */
+    function GetAdjacentCount(dir);
+
+    /**
+     * Get area attribute bits.
+     * @returns {integer} - See Constants.FNavAttributeType
+     */
+    function GetAttributes();
+
+    /**
+     * Returns the maximum height of the obstruction above the ground.
+     * @returns {float}
+     */
+    function GetAvoidanceObstacleHeight();
+
+    /**
+     * Get center origin of area.
+     * @returns {Vector}
+     */
+    function GetCenter();
+
+    /**
+     * Get corner origin of area.
+     * @param {integer} dir - See Constants.ENavDirType
+     * @returns {Vector}
+     */
+    function GetCorner(dir);
+
+    /**
+     * Return shortest distance between point and this area.
+     * @param {Vector} pos
+     * @returns {float}
+     */
+    function GetDistanceSquaredToPoint(pos);
+
+    /**
+     * Returns the door entity above the area.
+     * @returns {CBaseAnimating|null}
+     */
+    function GetDoor();
+
+    /**
+     * Returns the elevator if in an elevator's path.
+     * @returns {CBaseAnimating|null}
+     */
+    function GetElevator();
+
+    /**
+     * Fills table with a collection of areas reachable via elevator from this area.
+     * @param {table} result
+     */
+    function GetElevatorAreas(result);
+
+    /**
+     * Get area ID.
+     * @returns {integer}
+     */
+    function GetID();
+
+    /**
+     * Fills a passed in table with areas connected TO this area by a ONE-WAY link.
+     * @param {integer} dir - See Constants.ENavDirType
+     * @param {table} result
+     */
+    function GetIncomingConnections(dir, result);
+
+    /**
+     * Returns the area just prior to this one in the search path.
+     * @returns {CTFNavArea|null}
+     */
+    function GetParent();
+
+    /**
+     * Returns how we get from parent to us.
+     * @returns {integer}
+     */
+    function GetParentHow();
+
+    /**
+     * Get place name if it exists, null otherwise.
+     * @returns {string|null}
+     */
+    function GetPlaceName();
+
+    /**
+     * Return number of players of given team currently within this area (0 = any/all).
+     * @param {integer} team - See Constants.ETFTeam
+     * @returns {integer}
+     */
+    function GetPlayerCount(team);
+
+    /**
+     * Return a random adjacent area in the given direction.
+     * @param {integer} dir - See Constants.ENavDirType
+     * @returns {CTFNavArea|null}
+     */
+    function GetRandomAdjacentArea(dir);
+
+    /**
+     * Return the area size along the X axis.
+     * @returns {float}
+     */
+    function GetSizeX();
+
+    /**
+     * Return the area size along the Y axis.
+     * @returns {float}
+     */
+    function GetSizeY();
+
+    /**
+     * Gets the travel distance to the MvM bomb target.
+     * @returns {float}
+     */
+    function GetTravelDistanceToBombTarget();
+
+    /**
+     * Return Z of area at (x,y) of 'pos'.
+     * @param {Vector} pos
+     * @returns {float}
+     */
+    function GetZ(pos);
+
+    /**
+     * Has TF-specific area attribute bits of the given ones.
+     * @param {integer} bits - See Constants.FTFNavAttributeType
+     * @returns {bool}
+     */
+    function HasAttributeTF(bits);
+
+    /**
+     * Has area attribute bits of the given ones.
+     * @param {integer} bits - See Constants.FNavAttributeType
+     * @returns {bool}
+     */
+    function HasAttributes(bits);
+
+    /**
+     * Returns true if there's a large, immobile object obstructing this area.
+     * @param {float} max_height
+     * @returns {bool}
+     */
+    function HasAvoidanceObstacle(max_height);
+
+    /**
+     * Return true if team is blocked in this area.
+     * @param {integer} team - See Constants.ETFTeam
+     * @param {bool} affects_flow
+     * @returns {bool}
+     */
+    function IsBlocked(team, affects_flow);
+
+    /**
+     * Returns true if area is a bottleneck.
+     * @returns {bool}
+     */
+    function IsBottleneck();
+
+    /**
+     * Return true if given area is completely visible from somewhere in this area.
+     * @param {integer} team - See Constants.ETFTeam
+     * @returns {bool}
+     */
+    function IsCompletelyVisibleToTeam(team);
+
+    /**
+     * Return true if this area is connected to other area in given direction.
+     * @param {entity} area
+     * @param {integer} dir - See Constants.ENavDirType
+     * @returns {bool}
+     */
+    function IsConnected(area, dir);
+
+    /**
+     * Return true if this area and given area are approximately co-planar.
+     * @param {entity} area
+     * @returns {bool}
+     */
+    function IsCoplanar(area);
+
+    /**
+     * Return true if this area is marked to have continuous damage.
+     * @returns {bool}
+     */
+    function IsDamaging();
+
+    /**
+     * Return true if this area is badly formed.
+     * @returns {bool}
+     */
+    function IsDegenerate();
+
+    /**
+     * Return true if there are no bi-directional links on the given side.
+     * @param {integer} dir - See Constants.ENavDirType
+     * @returns {bool}
+     */
+    function IsEdge(dir);
+
+    /**
+     * Return true if this area is approximately flat.
+     * @returns {bool}
+     */
+    function IsFlat();
+
+    /**
+     * Return true if 'area' overlaps our 2D extents.
+     * @param {entity} area
+     * @returns {bool}
+     */
+    function IsOverlapping(area);
+
+    /**
+     * Return true if 'pos' is within 2D extents of area.
+     * @param {Vector} pos
+     * @param {float} tolerance
+     * @returns {bool}
+     */
+    function IsOverlappingOrigin(pos, tolerance);
+
+    /**
+     * Return true if any portion of this area is visible to anyone on the given team.
+     * @param {integer} team - See Constants.ETFTeam
+     * @returns {bool}
+     */
+    function IsPotentiallyVisibleToTeam(team);
+
+    /**
+     * Is this area reachable by the given team?
+     * @param {integer} team - See Constants.ETFTeam
+     * @returns {bool}
+     */
+    function IsReachableByTeam(team);
+
+    /**
+     * Return true if this area is approximately square.
+     * @returns {bool}
+     */
+    function IsRoughlySquare();
+
+    /**
+     * Is this nav area marked with the current marking scope?
+     * @returns {bool}
+     */
+    function IsTFMarked();
+
+    /**
+     * Return true if area is underwater.
+     * @returns {bool}
+     */
+    function IsUnderwater();
+
+    /**
+     * Returns true if area is valid for wandering population.
+     * @returns {bool}
+     */
+    function IsValidForWanderingPopulation();
+
+    /**
+     * Return true if area is visible from the given eyepoint.
+     * @param {Vector} point
+     * @returns {bool}
+     */
+    function IsVisible(point);
+
+    /**
+     * Mark this area as blocked for team.
+     * @param {integer} team - See Constants.ETFTeam
+     */
+    function MarkAsBlocked(team);
+
+    /**
+     * Mark this area is damaging for the next 'duration' seconds.
+     * @param {float} duration
+     */
+    function MarkAsDamaging(duration);
+
+    /**
+     * Marks the obstructed status of the nav area.
+     * @param {float} height
+     */
+    function MarkObstacleToAvoid(height);
+
+    /**
+     * Removes area attribute bits.
+     * @param {integer} bits - See Constants.FNavAttributeType
+     */
+    function RemoveAttributes(bits);
+
+    /**
+     * Removes all connections in directions to left and right of specified direction.
+     * @param {integer} dir - See Constants.ENavDirType
+     */
+    function RemoveOrthogonalConnections(dir);
+
+    /**
+     * Set TF-specific area attributes.
+     * @param {integer} bits - See Constants.FTFNavAttributeType
+     */
+    function SetAttributeTF(bits);
+
+    /**
+     * Set area attribute bits.
+     * @param {integer} bits - See Constants.FNavAttributeType
+     */
+    function SetAttributes(bits);
+
+    /**
+     * Set place name. Pass null to clear.
+     * @param {string|null} name
+     */
+    function SetPlaceName(name);
+
+    /**
+     * Mark this nav area with the current marking scope.
+     */
+    function TFMark();
+
+    /**
+     * Unblocks this area.
+     */
+    function UnblockArea();
+}
+
+// ============================================================
+// CNavMesh (Game Instance: NavMesh)
+// ============================================================
+
+/**
+ * An interface to collect nav areas from, especially for pathfinding needs.
+ */
+class CNavMesh {
+    /**
+     * Get nav area from ray.
+     * @param {Vector} start_pos
+     * @param {Vector} end_pos
+     * @param {CTFNavArea|null} ignore_area
+     * @returns {CTFNavArea|null}
+     */
+    function FindNavAreaAlongRay(start_pos, end_pos, ignore_area);
+
+    /**
+     * Fills a passed in table of all nav areas.
+     * @param {table} result
+     */
+    function GetAllAreas(result);
+
+    /**
+     * Fills a passed in table of all nav areas that have the specified attributes.
+     * @param {integer} bits - See Constants.FNavAttributeType
+     * @param {table} result
+     */
+    function GetAreasWithAttributes(bits, result);
+
+    /**
+     * Given a position in the world, return the nav area closest to or below that height.
+     * @param {Vector} origin
+     * @param {float} beneath
+     * @returns {CTFNavArea|null}
+     */
+    function GetNavArea(origin, beneath);
+
+    /**
+     * Get nav area by ID.
+     * @param {integer} area_id
+     * @returns {CTFNavArea|null}
+     */
+    function GetNavAreaByID(area_id);
+
+    /**
+     * Return total number of nav areas.
+     * @returns {integer}
+     */
+    function GetNavAreaCount();
+
+    /**
+     * Fills the table with areas from a path. Returns whether a path was found.
+     * Note: The areas are passed from end area to the start area.
+     * @param {CTFNavArea} start_area
+     * @param {CTFNavArea} end_area
+     * @param {Vector} goal_pos
+     * @param {float} max_path_length
+     * @param {integer} team - See Constants.ETFTeam
+     * @param {bool} ignore_nav_blockers
+     * @param {table} result
+     * @returns {bool}
+     */
+    function GetNavAreasFromBuildPath(start_area, end_area, goal_pos, max_path_length, team, ignore_nav_blockers, result);
+
+    /**
+     * Fills a passed in table of nav areas within radius.
+     * @param {Vector} origin
+     * @param {float} radius
+     * @param {table} result
+     */
+    function GetNavAreasInRadius(origin, radius, result);
+
+    /**
+     * Fills passed in table with areas overlapping entity's extent.
+     * @param {entity} entity
+     * @param {table} result
+     */
+    function GetNavAreasOverlappingEntityExtent(entity, result);
+
+    /**
+     * Given a position in the world, return the nav area closest to or below that height.
+     * @param {Vector} origin
+     * @param {float} max_distance
+     * @param {bool} check_los
+     * @param {bool} check_ground
+     * @returns {CTFNavArea|null}
+     */
+    function GetNearestNavArea(origin, max_distance, check_los, check_ground);
+
+    /**
+     * Fills a passed in table of all obstructing entities.
+     * @param {table} result
+     */
+    function GetObstructingEntities(result);
+
+    /**
+     * Returns true if a path exists.
+     * @param {CTFNavArea} start_area
+     * @param {CTFNavArea} end_area
+     * @param {Vector} goal_pos
+     * @param {float} max_path_length
+     * @param {integer} team - See Constants.ETFTeam
+     * @param {bool} ignore_nav_blockers
+     * @returns {bool}
+     */
+    function NavAreaBuildPath(start_area, end_area, goal_pos, max_path_length, team, ignore_nav_blockers);
+
+    /**
+     * Compute distance between two areas. Returns -1.0 if can't reach 'end_area' from 'start_area'.
+     * @param {CTFNavArea} start_area
+     * @param {CTFNavArea} end_area
+     * @param {float} max_path_length
+     * @returns {float}
+     */
+    function NavAreaTravelDistance(start_area, end_area, max_path_length);
+
+    /**
+     * Registers avoidance obstacle.
+     * @param {entity} entity
+     */
+    function RegisterAvoidanceObstacle(entity);
+
+    /**
+     * Unregisters avoidance obstacle.
+     * @param {entity} entity
+     */
+    function UnregisterAvoidanceObstacle(entity);
+}
+
+// ============================================================
+// CNetPropManager (Game Instance: NetProps)
+// ============================================================
+
+/**
+ * Allows reading and updating the network properties and data-maps of an entity.
+ */
+class CNetPropManager {
+    /**
+     * Returns the size of a netprop array, or -1.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {integer}
+     */
+    function GetPropArraySize(entity, property_name);
+
+    /**
+     * Reads an EHANDLE-valued netprop. Returns null if property is not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {entity|null}
+     */
+    function GetPropEntity(entity, property_name);
+
+    /**
+     * Reads an EHANDLE-valued netprop from an array. Returns null if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} array_element
+     * @returns {entity|null}
+     */
+    function GetPropEntityArray(entity, property_name, array_element);
+
+    /**
+     * Reads a boolean-valued netprop. Returns false if property is not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {bool}
+     */
+    function GetPropBool(entity, property_name);
+
+    /**
+     * Reads a boolean-valued netprop from an array. Returns false if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} array_element
+     * @returns {bool}
+     */
+    function GetPropBoolArray(entity, property_name, array_element);
+
+    /**
+     * Reads a float-valued netprop. Returns -1.0 if property is not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {float}
+     */
+    function GetPropFloat(entity, property_name);
+
+    /**
+     * Reads a float-valued netprop from an array. Returns -1.0 if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} array_element
+     * @returns {float}
+     */
+    function GetPropFloatArray(entity, property_name, array_element);
+
+    /**
+     * Fills in a passed table with property info for the provided entity.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} array_element
+     * @param {table} result
+     * @returns {bool}
+     */
+    function GetPropInfo(entity, property_name, array_element, result);
+
+    /**
+     * Reads an integer-valued netprop. Returns -1 if property is not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {integer}
+     */
+    function GetPropInt(entity, property_name);
+
+    /**
+     * Reads an integer-valued netprop from an array. Returns -1 if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} array_element
+     * @returns {integer}
+     */
+    function GetPropIntArray(entity, property_name, array_element);
+
+    /**
+     * Reads a string-valued netprop. Returns empty string if property is not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {string}
+     */
+    function GetPropString(entity, property_name);
+
+    /**
+     * Reads a string-valued netprop from an array. Returns empty string if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} array_element
+     * @returns {string}
+     */
+    function GetPropStringArray(entity, property_name, array_element);
+
+    /**
+     * Returns the name of the netprop type as a string. Returns null if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {string|null}
+     */
+    function GetPropType(entity, property_name);
+
+    /**
+     * Reads a 3D vector-valued netprop. Returns empty vector if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {Vector}
+     */
+    function GetPropVector(entity, property_name);
+
+    /**
+     * Reads a 3D vector-valued netprop from an array. Returns empty vector if not found.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} array_element
+     * @returns {Vector}
+     */
+    function GetPropVectorArray(entity, property_name, array_element);
+
+    /**
+     * Fills in a passed table with all props of a specified type (0=SendTable, 1=DataMap).
+     * @param {entity} entity
+     * @param {integer} prop_type
+     * @param {table} result
+     */
+    function GetTable(entity, prop_type, result);
+
+    /**
+     * Checks if a netprop exists.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @returns {bool}
+     */
+    function HasProp(entity, property_name);
+
+    /**
+     * Sets a netprop to the specified boolean.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {bool} value
+     */
+    function SetPropBool(entity, property_name, value);
+
+    /**
+     * Sets a netprop from an array to the specified boolean.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {bool} value
+     * @param {integer} array_element
+     */
+    function SetPropBoolArray(entity, property_name, value, array_element);
+
+    /**
+     * Sets an EHANDLE-valued netprop to reference the specified entity.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {entity|null} value
+     */
+    function SetPropEntity(entity, property_name, value);
+
+    /**
+     * Sets an EHANDLE-valued netprop from an array to reference the specified entity.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {entity|null} value
+     * @param {integer} array_element
+     */
+    function SetPropEntityArray(entity, property_name, value, array_element);
+
+    /**
+     * Sets a netprop to the specified float.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {float} value
+     */
+    function SetPropFloat(entity, property_name, value);
+
+    /**
+     * Sets a netprop from an array to the specified float.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {float} value
+     * @param {integer} array_element
+     */
+    function SetPropFloatArray(entity, property_name, value, array_element);
+
+    /**
+     * Sets a netprop to the specified integer.
+     * Warning: Do not override m_iTeamNum netprops on players or Engineer buildings permanently.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} value
+     */
+    function SetPropInt(entity, property_name, value);
+
+    /**
+     * Sets a netprop from an array to the specified integer.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {integer} value
+     * @param {integer} array_element
+     */
+    function SetPropIntArray(entity, property_name, value, array_element);
+
+    /**
+     * Sets a netprop to the specified string.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {string|null} value
+     */
+    function SetPropString(entity, property_name, value);
+
+    /**
+     * Sets a netprop from an array to the specified string.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {string|null} value
+     * @param {integer} array_element
+     */
+    function SetPropStringArray(entity, property_name, value, array_element);
+
+    /**
+     * Sets a netprop to the specified vector.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {Vector} value
+     */
+    function SetPropVector(entity, property_name, value);
+
+    /**
+     * Sets a netprop from an array to the specified vector.
+     * @param {entity} entity
+     * @param {string} property_name
+     * @param {Vector} value
+     * @param {integer} array_element
+     */
+    function SetPropVectorArray(entity, property_name, value, array_element);
+}
+
+// ============================================================
+// CScriptEntityOutputs (Game Instance: EntityOutputs)
+// ============================================================
+
+/**
+ * Allows reading and manipulation of entity output data.
+ */
+class CScriptEntityOutputs {
+    /**
+     * Adds a new output to the entity.
+     * @param {entity} entity
+     * @param {string} output_name
+     * @param {string} targetname
+     * @param {string} input_name
+     * @param {string|null} parameter
+     * @param {float} delay
+     * @param {integer} times_to_fire
+     */
+    function AddOutput(entity, output_name, targetname, input_name, parameter, delay, times_to_fire);
+
+    /**
+     * Returns the number of array elements.
+     * @param {entity} entity
+     * @param {string} output_name
+     * @returns {integer}
+     */
+    function GetNumElements(entity, output_name);
+
+    /**
+     * Fills the passed table with output information.
+     * @param {entity} entity
+     * @param {string} output_name
+     * @param {table} result
+     * @param {integer} array_element
+     */
+    function GetOutputTable(entity, output_name, result, array_element);
+
+    /**
+     * Returns true if an action exists for the output.
+     * @param {entity} entity
+     * @param {string} output_name
+     * @returns {bool}
+     */
+    function HasAction(entity, output_name);
+
+    /**
+     * Returns true if the output exists.
+     * @param {entity} entity
+     * @param {string} output_name
+     * @returns {bool}
+     */
+    function HasOutput(entity, output_name);
+
+    /**
+     * Removes an output from the entity.
+     * @param {entity} entity
+     * @param {string} output_name
+     * @param {string} targetname
+     * @param {string} input_name
+     * @param {string|null} parameter
+     */
+    function RemoveOutput(entity, output_name, targetname, input_name, parameter);
+}
+
+// ============================================================
+// CScriptKeyValues
+// ============================================================
+
+/**
+ * Script handle representation of a model's $keyvalues block.
+ */
+class CScriptKeyValues {
+    /**
+     * Find a sub key by the key name.
+     * @param {string} key
+     * @returns {CScriptKeyValues|null}
+     */
+    function FindKey(key);
+
+    /**
+     * Return the first sub key object.
+     * @returns {CScriptKeyValues|null}
+     */
+    function GetFirstSubKey();
+
+    /**
+     * Return the key value as a bool.
+     * @param {string} key
+     * @returns {bool}
+     */
+    function GetKeyBool(key);
+
+    /**
+     * Return the key value as a float.
+     * @param {string} key
+     * @returns {float}
+     */
+    function GetKeyFloat(key);
+
+    /**
+     * Return the key value as an integer.
+     * @param {string} key
+     * @returns {integer}
+     */
+    function GetKeyInt(key);
+
+    /**
+     * Return the key value as a string.
+     * @param {string} key
+     * @returns {string}
+     */
+    function GetKeyString(key);
+
+    /**
+     * Return the next neighbor key object.
+     * @returns {CScriptKeyValues|null}
+     */
+    function GetNextKey();
+
+    /**
+     * Returns true if the named key has no value.
+     * @param {string} key
+     * @returns {bool}
+     */
+    function IsKeyEmpty(key);
+
+    /**
+     * Whether the handle belongs to a valid key.
+     * @returns {bool}
+     */
+    function IsValid();
+
+    /**
+     * Releases the contents of the instance.
+     */
+    function ReleaseKeyValues();
+}
+
+// ============================================================
+// CPlayerVoiceListener (Game Instance: PlayerVoiceListener)
+// ============================================================
+
+/**
+ * Tracks if any player is using voice and for how long.
+ */
+class CPlayerVoiceListener {
+    /**
+     * Returns the number of seconds the player has been continuously speaking.
+     * @param {integer} player_index
+     * @returns {float}
+     */
+    function GetPlayerSpeechDuration(player_index);
+
+    /**
+     * Returns whether the player specified is speaking.
+     * @param {integer} player_index
+     * @returns {bool}
+     */
+    function IsPlayerSpeaking(player_index);
+}
+
+// ============================================================
+// CEnvEntityMaker extends CBaseEntity
+// ============================================================
+
+/**
+ * Script handle class for env_entity_maker.
+ * @extends CBaseEntity
+ */
+class CEnvEntityMaker extends CBaseEntity {
+    /**
+     * Create an entity at the location of the maker.
+     */
+    function SpawnEntity();
+
+    /**
+     * Create an entity at the location of a specified entity instance.
+     * @param {entity} entity
+     */
+    function SpawnEntityAtEntityOrigin(entity);
+
+    /**
+     * Create an entity at a specified location and orientation.
+     * @param {Vector} origin
+     * @param {Vector} orientation - Euler angle in degrees (pitch, yaw, roll)
+     */
+    function SpawnEntityAtLocation(origin, orientation);
+
+    /**
+     * Create an entity at the location of a named entity.
+     * @param {string} targetname
+     */
+    function SpawnEntityAtNamedEntityOrigin(targetname);
+}
+
+// ============================================================
+// CFuncTrackTrain extends CBaseEntity
+// ============================================================
+
+/**
+ * Script handle class for func_tracktrain.
+ * @extends CBaseEntity
+ */
+class CFuncTrackTrain extends CBaseEntity {
+    /**
+     * Get a position on the track X seconds in the future.
+     * @param {float} x
+     * @param {float} speed
+     * @returns {Vector}
+     */
+    function GetFuturePosition(x, speed);
+}
+
+// ============================================================
+// CSceneEntity extends CBaseEntity
+// ============================================================
+
+/**
+ * Script handle class for scripted_scene (VCD data).
+ * @extends CBaseEntity
+ */
+class CSceneEntity extends CBaseEntity {
+    /**
+     * Adds a team (by index) to the broadcast list.
+     * @param {integer} index
+     */
+    function AddBroadcastTeamTarget(index);
+
+    /**
+     * Returns length of this scene in seconds.
+     * @returns {float}
+     */
+    function EstimateLength();
+
+    /**
+     * Given an entity reference such as !target, get actual entity from scene object.
+     * @param {string} reference
+     * @returns {entity|null}
+     */
+    function FindNamedEntity(reference);
+
+    /**
+     * If this scene is currently paused.
+     * @returns {bool}
+     */
+    function IsPaused();
+
+    /**
+     * If this scene is currently playing.
+     * @returns {bool}
+     */
+    function IsPlayingBack();
+
+    /**
+     * Given a dummy scene name and a vcd string, load the scene.
+     * @param {string} scene_name
+     * @param {string} scene
+     * @returns {bool}
+     */
+    function LoadSceneFromString(scene_name, scene);
+
+    /**
+     * Removes a team (by index) from the broadcast list.
+     * @param {integer} index
+     */
+    function RemoveBroadcastTeamTarget(index);
+}
+
+// ============================================================
+// NextBotCombatCharacter extends CBaseCombatCharacter
+// ============================================================
+
+/**
+ * Script handle class for non-playable combat characters operating under the NextBot system.
+ * @extends CBaseCombatCharacter
+ */
+class NextBotCombatCharacter extends CBaseCombatCharacter {
+    /**
+     * Clear immobile status.
+     */
+    function ClearImmobileStatus();
+
+    /**
+     * Flag this bot for update.
+     * Tip: Use in think function to update nextbots faster than nb_update_frequency.
+     * @param {bool} toggle
+     */
+    function FlagForUpdate(toggle);
+
+    /**
+     * Get this bot's body interface.
+     * @returns {INextBotComponent}
+     */
+    function GetBodyInterface();
+
+    /**
+     * Get this bot's id.
+     * @returns {integer}
+     */
+    function GetBotId();
+
+    /**
+     * How long have we been immobile.
+     * @returns {float}
+     */
+    function GetImmobileDuration();
+
+    /**
+     * Return units/second below which this actor is considered immobile.
+     * @returns {float}
+     */
+    function GetImmobileSpeedThreshold();
+
+    /**
+     * Get this bot's intention interface.
+     * @returns {INextBotComponent}
+     */
+    function GetIntentionInterface();
+
+    /**
+     * Get this bot's locomotion interface.
+     * @returns {ILocomotion}
+     */
+    function GetLocomotionInterface();
+
+    /**
+     * Get last update tick.
+     * @returns {integer}
+     */
+    function GetTickLastUpdate();
+
+    /**
+     * Get this bot's vision interface.
+     * @returns {INextBotComponent}
+     */
+    function GetVisionInterface();
+
+    /**
+     * Return true if given entity is our enemy.
+     * @param {entity} entity
+     * @returns {bool}
+     */
+    function IsEnemy(entity);
+
+    /**
+     * Is this bot flagged for update.
+     * @returns {bool}
+     */
+    function IsFlaggedForUpdate();
+
+    /**
+     * Return true if given entity is our friend.
+     * @param {entity} entity
+     * @returns {bool}
+     */
+    function IsFriend(entity);
+
+    /**
+     * Return true if we haven't moved in awhile.
+     * @returns {bool}
+     */
+    function IsImmobile();
+}
+
+// ============================================================
+// INextBotComponent
+// ============================================================
+
+/**
+ * Base script handle class for any interfaces belonging to a NextBotCombatCharacter entity.
+ */
+class INextBotComponent {
+    /**
+     * Recomputes the component update interval.
+     * @returns {bool}
+     */
+    function ComputeUpdateInterval();
+
+    /**
+     * Returns the component update interval.
+     * @returns {float}
+     */
+    function GetUpdateInterval();
+
+    /**
+     * Resets the internal update state.
+     */
+    function Reset();
+}
+
+// ============================================================
+// ILocomotion extends INextBotComponent
+// ============================================================
+
+/**
+ * The interface for interacting with a specific NextBot's movement brain.
+ * @extends INextBotComponent
+ */
+class ILocomotion extends INextBotComponent {
+    /**
+     * The primary locomotive method. Move towards goal position.
+     * Tip: Put in a think function to make the entity move smoothly.
+     * @param {Vector} goal
+     * @param {float} goal_weight
+     */
+    function Approach(goal, goal_weight);
+
+    /**
+     * Reset stuck status to un-stuck.
+     * @param {string} reason
+     */
+    function ClearStuckStatus(reason);
+
+    /**
+     * Initiate a jump to an adjacent high ledge. Returns false if climb can't start.
+     * @param {Vector} goal_pos
+     * @param {Vector} goal_forward
+     * @param {entity} obstacle
+     * @returns {bool}
+     */
+    function ClimbUpToLedge(goal_pos, goal_forward, obstacle);
+
+    /**
+     * Returns false if no time has elapsed.
+     * @returns {bool}
+     */
+    function ComputeUpdateInterval();
+
+    /**
+     * Move the bot to the precise given position immediately, updating internal state.
+     * @param {Vector} pos
+     */
+    function DriveTo(pos);
+
+    /**
+     * Rotate body to face towards target.
+     * Tip: Put in a think function for smooth rotation.
+     * @param {Vector} target
+     */
+    function FaceTowards(target);
+
+    /**
+     * If the locomotor cannot jump over the gap, returns the fraction of the jumpable ray.
+     * @param {Vector} from
+     * @param {Vector} to
+     * @returns {float}
+     */
+    function FractionPotentialGap(from, to);
+
+    /**
+     * If the locomotor could not move along the line given, returns the fraction of the walkable ray.
+     * @param {Vector} from
+     * @param {Vector} to
+     * @param {bool} immediately
+     * @returns {float}
+     */
+    function FractionPotentiallyTraversable(from, to, immediately);
+
+    /**
+     * Distance at which we will die if we fall.
+     * @returns {float}
+     */
+    function GetDeathDropHeight();
+
+    /**
+     * Get desired speed for locomotor movement.
+     * @returns {float}
+     */
+    function GetDesiredSpeed();
+
+    /**
+     * Return position of feet - the driving point where the bot contacts the ground.
+     * @returns {Vector}
+     */
+    function GetFeet();
+
+    /**
+     * Return the current ground entity or null if not on the ground.
+     * @returns {entity|null}
+     */
+    function GetGround();
+
+    /**
+     * Return unit vector in XY plane describing direction of motion.
+     * @returns {Vector}
+     */
+    function GetGroundMotionVector();
+
+    /**
+     * Surface normal of the ground we are in contact with.
+     * @returns {Vector}
+     */
+    function GetGroundNormal();
+
+    /**
+     * Return current world space speed in XY plane.
+     * @returns {float}
+     */
+    function GetGroundSpeed();
+
+    /**
+     * Return maximum acceleration of locomotor.
+     * @returns {float}
+     */
+    function GetMaxAcceleration();
+
+    /**
+     * Return maximum deceleration of locomotor.
+     * @returns {float}
+     */
+    function GetMaxDeceleration();
+
+    /**
+     * Return maximum height of a jump.
+     * @returns {float}
+     */
+    function GetMaxJumpHeight();
+
+    /**
+     * Return unit vector describing our direction of motion.
+     * @returns {Vector}
+     */
+    function GetMotionVector();
+
+    /**
+     * Get maximum running speed.
+     * @returns {float}
+     */
+    function GetRunSpeed();
+
+    /**
+     * Return current world space speed (magnitude of velocity).
+     * @returns {float}
+     */
+    function GetSpeed();
+
+    /**
+     * Get maximum speed bot can reach, regardless of desired speed.
+     * @returns {float}
+     */
+    function GetSpeedLimit();
+
+    /**
+     * If delta Z is lower than this, we can step up the surface; otherwise we have to jump.
+     * @returns {float}
+     */
+    function GetStepHeight();
+
+    /**
+     * Return how long we've been stuck.
+     * @returns {float}
+     */
+    function GetStuckDuration();
+
+    /**
+     * Return Z component of unit normal of steepest traversable slope.
+     * @returns {float}
+     */
+    function GetTraversableSlopeLimit();
+
+    /**
+     * Returns time between updates.
+     * @returns {float}
+     */
+    function GetUpdateInterval();
+
+    /**
+     * Return current world space velocity.
+     * @returns {Vector}
+     */
+    function GetVelocity();
+
+    /**
+     * Get maximum walking speed.
+     * @returns {float}
+     */
+    function GetWalkSpeed();
+
+    /**
+     * Checks if there is a possible gap that will need to be jumped over.
+     * @param {Vector} from
+     * @param {Vector} to
+     * @returns {float}
+     */
+    function HasPotentialGap(from, to);
+
+    /**
+     * Return true if this bot can climb arbitrary geometry it encounters.
+     * @returns {bool}
+     */
+    function IsAbleToClimb();
+
+    /**
+     * Return true if this bot can jump across gaps in its path.
+     * @returns {bool}
+     */
+    function IsAbleToJumpAcrossGaps();
+
+    /**
+     * Return true if given area can be used for navigation.
+     * @param {entity} area
+     * @returns {bool}
+     */
+    function IsAreaTraversable(area);
+
+    /**
+     * Return true if we have tried to Approach() or DriveTo() very recently.
+     * @returns {bool}
+     */
+    function IsAttemptingToMove();
+
+    /**
+     * Is jumping in any form.
+     * @returns {bool}
+     */
+    function IsClimbingOrJumping();
+
+    /**
+     * Is climbing up to a high ledge.
+     * @returns {bool}
+     */
+    function IsClimbingUpToLedge();
+
+    /**
+     * Return true if the entity handle is traversable.
+     * @param {entity} entity
+     * @param {bool} immediately
+     * @returns {bool}
+     */
+    function IsEntityTraversable(entity, immediately);
+
+    /**
+     * Return true if there is a gap at this position.
+     * @param {Vector} pos
+     * @param {Vector} forward
+     * @returns {bool}
+     */
+    function IsGap(pos, forward);
+
+    /**
+     * Is jumping across a gap to the far side.
+     * @returns {bool}
+     */
+    function IsJumpingAcrossGap();
+
+    /**
+     * Return true if standing on something.
+     * @returns {bool}
+     */
+    function IsOnGround();
+
+    /**
+     * Checks if this locomotor could potentially move along the line given.
+     * @param {Vector} from
+     * @param {Vector} to
+     * @param {bool} immediately
+     * @returns {float}
+     */
+    function IsPotentiallyTraversable(from, to, immediately);
+
+    /**
+     * Is running?
+     * @returns {bool}
+     */
+    function IsRunning();
+
+    /**
+     * Is in the middle of a complex action that shouldn't be interrupted.
+     * @returns {bool}
+     */
+    function IsScrambling();
+
+    /**
+     * Return true if bot is stuck.
+     * @returns {bool}
+     */
+    function IsStuck();
+
+    /**
+     * Initiate a simple undirected jump in the air.
+     */
+    function Jump();
+
+    /**
+     * Initiate a jump across an empty volume of space to far side.
+     * @param {Vector} goal_pos
+     * @param {Vector} goal_forward
+     */
+    function JumpAcrossGap(goal_pos, goal_forward);
+
+    /**
+     * Manually run the OnLandOnGround callback.
+     * @param {entity} ground
+     */
+    function OnLandOnGround(ground);
+
+    /**
+     * Manually run the OnLeaveGround callback.
+     * @param {entity} ground
+     */
+    function OnLeaveGround(ground);
+
+    /**
+     * Resets motion, stuck state etc.
+     */
+    function Reset();
+
+    /**
+     * Set desired movement speed to running.
+     */
+    function Run();
+
+    /**
+     * Set desired speed for locomotor movement.
+     * @param {float} speed
+     */
+    function SetDesiredSpeed(speed);
+
+    /**
+     * Set maximum speed bot can reach, regardless of desired speed.
+     * @param {float} limit
+     */
+    function SetSpeedLimit(limit);
+
+    /**
+     * Set desired movement speed to stopped.
+     */
+    function Stop();
+
+    /**
+     * Set desired movement speed to walking.
+     */
+    function Walk();
+}
+
+// ============================================================
+// Vector (Data Type)
+// ============================================================
+
+/**
+ * Squirrel equivalent of the C++ Vector class.
+ * A three-dimensional vector with overloaded arithmetic operations for both Vectors and scalar values.
+ */
+class Vector {
+    /**
+     * Cartesian X axis.
+     * @type {float}
+     */
+    x = null
+    /**
+     * Cartesian Y axis.
+     * @type {float}
+     */
+    y = null
+    /**
+     * Cartesian Z axis.
+     * @type {float}
+     */
+    z = null
+    /**
+     * Creates a new vector with the specified Cartesian coordinates.
+     * @param {float} x
+     * @param {float} y
+     * @param {float} z
+     */
+    constructor(x = 0.0, y = 0.0, z = 0.0);
+    /**
+     * Returns the sum of both classes's members.
      * @param {Vector} other
+     * @returns {Vector}
      */
     function _add(other);
-
     /**
+     * Returns the subtraction of both classes's members.
+     * @param {Vector} other
+     * @returns {Vector}
+     */
+    function _sub(other);
+    /**
+     * Returns the multiplication of a Vector against a scalar.
      * @param {float} other
+     * @returns {Vector}
      */
     function _mul(other);
-
+    /**
+     * The vector product of two vectors. Returns a vector orthogonal to the input vectors.
+     * @param {Vector} factor
+     * @returns {Vector}
+     */
     function Cross(factor);
-
+    /**
+     * The scalar product of two vectors.
+     * @param {Vector} factor
+     * @returns {float}
+     */
     function Dot(factor);
-
+    /**
+     * Magnitude of the vector.
+     * @returns {float}
+     */
     function Length();
-
+    /**
+     * The magnitude of the vector squared.
+     * @returns {float}
+     */
     function LengthSqr();
-
+    /**
+     * Returns the magnitude of the vector on the x-y plane.
+     * @returns {float}
+     */
     function Length2D();
-
+    /**
+     * Returns the square of the magnitude of the vector on the x-y plane.
+     * @returns {float}
+     */
     function Length2DSqr();
-
+    /**
+     * Normalizes the vector in place and returns its length.
+     * @returns {float}
+     */
     function Norm();
-
+    /**
+     * Scales the vector magnitude.
+     * @param {float} factor
+     * @returns {Vector}
+     */
     function Scale(factor);
-
+    /**
+     * Returns a string without separating commas.
+     * @returns {string}
+     */
     function ToKVString();
-
+    /**
+     * Returns a human-readable string.
+     * @returns {string}
+     */
     function tostring();
 }
+
+// ============================================================
+// QAngle (Data Type)
+// ============================================================
+
+/**
+ * Squirrel equivalent of the C++ QAngle class.
+ * Represents a three-dimensional orientation as Euler angles.
+ */
+class QAngle {
+    /**
+     * Pitch in degrees.
+     * @type {float}
+     */
+    x = null
+    /**
+     * Yaw in degrees.
+     * @type {float}
+     */
+    y = null
+    /**
+     * Roll in degrees.
+     * @type {float}
+     */
+    z = null
+    /**
+     * Creates a new QAngle.
+     * @param {float} pitch
+     * @param {float} yaw
+     * @param {float} roll
+     */
+    constructor(pitch = 0.0, yaw = 0.0, roll = 0.0);
+    /**
+     * Returns the sum of both classes's members.
+     * @param {QAngle} other
+     * @returns {QAngle}
+     */
+    function _add(other);
+    /**
+     * Returns the subtraction of both classes's members.
+     * @param {QAngle} other
+     * @returns {QAngle}
+     */
+    function _sub(other);
+    /**
+     * QAngle multiplied by a number.
+     * @param {float} other
+     * @returns {QAngle}
+     */
+    function _mul(other);
+    /**
+     * Returns the Forward Vector of the angles.
+     * @returns {Vector}
+     */
+    function Forward();
+    /**
+     * Returns the right Vector of the angles.
+     * Note: Despite being named "Left", this actually returns the right vector.
+     * @returns {Vector}
+     */
+    function Left();
+    /**
+     * Returns the pitch angle in degrees.
+     * @returns {float}
+     */
+    function Pitch();
+    /**
+     * Returns the roll angle in degrees.
+     * @returns {float}
+     */
+    function Roll();
+    /**
+     * Returns a string with the values separated by one space.
+     * @returns {string}
+     */
+    function ToKVString();
+    /**
+     * Returns a quaternion representation of the orientation.
+     * @returns {Quaternion}
+     */
+    function ToQuat();
+    /**
+     * Returns the Up Vector of the angles.
+     * @returns {Vector}
+     */
+    function Up();
+    /**
+     * Returns the yaw angle in degrees.
+     * @returns {float}
+     */
+    function Yaw();
+}
+
+// ============================================================
+// Quaternion (Data Type)
+// ============================================================
+
+/**
+ * Quaternion represents rotations in three-dimensional space.
+ */
+class Quaternion {
+    /**
+     * Vector component along the i axis.
+     * @type {float}
+     */
+    x = null
+    /**
+     * Vector component along the j axis.
+     * @type {float}
+     */
+    y = null
+    /**
+     * Vector component along the k axis.
+     * @type {float}
+     */
+    z = null
+    /**
+     * Scalar part.
+     * @type {float}
+     */
+    w = null
+    /**
+     * Creates a new identity quaternion (0, 0, 0, 1).
+     */
+    constructor();
+    /**
+     * The 4D scalar product of two quaternions.
+     * @param {Quaternion} factor
+     * @returns {float}
+     */
+    function Dot(factor);
+    /**
+     * Returns a quaternion with the complementary rotation.
+     * @returns {Quaternion}
+     */
+    function Invert();
+    /**
+     * Normalizes the quaternion.
+     * @returns {float}
+     */
+    function Norm();
+    /**
+     * Recomputes the quaternion from the supplied Euler angles.
+     * @param {float} pitch
+     * @param {float} yaw
+     * @param {float} roll
+     */
+    function SetPitchYawRoll(pitch, yaw, roll);
+    /**
+     * Returns a string with the values separated by one space.
+     * @returns {string}
+     */
+    function ToKVString();
+    /**
+     * Returns the angles resulting from the rotation.
+     * @returns {QAngle}
+     */
+    function ToQAngle();
+}
+
+// ============================================================
+// GLOBAL FUNCTIONS - Shared
+// ============================================================
+
+/**
+ * Sets a function in the entity's script to rerun by itself constantly.
+ * Pass null as the function name to remove a think function.
+ * The default think interval is 0.1s, unless overridden by returning a different time interval in seconds.
+ * TF2 runs at 66 ticks per second, so the lowest possible interval is 0.015 seconds.
+ * Return -1 to think every tick.
+ * The highest interval where all clients will interpolate entities is 0.05 (20 times per second).
+ * @param {entity} entity
+ * @param {string|null} function_name
+ */
+function AddThinkToEnt(entity, function_name);
+
+/**
+ * Test value and if not true, throws exception, optionally with message.
+ * @param {bool} value
+ * @param {string|null} optional_message
+ */
+function Assert(value, optional_message = null);
+
+/**
+ * Empties the tables of game event callback functions.
+ * @deprecated Do NOT use this! It removes all events including those from other scripts.
+ */
+function ClearGameEventCallbacks();
+
+/**
+ * Create a prop.
+ * @param {string} classname
+ * @param {Vector} origin
+ * @param {string} model_name
+ * @param {integer} activity
+ * @returns {CBaseAnimating|null}
+ */
+function CreateProp(classname, origin, model_name, activity);
+
+/**
+ * Create a scene entity to play the specified scene. Can only be created during map initialization.
+ * @param {string} scene
+ * @returns {CBaseAnimating|null}
+ */
+function CreateSceneEntity(scene);
+
+/**
+ * The current level of the developer console variable.
+ * @returns {integer}
+ */
+function developer();
+
+/**
+ * Dispatches a one-off particle system.
+ * Warning: Does NOT work if called from a player think or OnTakeDamage caused by hitscan/melee.
+ * @param {string} name
+ * @param {Vector} origin
+ * @param {Vector} direction
+ */
+function DispatchParticleEffect(name, origin, direction);
+
+/**
+ * Generate an entity I/O event.
+ * @param {string} target
+ * @param {string} action
+ * @param {string|null} value
+ * @param {float} delay
+ * @param {entity|null} activator
+ * @param {entity|null} caller
+ */
+function DoEntFire(target, action, value, delay, activator, caller);
+
+/**
+ * Execute a script and put all its content for the argument passed to the scope parameter.
+ * The file must have the .nut extension.
+ * @param {string} file
+ * @param {table|null} scope
+ * @returns {bool}
+ */
+function DoIncludeScript(file, scope);
+
+/**
+ * Wrapper for DoIncludeScript.
+ * @param {string} file
+ * @param {table|null} scope
+ * @returns {bool}
+ */
+function IncludeScript(file, scope = null);
+
+/**
+ * Play named sound on an entity using configurations similar to ambient_generic.
+ * @param {string} sound_name
+ * @param {float} volume
+ * @param {integer} soundlevel
+ * @param {integer} pitch
+ * @param {entity} entity
+ */
+function EmitAmbientSoundOn(sound_name, volume, soundlevel, pitch, entity);
+
+/**
+ * Stop named sound on an entity using configurations similar to ambient_generic.
+ * @param {string} sound_name
+ * @param {entity} entity
+ */
+function StopAmbientSoundOn(sound_name, entity);
+
+/**
+ * Play a sound with extended parameters.
+ * @param {table} params - Keys: sound_name, channel, volume, sound_level, flags, pitch, special_dsp, origin, delay, sound_time, entity, speaker_entity, filter_type, filter_param
+ */
+function EmitSoundEx(params);
+
+/**
+ * Play named sound on given entity. The sound must be precached first.
+ * Warning: Looping sounds will not stop on the entity when it's destroyed.
+ * @param {string} sound_script
+ * @param {entity} entity
+ */
+function EmitSoundOn(sound_script, entity);
+
+/**
+ * Stop named sound on an entity.
+ * @param {string} sound_script
+ * @param {entity} entity
+ */
+function StopSoundOn(sound_script, entity);
+
+/**
+ * Play named sound only on the client for the specified player.
+ * Note: Only supports soundscripts.
+ * @param {string} sound_script
+ * @param {entity} player
+ */
+function EmitSoundOnClient(sound_script, player);
+
+/**
+ * Wrapper for DoEntFire() that sets activator to null. Negative delays are clamped to 0.
+ * @param {string} target
+ * @param {string} action
+ * @param {string|null} value
+ * @param {float} delay
+ * @param {entity|null} activator
+ */
+function EntFire(target, action, value = null, delay = 0.0, activator = null);
+
+/**
+ * Generate an entity I/O event by handle. Negative delays are clamped to 0.
+ * Note: With 0 delay, processed at end of frame. Use AcceptInput for instant/synchronous I/O.
+ * @param {entity} entity
+ * @param {string} action
+ * @param {string|null} value
+ * @param {float} delay
+ * @param {entity|null} activator
+ * @param {entity|null} caller
+ */
+function EntFireByHandle(entity, action, value, delay, activator, caller);
+
+/**
+ * Turn an entity index integer to an HScript representing that entity's script instance.
+ * @param {integer} entindex
+ * @returns {entity|null}
+ */
+function EntIndexToHScript(entindex);
+
+/**
+ * Reads a string from file located in the game's scriptdata folder.
+ * Returns the string from the file, null if no file or file is greater than 16384 bytes.
+ * @param {string} file
+ * @returns {string|null}
+ */
+function FileToString(file);
+
+/**
+ * Fire a game event to a listening callback function in script.
+ * Note: Does not fire an event that the game will pick up. Use SendGlobalGameEvent for real events.
+ * @param {string} name
+ * @param {table} params
+ * @returns {bool}
+ */
+function FireGameEvent(name, params);
+
+/**
+ * Fire a script hook to a listening callback function in script.
+ * @param {string} name
+ * @param {table} params
+ * @returns {bool}
+ */
+function FireScriptHook(name, params);
+
+/**
+ * Get the time spent on the server in the last frame. Usually 0.015 (default tickrate).
+ * @returns {float}
+ */
+function FrameTime();
+
+/**
+ * Gets the level of 'developer'.
+ * @returns {integer}
+ */
+function GetDeveloperLevel();
+
+/**
+ * Returns the engines current frame count.
+ * @returns {integer}
+ */
+function GetFrameCount();
+
+/**
+ * Returns a string that describes the passed in function's signature.
+ * @param {function} func
+ * @param {string|null} prefix
+ * @returns {string}
+ */
+function GetFunctionSignature(func, prefix);
+
+/**
+ * Get the local player on a listen server. Returns null on dedicated servers.
+ * @returns {CTFPlayer|null}
+ */
+function GetListenServerHost();
+
+/**
+ * Get the name of the map without extension.
+ * @returns {string}
+ */
+function GetMapName();
+
+/**
+ * Returns the index of the named model. Returns -1 if not loaded.
+ * @param {string} model_name
+ * @returns {integer}
+ */
+function GetModelIndex(model_name);
+
+/**
+ * Given a user id, return the entity, or null.
+ * @param {integer} userid
+ * @returns {CTFPlayer|null}
+ */
+function GetPlayerFromUserID(userid);
+
+/**
+ * Returns float duration of the sound.
+ * Warning: Does not work on dedicated servers.
+ * @param {string} sound_name
+ * @param {string|null} actor_model_name
+ * @returns {float}
+ */
+function GetSoundDuration(sound_name, actor_model_name);
+
+/**
+ * Returns true if this server is a dedicated server.
+ * @returns {bool}
+ */
+function IsDedicatedServer();
+
+/**
+ * Checks if the model_name is precached.
+ * @param {string} model_name
+ * @returns {bool}
+ */
+function IsModelPrecached(model_name);
+
+/**
+ * Checks if the sound_name is precached.
+ * @param {string} sound_name
+ * @returns {bool}
+ */
+function IsSoundPrecached(sound_name);
+
+/**
+ * Is this player/entity a puppet or AI bot.
+ * @param {CTFPlayer} player
+ * @returns {bool}
+ */
+function IsPlayerABot(player);
+
+/**
+ * Fills out a table with the local time.
+ * Warning: The month will be 1-12 rather than 0-11.
+ * @param {table} result
+ */
+function LocalTime(result);
+
+/**
+ * Get the current number of max clients set by the maxplayers command.
+ * @returns {float}
+ */
+function MaxClients();
+
+/**
+ * Get a script handle of a player using the player index.
+ * @param {integer} index
+ * @returns {CTFPlayer|null}
+ */
+function PlayerInstanceFromIndex(index);
+
+/**
+ * Precache an entity from KeyValues in a table.
+ * @param {table} keyvalues
+ * @returns {bool}
+ */
+function PrecacheEntityFromTable(keyvalues);
+
+/**
+ * Precache a studio model or sprite model and return model index.
+ * @param {string} model_name
+ * @returns {integer}
+ */
+function PrecacheModel(model_name);
+
+/**
+ * Precache a soundscript or raw WAV/MP3 sound.
+ * @param {string} sound_name
+ * @returns {bool}
+ */
+function PrecacheScriptSound(sound_name);
+
+/**
+ * Precache a raw WAV/MP3 sound.
+ * @param {string} sound_name
+ * @returns {bool}
+ */
+function PrecacheSound(sound_name);
+
+/**
+ * Generate a random floating-point number within a range, inclusive.
+ * @param {float} min
+ * @param {float} max
+ * @returns {float}
+ */
+function RandomFloat(min, max);
+
+/**
+ * Generate a random integer within a range, inclusive.
+ * @param {integer} min
+ * @param {integer} max
+ * @returns {integer}
+ */
+function RandomInt(min, max);
+
+/**
+ * Register as a listener for a game event from script.
+ * @param {string} event_name
+ */
+function RegisterScriptGameEventListener(event_name);
+
+/**
+ * Register as a listener for a script hook from script.
+ * @param {string} name
+ */
+function RegisterScriptHookListener(name);
+
+/**
+ * Rotate a QAngle by another QAngle.
+ * @param {QAngle} initial
+ * @param {QAngle} rotation
+ * @returns {QAngle}
+ */
+function RotateOrientation(initial, rotation);
+
+/**
+ * Rotate the input Vector around an origin.
+ * @param {Vector} origin
+ * @param {QAngle} rotation
+ * @param {Vector} input
+ * @returns {Vector}
+ */
+function RotatePosition(origin, rotation, input);
+
+/**
+ * Start a customisable screenfade. If no player is specified, applies to all players.
+ * @param {CTFPlayer|null} player
+ * @param {integer} red
+ * @param {integer} green
+ * @param {integer} blue
+ * @param {integer} alpha
+ * @param {float} fade_time
+ * @param {float} fade_hold
+ * @param {integer} flags - See Constants.FFADE
+ */
+function ScreenFade(player, red, green, blue, alpha, fade_time, fade_hold, flags);
+
+/**
+ * Start a customisable screenshake.
+ * @param {Vector} center
+ * @param {float} amplitude
+ * @param {float} frequency
+ * @param {float} duration
+ * @param {float} radius
+ * @param {integer} command - See Constants.SHAKE_COMMAND (0=start, 1=stop)
+ * @param {bool} air_shake
+ */
+function ScreenShake(center, amplitude, frequency, duration, radius, command, air_shake);
+
+/**
+ * Returns whether script hooks are currently enabled.
+ * @returns {bool}
+ */
+function ScriptHooksEnabled();
+
+/**
+ * Sends a real game event to everything.
+ * @param {string} event_name
+ * @param {table} params
+ * @returns {bool}
+ */
+function SendGlobalGameEvent(event_name, params);
+
+/**
+ * Issues a command to the local client. Does nothing on dedicated servers.
+ * @param {string} command
+ */
+function SendToConsole(command);
+
+/**
+ * Issues a command to the server, as if typed in the console.
+ * @param {string} command
+ */
+function SendToServerConsole(command);
+
+/**
+ * Copy of SendToServerConsole with another name for compatibility.
+ * @param {string} command
+ */
+function SendToConsoleServer(command);
+
+/**
+ * Sets a USERINFO client ConVar for a fakeclient.
+ * @param {CTFBot} bot
+ * @param {string} cvar
+ * @param {string} value
+ */
+function SetFakeClientConVarValue(bot, cvar, value);
+
+/**
+ * Sets the current skybox texture. The path is relative to "materials/skybox/".
+ * @param {string} texture
+ */
+function SetSkyboxTexture(texture);
+
+/**
+ * Spawn entity from KeyValues in table.
+ * @param {string} name - Entity classname
+ * @param {table} keyvalues
+ * @returns {entity|null}
+ */
+function SpawnEntityFromTable(name, keyvalues);
+
+/**
+ * Hierarchically spawn an entity group from a set of spawn tables.
+ * @param {table} groups
+ * @returns {bool}
+ */
+function SpawnEntityGroupFromTable(groups);
+
+/**
+ * Stores a string as a file, located in the game's scriptdata folder.
+ * Warning: Performance varies by hardware; only call at checkpoints.
+ * @param {string} file
+ * @param {string} content
+ */
+function StringToFile(file, content);
+
+/**
+ * Get the current time since map load in seconds.
+ * @returns {float}
+ */
+function Time();
+
+/**
+ * Trace a ray. Return fraction along line that hits world or models.
+ * @param {Vector} start
+ * @param {Vector} end
+ * @param {entity|null} ignore
+ * @returns {float}
+ */
+function TraceLine(start, end, ignore);
+
+/**
+ * Different version of TraceLine that also hits players and NPCs.
+ * @param {Vector} start
+ * @param {Vector} end
+ * @param {entity|null} ignore
+ * @returns {float}
+ */
+function TraceLinePlayersIncluded(start, end, ignore);
+
+/**
+ * Extended version of TraceLine.
+ * Warning: Setting any input parameters which expect an instance to a primitive type will crash the server.
+ * @param {table} params
+ * @returns {bool}
+ */
+function TraceLineEx(params);
+
+/**
+ * Trace a box (AABB).
+ * Warning: See TraceLineEx warning.
+ * @param {table} params
+ * @returns {bool}
+ */
+function TraceHull(params);
+
+/**
+ * Generate a string guaranteed to be unique across the life of the script VM.
+ * @param {string} suffix
+ * @returns {string}
+ */
+function UniqueString(suffix = "");
+
+/**
+ * Wrapper that registers callbacks for OnGameEvent_x and OnScriptEvent_ functions.
+ * @param {table} scope
+ */
+function __CollectGameEventCallbacks(scope);
+
+// ============================================================
+// GLOBAL FUNCTIONS - Team Fortress 2
+// ============================================================
+
+/**
+ * @returns {bool}
+ */
+function AllowThirdPersonCamera();
+
+/**
+ * @returns {bool}
+ */
+function ArePlayersInHell();
+
+/**
+ * May a flag be captured?
+ * @returns {bool}
+ */
+function FlagsMayBeCapped();
+
+/**
+ * Whether to force on MvM-styled upgrades on/off. 0=default, 1=force off, 2=force on.
+ * @param {integer} state
+ */
+function ForceEnableUpgrades(state);
+
+/**
+ * Forces payload pushing logic. 0=default, 1=force off, 2=force on.
+ * @param {integer} state
+ */
+function ForceEscortPushLogic(state);
+
+/**
+ * Does the current gamemode have currency?
+ * @returns {bool}
+ */
+function GameModeUsesCurrency();
+
+/**
+ * Does the current gamemode have minibosses?
+ * @returns {bool}
+ */
+function GameModeUsesMiniBosses();
+
+/**
+ * Does the current gamemode have upgrades?
+ * @returns {bool}
+ */
+function GameModeUsesUpgrades();
+
+/**
+ * Get class limit for class.
+ * @param {integer} class - See Constants.ETFClass
+ * @returns {integer}
+ */
+function GetClassLimit(class_number);
+
+/**
+ * @returns {float}
+ */
+function GetGravityMultiplier();
+
+/**
+ * @returns {bool}
+ */
+function GetMannVsMachineAlarmStatus();
+
+/**
+ * @returns {bool}
+ */
+function GetOvertimeAllowedForCTF();
+
+/**
+ * Get current round state.
+ * @returns {integer} - See Constants.ERoundState
+ */
+function GetRoundState();
+
+/**
+ * Get the current stopwatch state.
+ * @returns {integer} - See Constants.EStopwatchState
+ */
+function GetStopWatchState();
+
+/**
+ * Who won!
+ * @returns {integer}
+ */
+function GetWinningTeam();
+
+/**
+ * @returns {bool}
+ */
+function HaveStopWatchWinner();
+
+/**
+ * Are we in the pre-match/setup state?
+ * @returns {bool}
+ */
+function InMatchStartCountdown();
+
+/**
+ * Currently in overtime?
+ * @returns {bool}
+ */
+function InOvertime();
+
+/**
+ * @returns {bool}
+ */
+function IsAttackDefenseMode();
+
+/**
+ * Are we in birthday mode?
+ * @returns {bool}
+ */
+function IsBirthday();
+
+/**
+ * Playing competitive?
+ * @returns {bool}
+ */
+function IsCompetitiveMode();
+
+/**
+ * The absence of arena, mvm, tournament mode, etc.
+ * @returns {bool}
+ */
+function IsDefaultGameMode();
+
+/**
+ * Is the given holiday active?
+ * @param {integer} holiday - See Constants.EHoliday
+ * @returns {bool}
+ */
+function IsHolidayActive(holiday);
+
+/**
+ * Playing a holiday map?
+ * @param {integer} holiday - See Constants.EHoliday
+ * @returns {bool}
+ */
+function IsHolidayMap(holiday);
+
+/**
+ * Playing arena mode?
+ * @returns {bool}
+ */
+function IsInArenaMode();
+
+/**
+ * Playing king of the hill mode?
+ * @returns {bool}
+ */
+function IsInKothMode();
+
+/**
+ * Playing medieval mode?
+ * @returns {bool}
+ */
+function IsInMedievalMode();
+
+/**
+ * Are we waiting for some stragglers?
+ * @returns {bool}
+ */
+function IsInWaitingForPlayers();
+
+/**
+ * Playing MvM?
+ * @returns {bool}
+ */
+function IsMannVsMachineMode();
+
+/**
+ * Are players allowed to refund their upgrades?
+ * @returns {bool}
+ */
+function IsMannVsMachineRespecEnabled();
+
+/**
+ * Playing casual?
+ * @returns {bool}
+ */
+function IsMatchTypeCasual();
+
+/**
+ * Playing competitive?
+ * @returns {bool}
+ */
+function IsMatchTypeCompetitive();
+
+/**
+ * No ball games.
+ * @returns {bool}
+ */
+function IsPasstimeMode();
+
+/**
+ * Playing powerup mode?
+ * @returns {bool}
+ */
+function IsPowerupMode();
+
+/**
+ * @returns {bool}
+ */
+function IsPVEModeActive();
+
+/**
+ * If an engineer places a building, will it immediately upgrade?
+ * @returns {bool}
+ */
+function IsQuickBuildTime();
+
+/**
+ * @returns {bool}
+ */
+function IsTruceActive();
+
+/**
+ * @returns {bool}
+ */
+function IsUsingGrapplingHook();
+
+/**
+ * @returns {bool}
+ */
+function IsUsingSpells();
+
+/**
+ * @returns {bool}
+ */
+function MapHasMatchSummaryStage();
+
+/**
+ * @returns {bool}
+ */
+function MatchmakingShouldUseStopwatchMode();
+
+/**
+ * @param {integer} team - See Constants.ETFTeam
+ * @returns {bool}
+ */
+function PlayerReadyStatus_ArePlayersOnTeamReady(team);
+
+/**
+ * @returns {bool}
+ */
+function PlayerReadyStatus_HaveMinPlayersToEnable();
+
+/**
+ */
+function PlayerReadyStatus_ResetState();
+
+/**
+ * @returns {bool}
+ */
+function PlayersAreOnMatchSummaryStage();
+
+/**
+ * Are points able to be captured?
+ * @returns {bool}
+ */
+function PointsMayBeCaptured();
+
+/**
+ * @param {float} multiplier
+ */
+function SetGravityMultiplier(multiplier);
+
+/**
+ * @param {bool} status
+ */
+function SetMannVsMachineAlarmStatus(status);
+
+/**
+ * @param {bool} state
+ */
+function SetOvertimeAllowedForCTF(state);
+
+/**
+ * @param {bool} state
+ */
+function SetPlayersInHell(state);
+
+/**
+ * @param {bool} state
+ */
+function SetUsingSpells(state);
+
+/**
+ * @returns {bool}
+ */
+function UsePlayerReadyStatusMode();
+
+// ============================================================
+// GLOBAL FUNCTIONS - Printing and Drawing
+// ============================================================
+
+/**
+ * Print a client message. Pass null instead of a valid player to send to all clients.
+ * When printing to chat (HUD_PRINTTALK), use \x07RRGGBB for custom colors.
+ * @param {CTFPlayer|null} player
+ * @param {integer} destination - See Constants.EHudNotify
+ * @param {string} message
+ */
+function ClientPrint(player, destination, message);
+
+/**
+ * Draw a debug overlay box.
+ * Warning: Requires developer cvar to be enabled.
+ * @param {Vector} origin
+ * @param {Vector} min
+ * @param {Vector} max
+ * @param {integer} r
+ * @param {integer} g
+ * @param {integer} b
+ * @param {integer} alpha
+ * @param {float} duration
+ */
+function DebugDrawBox(origin, min, max, r, g, b, alpha, duration);
+
+/**
+ * Draw a debug oriented box.
+ * @param {Vector} origin
+ * @param {Vector} min
+ * @param {Vector} max
+ * @param {QAngle} direction
+ * @param {Vector} rgb
+ * @param {integer} alpha
+ * @param {float} duration
+ */
+function DebugDrawBoxAngles(origin, min, max, direction, rgb, alpha, duration);
+
+/**
+ * Draw a debug forward box.
+ * @param {Vector} center
+ * @param {Vector} min
+ * @param {Vector} max
+ * @param {Vector} forward
+ * @param {Vector} rgb
+ * @param {float} alpha
+ * @param {float} duration
+ */
+function DebugDrawBoxDirection(center, min, max, forward, rgb, alpha, duration);
+
+/**
+ * Draw a debug circle.
+ * @param {Vector} center
+ * @param {Vector} rgb
+ * @param {float} alpha
+ * @param {float} radius
+ * @param {bool} ztest
+ * @param {float} duration
+ */
+function DebugDrawCircle(center, rgb, alpha, radius, ztest, duration);
+
+/**
+ * Try to clear all the debug overlay info.
+ */
+function DebugDrawClear();
+
+/**
+ * Draw a debug overlay line.
+ * @param {Vector} start
+ * @param {Vector} end
+ * @param {integer} red
+ * @param {integer} green
+ * @param {integer} blue
+ * @param {bool} z_test
+ * @param {float} time
+ */
+function DebugDrawLine(start, end, red, green, blue, z_test, time);
+
+/**
+ * Draw a debug line using color vec.
+ * @param {Vector} start
+ * @param {Vector} end
+ * @param {Vector} rgb
+ * @param {bool} ztest
+ * @param {float} duration
+ */
+function DebugDrawLine_vCol(start, end, rgb, ztest, duration);
+
+/**
+ * Draw text with a line offset.
+ * @param {float} x
+ * @param {float} y
+ * @param {integer} line_offset
+ * @param {string} text
+ * @param {integer} r
+ * @param {integer} g
+ * @param {integer} b
+ * @param {integer} a
+ * @param {float} duration
+ */
+function DebugDrawScreenTextLine(x, y, line_offset, text, r, g, b, a, duration);
+
+/**
+ * Draw text on the screen, starting on the position of origin.
+ * @param {Vector} origin
+ * @param {string} text
+ * @param {bool} use_view_check
+ * @param {float} duration
+ */
+function DebugDrawText(origin, text, use_view_check, duration);
+
+/**
+ * Dumps a scope's contents and expands all tables and arrays.
+ * @param {integer} indentation
+ * @param {table} scope
+ */
+function __DumpScope(indentation, scope);
+
+/**
+ * Dumps information about a class or instance.
+ * @param {any} object
+ */
+function DumpObject(object);
+
+/**
+ * Prints message to console without any line feed after.
+ * @param {any} message
+ */
+function Msg(message);
+
+/**
+ * Prints message to console with C style formatting. Line feed not included.
+ * @param {string} format
+ * @param args
+ */
+function printf(format, ...);
+
+/**
+ * Prints message to console with a line feed after.
+ * @param {any} message
+ */
+function printl(message);
+
+/**
+ * Identical to print.
+ * @param {any} message
+ */
+function realPrint(message);
+
+/**
+ * Have the specified player send a message to chat.
+ * @param {CTFPlayer} player
+ * @param {string} message
+ * @param {bool} team_only
+ */
+function Say(player, message, team_only);
+
+/**
+ * Displays a HUD message defined in scripts/titles.txt to all clients.
+ * @param {string} message
+ */
+function ShowMessage(message);
+
+
+// ============================================================
+// GLOBAL INSTANCES
+// ============================================================
+
+/**
+ * Provides an interface to read and change the values of console variables.
+ * @type {Convars}
+ */
+Convars <- Convars()
+
+/**
+ * Provides access to currently spawned entities.
+ * @type {CEntities}
+ */
+Entities <- CEntities()
+
+/**
+ * Allows manipulation of entity output data.
+ * @type {CScriptEntityOutputs}
+ */
+EntityOutputs <- CScriptEntityOutputs()
+
+/**
+ * Provides access to the maps NavMesh and NavAreas.
+ * @type {CNavMesh}
+ */
+NavMesh <- CNavMesh()
+
+/**
+ * Allows reading and updating the network properties of an entity.
+ * @type {CNetPropManager}
+ */
+NetProps <- CNetPropManager()
+
+/**
+ * Tracks if any player is using voice and for how long.
+ * @type {CPlayerVoiceListener}
+ */
+PlayerVoiceListener <- CPlayerVoiceListener()

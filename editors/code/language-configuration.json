@@ -5,7 +5,7 @@
     },
     "blockComment": [
       "/*",
-      "*/"
+      " */"
     ]
   },
   "brackets": [
@@ -62,7 +62,16 @@
       "open": "</",
       "close": "/>",
       "notIn": [
-        "comment"
+        "comment",
+        "string"
+      ]
+    },
+    {
+      "open": "/*",
+      "close": " */",
+      "notIn": [
+        "comment",
+        "string"
       ]
     }
   ],
