@@ -1011,7 +1011,6 @@ impl<'db> Collector<'db> {
             Member::Method(method) => {
                 let id = self.collect_function(method);
                 let statik = self.try_swap_to_instance(method, Some(id));
-                dbg!(&statik);
 
                 let Some((name, text)) = get_name(method) else {
                     return;

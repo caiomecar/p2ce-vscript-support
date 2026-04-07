@@ -53,7 +53,7 @@ pub fn handle_semantic_tokens(
 
         let line = lsp_range.start.line;
         let start = lsp_range.start.character;
-        let length = lsp_range.end.character - lsp_range.start.character;
+        let length = range.len();
 
         let delta_line = line - prev_line;
         let delta_start = if delta_line == 0 {
@@ -65,7 +65,7 @@ pub fn handle_semantic_tokens(
         tokens.push(SemanticToken {
             delta_line,
             delta_start,
-            length,
+            length: length.into(),
             token_type,
             token_modifiers_bitset: modifiers,
         });

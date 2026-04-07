@@ -28,11 +28,13 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Result<Optio
         return Ok(None);
     };
 
+    let name_range = finished_file.get(reference_id).name_range;
+
     let locations = finished_file
         .range_to_symbol()
         .iter()
         .filter_map(|(range, id)| {
-            if reference_id != *id {
+            if reference_id != *id || *range == name_range {
                 return None;
             }
 

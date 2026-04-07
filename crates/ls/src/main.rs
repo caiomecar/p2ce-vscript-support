@@ -60,11 +60,7 @@ fn main() -> Result<()> {
             TextDocumentSyncKind::INCREMENTAL,
         )),
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec![
-                ".".to_owned(),
-                "\"".to_owned(),
-                /* "[".to_owned(), */
-            ]),
+            trigger_characters: Some(vec![".".to_owned(), "\"".to_owned()]),
             ..Default::default()
         }),
         definition_provider: Some(OneOf::Left(true)),

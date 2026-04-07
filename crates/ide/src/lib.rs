@@ -1,14 +1,14 @@
 mod arena;
 mod collector;
 mod db;
-// mod doc;
+mod doc;
 mod symbol;
 
 use std::collections::hash_map::Entry;
 
 use la_arena::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
-use sq_3_parser::{SyntaxToken, TextRange, TextSize};
+use sq_3_parser::{SyntaxKind, SyntaxToken, TextRange, TextSize};
 
 use crate::{
     arena::{ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, TableData, TableId},
@@ -666,15 +666,30 @@ pub trait Source {
     }
 
     fn symbol_at(&self, token: &SyntaxToken) -> Option<SymbolId> {
-        let range = if let Some(ExpressionKind::Literal(Type::String(Some(id)))) =
-            self.expr_at(token.text_range())
-        {
-            let string = self.get(id);
-            string.unquoted_range
-        } else {
-            token.text_range()
-        };
+        let token_range = token.text_range();
+        let range = match token.kind() {
+            SyntaxKind::String => {
+                let text = token.text();
+                let left = if text.starts_with('"') { 1 } else { 0 };
+                let right = if text.ends_with('"') { 1 } else { 0 };
 
+                TextRange::new(
+                    token_range.start() + TextSize::new(left),
+                    token_range.end() - TextSize::new(right),
+                )
+            }
+            SyntaxKind::VerbatimString => {
+                let text = token.text();
+                let left = if text.starts_with("@\"") { 2 } else { 0 };
+                let right = if text.ends_with('"') { 1 } else { 0 };
+
+                TextRange::new(
+                    token_range.start() + TextSize::new(left),
+                    token_range.end() - TextSize::new(right),
+                )
+            }
+            _ => token_range,
+        };
         self.range_to_symbol().get(&range).cloned()
     }
 
