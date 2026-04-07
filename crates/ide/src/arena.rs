@@ -116,6 +116,7 @@ pub struct EnumData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {
+    pub range: TextRange,
     pub ret: Type,
     pub container: Container,
     pub bindenv: Option<Container>,
@@ -144,13 +145,12 @@ pub struct StringData {
     pub unquoted_range: TextRange,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Scope {
     pub range: TextRange,
     pub locals: SymbolTable,
     pub parent: Option<Idx<Scope>>,
-    pub container: Container,
-    pub execution_range: TextRange,
+    pub function: Option<Idx<FunctionData>>,
 }
 
 pub type ScopeId = Idx<Scope>;

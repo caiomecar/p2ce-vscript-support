@@ -114,6 +114,7 @@ pub trait Source {
     fn arena(&self) -> &SourceArena;
     fn imports(&self) -> &FxHashMap<Container, Vec<File>>;
     fn scope(&self, offset: TextSize) -> ScopeId;
+    fn source_table(&self) -> TableId;
     fn root_table(&self) -> TableId;
     fn const_table(&self) -> TableId;
     fn range_to_expr(&self) -> &FxHashMap<TextRange, ExpressionKind>;
@@ -341,6 +342,26 @@ pub trait Source {
         result
     }
 
+    fn get_scope_execution_range(&self, scope: ScopeId) -> TextRange {
+        if let Some(idx) = self.arena()[scope].function {
+            let function = &self.arena()[idx];
+            function.range
+        } else {
+            // Possibly slow?
+            let parse = parse(self.db(), self.file());
+            parse.syntax().text_range()
+        }
+    }
+
+    fn get_scope_container(&self, scope: ScopeId) -> Container {
+        if let Some(idx) = self.arena()[scope].function {
+            let function = &self.arena()[idx];
+            function.bindenv.unwrap_or(function.container)
+        } else {
+            Container::Table(self.source_table())
+        }
+    }
+
     fn symbols_at(&self, offset: TextSize, filter_by_static: bool) -> FlatSymbolTable {
         let mut items = FlatSymbolTable::default();
 
@@ -358,7 +379,8 @@ pub trait Source {
             items.entry(name).or_insert(id);
         }
 
-        let container = self.arena()[scope].container;
+        let container = self.get_scope_container(scope);
+        dbg!(container);
 
         for (name, id) in self.members_of_container(
             container,
@@ -481,7 +503,7 @@ pub trait Source {
                 .collect(),
             FindSymbol::BeforeIfInExecutionRange(offset) => {
                 let scope = self.scope(offset);
-                let execution_range = self.arena()[scope].execution_range;
+                let execution_range = self.get_scope_execution_range(scope);
                 self.table_members(table)
                     .into_iter()
                     .filter_map(|(name, ids)| {
@@ -548,7 +570,7 @@ pub trait Source {
                 .collect(),
             FindSymbol::BeforeIfInExecutionRange(offset) => {
                 let scope = self.scope(offset);
-                let execution_range = self.arena()[scope].execution_range;
+                let execution_range = self.get_scope_execution_range(scope);
                 self.class_members(class)
                     .into_iter()
                     .filter_map(|(name, ids)| {
@@ -618,7 +640,7 @@ pub trait Source {
     /// must be the symbol we're looking for
     fn get_symbol(&self, table: &SymbolTable, name: &str, offset: TextSize) -> Option<&Symbol> {
         let symbols = table.get(name)?;
-        let execution_range = self.arena()[self.scope(offset)].execution_range;
+        let execution_range = self.get_scope_execution_range(self.scope(offset));
         let mut last = None;
         for id in symbols {
             let symbol = self.get(*id);
@@ -629,36 +651,6 @@ pub trait Source {
             last = Some(symbol)
         }
         last
-    }
-
-    fn to_flat_symbol_table_context_aware(
-        &self,
-        table: SymbolTable,
-        offset: TextSize,
-    ) -> FlatSymbolTable {
-        let execution_range = self.arena()[self.scope(offset)].execution_range;
-        let mut result = FxHashMap::default();
-
-        for (name, symbols) in table.into_iter() {
-            let mut last = None;
-
-            for id in symbols {
-                let symbol = self.get(id);
-
-                // same filtering logic
-                if execution_range.contains_range(symbol.range) && symbol.range.end() > offset {
-                    break;
-                }
-
-                last = Some(id);
-            }
-
-            if let Some(id) = last {
-                result.insert(name, id);
-            }
-        }
-
-        result
     }
 
     fn expr_to_type(&self, expr: NullableExprKind) -> Type {
@@ -741,6 +733,10 @@ impl<'db> Source for FinishedFile<'db> {
 
     fn scope(&self, offset: TextSize) -> ScopeId {
         self.source().arena.scope_at(offset)
+    }
+
+    fn source_table(&self) -> TableId {
+        TableId::new(self.1, self.source().source_table)
     }
 
     fn root_table(&self) -> TableId {

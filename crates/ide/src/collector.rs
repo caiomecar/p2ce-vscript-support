@@ -112,6 +112,7 @@ pub struct Collector<'db> {
     imports: FxHashMap<Container, Vec<File>>,
 
     arena: SourceArena,
+    source_table: Idx<TableData>,
     const_table: Idx<TableData>,
     root_table: Idx<TableData>,
 
@@ -126,7 +127,6 @@ pub struct Collector<'db> {
     can_continue: bool,
     dead_code: bool,
 
-    execution_range: TextRange,
     function: Option<Idx<FunctionData>>,
     deferred_functions: FxHashMap<Idx<FunctionData>, DeferredFunctionTrace>,
 
@@ -154,6 +154,10 @@ impl<'db> Source for Collector<'db> {
 
     fn scope(&self, _offset: TextSize) -> ScopeId {
         self.scope
+    }
+
+    fn source_table(&self) -> TableId {
+        TableId::new(self.file, self.source_table)
     }
 
     fn root_table(&self) -> TableId {
@@ -203,11 +207,8 @@ impl<'db> Collector<'db> {
         let root_table = arena.alloc(TableData::default());
         let const_table = arena.alloc(TableData::default());
         let scope = arena.alloc(Scope {
-            locals: SymbolTable::default(),
-            parent: None,
-            container,
-            execution_range: node.syntax().text_range(),
             range: node.syntax().text_range(),
+            ..Default::default()
         });
 
         let mut imports = FxHashMap::default();
@@ -236,9 +237,9 @@ impl<'db> Collector<'db> {
             can_continue: false,
             dead_code: false,
             arena,
+            source_table,
             const_table,
             root_table,
-            execution_range: node.syntax().text_range(),
             function: None,
             deferred_functions: FxHashMap::default(),
             range_to_expr: FxHashMap::default(),
@@ -383,11 +384,10 @@ impl<'db> Collector<'db> {
 
     fn enter_scope(&mut self, range: TextRange) {
         self.scope = self.arena.alloc(Scope {
-            container: self.container,
             parent: Some(self.scope),
             locals: SymbolTable::default(),
             range,
-            execution_range: self.execution_range,
+            function: self.function,
         });
     }
 
@@ -397,7 +397,12 @@ impl<'db> Collector<'db> {
     }
 
     fn execution_container(&self) -> Container {
-        self.arena[self.scope].container
+        if let Some(id) = self.function {
+            let function = &self.arena[id];
+            function.bindenv.unwrap_or(function.container)
+        } else {
+            Container::Table(self.source_table())
+        }
     }
 
     fn add_current_container_member(&mut self, name: String, symbol: SymbolId) {
@@ -443,9 +448,9 @@ impl<'db> Collector<'db> {
                 func.container = Container::Instance(id);
             }
 
-            Static::Yes
-        } else {
             Static::No
+        } else {
+            Static::Yes
         }
     }
 
@@ -880,9 +885,16 @@ impl<'db> Collector<'db> {
                 }
             });
 
+        let range = match node.body() {
+            Some(FunctionBody::Expr(body)) => body.syntax().text_range(),
+            Some(FunctionBody::Stmt(body)) => body.syntax().text_range(),
+            None => TextRange::empty(node.syntax().text_range().end()),
+        };
+
         let id = FunctionId::new(
             self.file,
             self.arena.alloc(FunctionData {
+                range,
                 container: self.container,
                 bindenv,
                 params: Vec::new(),
@@ -893,13 +905,7 @@ impl<'db> Collector<'db> {
             }),
         );
 
-        let save_execution = self.execution_range;
-        self.execution_range = match node.body() {
-            Some(FunctionBody::Expr(body)) => body.syntax().text_range(),
-            Some(FunctionBody::Stmt(body)) => body.syntax().text_range(),
-            None => TextRange::empty(node.syntax().text_range().end()),
-        };
-        self.enter_scope(self.execution_range);
+        self.enter_scope(range);
 
         if let Some(param_list) = node.parameter_list() {
             self.collect_params(id.idx(), param_list.parameters());
@@ -914,7 +920,6 @@ impl<'db> Collector<'db> {
         );
 
         self.exit_scope();
-        self.execution_range = save_execution;
 
         id
     }
@@ -931,8 +936,6 @@ impl<'db> Collector<'db> {
         self.container = function.bindenv.unwrap_or(function.container);
         let save_scope = self.scope;
         self.scope = trace.scope;
-        let save_execution = self.execution_range;
-        self.execution_range = self.arena[self.scope].execution_range;
         let save_function = self.function;
         self.function = Some(idx);
 
@@ -945,7 +948,6 @@ impl<'db> Collector<'db> {
 
         self.container = save_container;
         self.scope = save_scope;
-        self.execution_range = save_execution;
         self.function = save_function;
     }
 
@@ -1009,6 +1011,7 @@ impl<'db> Collector<'db> {
             Member::Method(method) => {
                 let id = self.collect_function(method);
                 let statik = self.try_swap_to_instance(method, Some(id));
+                dbg!(&statik);
 
                 let Some((name, text)) = get_name(method) else {
                     return;
@@ -2472,7 +2475,7 @@ impl<'db> Collector<'db> {
                 if let Some(symbol) = members {
                     self.range_to_symbol.insert(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(self.arena[self.scope].container.into()),
+                        parent: Some(self.execution_container().into()),
                         symbol,
                         name_range: range,
                         range,
