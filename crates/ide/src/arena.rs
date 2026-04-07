@@ -114,14 +114,15 @@ pub struct EnumData {
     pub members: SymbolTable,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {
     pub ret: Type,
-    pub container: Option<Container>,
+    pub container: Container,
+    pub bindenv: Option<Container>,
     pub params: Vec<SymbolId>,
     pub params_state: ParamsState,
-    pub yielding: Option<Type>,
-    pub throwing: Option<Type>,
+    pub yields: Option<Type>,
+    pub throws: Option<Type>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

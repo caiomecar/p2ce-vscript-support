@@ -4,7 +4,7 @@ use sq_3_parser::{
     AstNode, SyntaxToken, TextRange, TextSize,
     ast::{self, *},
 };
-use std::{collections::VecDeque, mem::discriminant, path::PathBuf};
+use std::{mem::discriminant, path::PathBuf};
 
 use crate::{
     Diagnostic, DiagnosticSeverity, ExpressionKind, File, FindSymbol, ImportMembers,
@@ -17,24 +17,6 @@ use crate::{
     db::{Db, ScriptResolutionError, SpecialFunction},
     symbol::{Static, Symbol, SymbolKind, SymbolTable, Type, insert_symbol},
 };
-
-// This is needed to accommodate for the fact that symbols inside function
-// body can be defined after the function body itself, execution_range
-// only solves this for when we call symbols_at, at which point the whole
-// file is already process, however during the execution of the function
-// body only the symbols defined before it are visible to mirror this
-// behaviour in the actual analysis we save all state of the collector in
-// this struct and put this struct in the queue, once the direct source
-// file statements have been collected we run a loop over this queue
-// where we copy the state onto collector and run collect_stmt on the
-// function body.
-#[derive(Debug)]
-struct DeferredFunction {
-    idx: Idx<FunctionData>,
-    body: FunctionBody,
-    execution_range: TextRange,
-    scope: ScopeId,
-}
 
 #[derive(Debug, Clone)]
 enum AssignmentLeftHandSide {
@@ -118,6 +100,11 @@ enum MetamethodErrors {
     YesBinary { keyword: &'static str, right: Type },
 }
 
+struct DeferredFunctionTrace {
+    node: Box<dyn IsFunction>,
+    scope: ScopeId,
+}
+
 pub struct Collector<'db> {
     db: &'db dyn Db,
     file: File,
@@ -134,13 +121,6 @@ pub struct Collector<'db> {
     /// container that we take symbols from. That one is stored on the scope and can
     /// be acquired via .execution_container()
     container: Container,
-    /// If a function overwrites the current container, either via static environment
-    /// binding function a[whatever](){} or by trying to reside outside of the current
-    /// container, e.g. a.b.c <- function(){need to show completions inside 'b' in here}
-    /// function a::b::c(){same deal here}
-    /// while the second reason is not perfect since it can be overwritten, which would
-    /// lead to errors, it's still the best approximation we can possibly use
-    special_container: Option<Container>,
 
     can_break: bool,
     can_continue: bool,
@@ -148,7 +128,7 @@ pub struct Collector<'db> {
 
     execution_range: TextRange,
     function: Option<Idx<FunctionData>>,
-    deferred_functions: VecDeque<DeferredFunction>,
+    deferred_functions: FxHashMap<Idx<FunctionData>, DeferredFunctionTrace>,
 
     range_to_expr: FxHashMap<TextRange, ExpressionKind>,
     range_to_symbol: FxHashMap<TextRange, SymbolId>,
@@ -252,7 +232,6 @@ impl<'db> Collector<'db> {
             imports,
             scope,
             container,
-            special_container: None,
             can_break: false,
             can_continue: false,
             dead_code: false,
@@ -261,7 +240,7 @@ impl<'db> Collector<'db> {
             root_table,
             execution_range: node.syntax().text_range(),
             function: None,
-            deferred_functions: VecDeque::new(),
+            deferred_functions: FxHashMap::default(),
             range_to_expr: FxHashMap::default(),
             range_to_symbol: FxHashMap::default(),
             diagnostics: Vec::new(),
@@ -273,22 +252,10 @@ impl<'db> Collector<'db> {
 
         assert_eq!(collector.arena[collector.scope].parent, None);
 
-        while let Some(func) = collector.deferred_functions.pop_front() {
-            collector.execution_range = func.execution_range;
-            collector.function = Some(func.idx);
-            collector.scope = func.scope;
-            collector.container = collector.arena[func.idx]
-                .container
-                .unwrap_or(collector.arena[func.scope].container);
-            match func.body {
-                FunctionBody::Expr(expr) => {
-                    let typ = collector.expr_type(&expr);
-                    collector.arena[func.idx].ret = typ;
-                }
-                FunctionBody::Stmt(stmt) => {
-                    collector.collect_stmt(&stmt);
-                }
-            }
+        // Resolve remaining functions
+        while let Some(idx) = collector.deferred_functions.keys().next().cloned() {
+            let trace = collector.deferred_functions.remove(&idx).unwrap();
+            collector.resolve_function_idx(idx, trace);
         }
 
         collector.unused_variables_diagnostics();
@@ -322,10 +289,6 @@ impl<'db> Collector<'db> {
         let id = SymbolId::new(self.file, self.arena.alloc(symbol));
         self.range_to_symbol.insert(name_range, id);
         id
-    }
-
-    fn function(&mut self) -> FunctionId {
-        FunctionId::new(self.file, self.arena.alloc(FunctionData::default()))
     }
 
     fn class(&mut self, class: &impl IsClass) -> ClassId {
@@ -468,21 +431,29 @@ impl<'db> Collector<'db> {
 
     /// This is only a speculation, you can actually execute static member as an instance
     /// and the other way around. The best approximation is this though
-    fn try_swap_to_instance(&mut self, member: &impl IsClassMember) -> Static {
+    fn try_swap_to_instance(
+        &mut self,
+        member: &impl IsClassMember,
+        method_id: Option<FunctionId>,
+    ) -> Static {
         if let Container::Class(id) = self.container
             && member.static_keyword().is_none()
         {
-            self.container = Container::Instance(id);
-            Static::No
-        } else {
+            if let Some(func) = method_id.and_then(|id| self.get_mut(id)) {
+                func.container = Container::Instance(id);
+            }
+
             Static::Yes
+        } else {
+            Static::No
         }
     }
 
-    fn collect_params(&mut self, parameters: impl Iterator<Item = Parameter>) {
-        let function = self
-            .function
-            .expect("We should be in the function context if we're collecting params");
+    fn collect_params(
+        &mut self,
+        idx: Idx<FunctionData>,
+        parameters: impl Iterator<Item = Parameter>,
+    ) {
         let mut params_state = ParamsState::NoDefault;
 
         for (count, param) in parameters.enumerate() {
@@ -529,7 +500,7 @@ impl<'db> Collector<'db> {
                         });
 
                         insert_symbol(&mut self.current_scope().locals, text, symbol);
-                        self.arena[function].params.push(symbol);
+                        self.arena[idx].params.push(symbol);
                         continue;
                     };
 
@@ -545,7 +516,7 @@ impl<'db> Collector<'db> {
                     });
 
                     insert_symbol(&mut self.current_scope().locals, text, symbol);
-                    self.arena[function].params.push(symbol);
+                    self.arena[idx].params.push(symbol);
                     match params_state {
                         ParamsState::NoDefault => {
                             params_state = ParamsState::Default(count as u32);
@@ -585,7 +556,7 @@ impl<'db> Collector<'db> {
             };
         }
 
-        self.arena[function].params_state = params_state;
+        self.arena[idx].params_state = params_state;
     }
 
     fn call_metamethod(
@@ -844,7 +815,7 @@ impl<'db> Collector<'db> {
                 Some((Type::Integer(None), typ))
             }
             Type::Generator(id) => {
-                let typ = self.get(id).yielding.unwrap_or(Type::Unknown);
+                let typ = self.get(id).yields.unwrap_or(Type::Unknown);
                 Some((Type::Integer(None), typ))
             }
             Type::Class(_) => Some((Type::Unknown, Type::Unknown)),
@@ -885,47 +856,149 @@ impl<'db> Collector<'db> {
         }
     }
 
+    fn collect_function<T>(&mut self, node: &T) -> FunctionId
+    where
+        T: IsFunction + Clone + 'static,
+    {
+        let bindenv = node
+            .environment()
+            .and_then(|e| e.expression())
+            .map(|env| (env.syntax().text_range(), self.expr_type(&env)))
+            .and_then(|(range, typ)| {
+                if let Ok(container) = Container::try_from(typ) {
+                    Some(container)
+                } else {
+                    if typ != Type::Unknown {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!("Trying to use '{typ}' as function's environment"),
+                            range,
+                            severity: DiagnosticSeverity::Warning,
+                            ..Default::default()
+                        });
+                    }
+                    None
+                }
+            });
+
+        let id = FunctionId::new(
+            self.file,
+            self.arena.alloc(FunctionData {
+                container: self.container,
+                bindenv,
+                params: Vec::new(),
+                params_state: ParamsState::NoDefault,
+                ret: Type::Null,
+                throws: None,
+                yields: None,
+            }),
+        );
+
+        let save_execution = self.execution_range;
+        self.execution_range = match node.body() {
+            Some(FunctionBody::Expr(body)) => body.syntax().text_range(),
+            Some(FunctionBody::Stmt(body)) => body.syntax().text_range(),
+            None => TextRange::empty(node.syntax().text_range().end()),
+        };
+        self.enter_scope(self.execution_range);
+
+        if let Some(param_list) = node.parameter_list() {
+            self.collect_params(id.idx(), param_list.parameters());
+        }
+
+        self.deferred_functions.insert(
+            id.idx(),
+            DeferredFunctionTrace {
+                node: Box::new(node.clone()),
+                scope: self.scope,
+            },
+        );
+
+        self.exit_scope();
+        self.execution_range = save_execution;
+
+        id
+    }
+
+    fn resolve_function_idx(&mut self, idx: Idx<FunctionData>, trace: DeferredFunctionTrace) {
+        // No reason to change stuff if function has no body
+        let Some(body) = trace.node.body() else {
+            return;
+        };
+
+        let function = &self.arena[idx];
+
+        let save_container = self.container;
+        self.container = function.bindenv.unwrap_or(function.container);
+        let save_scope = self.scope;
+        self.scope = trace.scope;
+        let save_execution = self.execution_range;
+        self.execution_range = self.arena[self.scope].execution_range;
+        let save_function = self.function;
+        self.function = Some(idx);
+
+        match body {
+            FunctionBody::Expr(expr) => {
+                self.collect_expr(&expr);
+            }
+            FunctionBody::Stmt(stmt) => self.collect_stmt(&stmt),
+        };
+
+        self.container = save_container;
+        self.scope = save_scope;
+        self.execution_range = save_execution;
+        self.function = save_function;
+    }
+
+    fn resolve_function(&mut self, id: FunctionId) {
+        // If function is external it is already resolved
+        if id.file() != self.file {
+            return;
+        }
+
+        let idx = id.idx();
+        // If function is not in deferred_functions it is already resolved
+        let Some(trace) = self.deferred_functions.remove(&idx) else {
+            return;
+        };
+
+        self.resolve_function_idx(idx, trace)
+    }
+
     fn collect_table_member(&mut self, member: &Member) {
         match member {
             Member::Property(property) => self.collect_table_property(property),
             Member::Method(method) => {
-                let function = self.function();
+                let id = self.collect_function(method);
 
                 let Some((name, text)) = get_name(method) else {
-                    self.collect_function(function.idx(), method);
                     return;
                 };
 
                 let symbol = self.symbol(Symbol {
                     name: text.clone(),
-                    typ: Type::Function(function),
+                    typ: Type::Function(id),
                     name_range: name.syntax().text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
                 });
                 self.add_current_container_member(text, symbol);
-
-                self.collect_function(function.idx(), method);
             }
             Member::Constructor(constructor) => {
-                let function = self.function();
+                let id = self.collect_function(constructor);
 
                 let Some(keyword) = constructor.constructor_keyword() else {
-                    self.collect_function(function.idx(), constructor);
                     return;
                 };
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".to_owned(),
-                    typ: Type::Function(function),
+                    typ: Type::Function(id),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
                 });
 
                 self.add_current_container_member("constructor".to_owned(), symbol);
-
-                self.collect_function(function.idx(), constructor);
             }
         }
     }
@@ -934,51 +1007,39 @@ impl<'db> Collector<'db> {
         match member {
             Member::Property(property) => self.collect_class_property(property),
             Member::Method(method) => {
-                let function = self.function();
-                let save_container = self.container;
-                let statik = self.try_swap_to_instance(method);
+                let id = self.collect_function(method);
+                let statik = self.try_swap_to_instance(method, Some(id));
 
                 let Some((name, text)) = get_name(method) else {
-                    self.collect_function(function.idx(), method);
-                    self.container = save_container;
                     return;
                 };
 
                 let symbol = self.symbol(Symbol {
                     name: text.clone(),
-                    typ: Type::Function(function),
+                    typ: Type::Function(id),
                     kind: SymbolKind::Property(statik),
                     name_range: name.syntax().text_range(),
                     range: method.syntax().text_range(),
                 });
                 self.add_current_container_member(text, symbol);
-
-                self.collect_function(function.idx(), method);
-                self.container = save_container;
             }
             Member::Constructor(constructor) => {
-                let function = self.function();
-                let save_container = self.container;
-                let statik = self.try_swap_to_instance(constructor);
+                let id = self.collect_function(constructor);
+                let statik = self.try_swap_to_instance(constructor, Some(id));
 
                 let Some(keyword) = constructor.constructor_keyword() else {
-                    self.collect_function(function.idx(), constructor);
-                    self.container = save_container;
                     return;
                 };
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".to_owned(),
-                    typ: Type::Function(function),
+                    typ: Type::Function(id),
                     kind: SymbolKind::Property(statik),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                 });
 
                 self.add_current_container_member("constructor".to_owned(), symbol);
-
-                self.collect_function(function.idx(), constructor);
-                self.container = save_container;
             }
         }
     }
@@ -1031,12 +1092,17 @@ impl<'db> Collector<'db> {
     }
 
     fn collect_class_property(&mut self, property: &Property) {
-        let save_container = self.container;
-        let statik = self.try_swap_to_instance(property);
+        let value = property
+            .value()
+            .map_or(Type::Unknown, |v| self.expr_type(&v));
 
-        let value = property.value().and_then(|v| self.collect_expr(&v));
-
-        self.container = save_container;
+        let statik = self.try_swap_to_instance(
+            property,
+            match value {
+                Type::Function(id) => Some(id),
+                _ => None,
+            },
+        );
 
         let Some(name) = property.name() else {
             return;
@@ -1073,7 +1139,7 @@ impl<'db> Collector<'db> {
 
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ: self.expr_to_type(value),
+            typ: value,
             kind: SymbolKind::Property(statik),
             name_range,
             range: property.syntax().text_range(),
@@ -1112,64 +1178,6 @@ impl<'db> Collector<'db> {
         });
 
         self.add_current_container_member(text, symbol);
-    }
-
-    fn try_setting_container<T>(&mut self, idx: Idx<FunctionData>, node: &T)
-    where
-        T: IsFunction,
-    {
-        if let Some(env) = node.environment().and_then(|e| e.expression()) {
-            let typ = self.expr_type(&env);
-            if let Ok(container) = Container::try_from(typ) {
-                self.arena[idx].container = Some(container);
-                return;
-            } else if typ != Type::Unknown {
-                self.diagnostics.push(Diagnostic {
-                    message: format!("Trying to use '{typ}' as function's environment"),
-                    range: env.syntax().text_range(),
-                    severity: DiagnosticSeverity::Warning,
-                    ..Default::default()
-                });
-            }
-        }
-
-        if let Some(container) = self.special_container {
-            self.arena[idx].container = Some(container);
-        }
-    }
-
-    fn collect_function<T>(&mut self, idx: Idx<FunctionData>, node: &T)
-    where
-        T: IsFunction,
-    {
-        self.try_setting_container(idx, node);
-
-        let save_function = self.function;
-        self.function = Some(idx);
-        let save_execution = self.execution_range;
-        self.execution_range = match node.body() {
-            Some(FunctionBody::Expr(body)) => body.syntax().text_range(),
-            Some(FunctionBody::Stmt(body)) => body.syntax().text_range(),
-            None => TextRange::empty(node.syntax().text_range().end()),
-        };
-        self.enter_scope(self.execution_range);
-
-        if let Some(param_list) = node.parameter_list() {
-            self.collect_params(param_list.parameters());
-        }
-
-        if let Some(body) = node.body() {
-            self.deferred_functions.push_back(DeferredFunction {
-                idx,
-                body,
-                execution_range: self.execution_range,
-                scope: self.scope,
-            });
-        }
-
-        self.exit_scope();
-        self.function = save_function;
-        self.execution_range = save_execution;
     }
 
     fn collect_stmt(&mut self, stmt: &Stmt) {
@@ -1246,20 +1254,21 @@ impl<'db> Collector<'db> {
     }
 
     fn local_function(&mut self, decl: &LocalFunctionDeclaration) {
-        let id = self.function();
-        if let Some((name, text)) = get_name(decl) {
-            let symbol = self.symbol(Symbol {
-                name: text.clone(),
-                typ: Type::Function(id),
-                kind: SymbolKind::Local,
-                name_range: name.syntax().text_range(),
-                range: decl.syntax().text_range(),
-                ..Default::default()
-            });
+        let id = self.collect_function(decl);
+        let Some((name, text)) = get_name(decl) else {
+            return;
+        };
 
-            insert_symbol(&mut self.current_scope().locals, text, symbol);
-        }
-        self.collect_function(id.idx(), decl);
+        let symbol = self.symbol(Symbol {
+            name: text.clone(),
+            typ: Type::Function(id),
+            kind: SymbolKind::Local,
+            name_range: name.syntax().text_range(),
+            range: decl.syntax().text_range(),
+            ..Default::default()
+        });
+
+        insert_symbol(&mut self.current_scope().locals, text, symbol);
     }
 
     fn block_statement(&mut self, stmt: &BlockStatement) {
@@ -1398,22 +1407,19 @@ impl<'db> Collector<'db> {
     }
 
     fn function_statement(&mut self, stmt: &FunctionStatement) {
-        let function = self.function();
+        let id = self.collect_function(stmt);
 
         let Some(qualified_name) = stmt.name() else {
-            self.collect_function(function.idx(), stmt);
             return;
         };
 
         let mut names: Vec<_> = qualified_name.names().collect();
 
         let Some(final_name) = names.pop() else {
-            self.collect_function(function.idx(), stmt);
             return;
         };
 
         let Some(final_text) = final_name.text() else {
-            self.collect_function(function.idx(), stmt);
             return;
         };
 
@@ -1421,20 +1427,17 @@ impl<'db> Collector<'db> {
             // Plain `function abc()`: declare in current container
             let symbol = self.symbol(Symbol {
                 name: final_text.clone(),
-                typ: Type::Function(function),
+                typ: Type::Function(id),
                 name_range: final_name.syntax().text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()
             });
 
             self.add_current_container_member(final_text, symbol);
-
-            self.collect_function(function.idx(), stmt);
             return;
         }
 
         let Some(text) = names[0].text() else {
-            self.collect_function(function.idx(), stmt);
             return;
         };
 
@@ -1459,7 +1462,7 @@ impl<'db> Collector<'db> {
             .find_map(|(name, id)| if text == name { Some(id) } else { None })
         };
 
-        let Some(id) = members.or_else(root) else {
+        let Some(symbol_id) = members.or_else(root) else {
             if self
                 .local_members(offset)
                 .into_iter()
@@ -1474,17 +1477,15 @@ impl<'db> Collector<'db> {
                     ..Default::default()
                 });
             }
-            self.collect_function(function.idx(), stmt);
             return;
         };
 
-        let mut typ = self.get(id).typ;
+        let mut typ = self.get(symbol_id).typ;
         let key = names[0].syntax().text_range();
-        self.range_to_symbol.insert(key, id);
+        self.range_to_symbol.insert(key, symbol_id);
 
         for segment in &names[1..] {
             let Some(text) = segment.text() else {
-                self.collect_function(function.idx(), stmt);
                 return;
             };
 
@@ -1495,7 +1496,6 @@ impl<'db> Collector<'db> {
 
             let Some(container) = self.call_new_slot(typ, &arguments, stmt.syntax().text_range())
             else {
-                self.collect_function(function.idx(), stmt);
                 return;
             };
 
@@ -1508,7 +1508,6 @@ impl<'db> Collector<'db> {
                 .into_iter()
                 .find_map(|(name, id)| if text == name { Some(id) } else { None })
             else {
-                self.collect_function(function.idx(), stmt);
                 return;
             };
 
@@ -1519,18 +1518,17 @@ impl<'db> Collector<'db> {
 
         let arguments = vec![
             Some(ExpressionKind::Literal(Type::String(None))),
-            Some(ExpressionKind::Literal(Type::Function(function))),
+            Some(ExpressionKind::Literal(Type::Function(id))),
         ];
 
         let Some(container) = self.call_new_slot(typ, &arguments, stmt.syntax().text_range())
         else {
-            self.collect_function(function.idx(), stmt);
             return;
         };
 
         let symbol = self.symbol(Symbol {
             name: final_text.clone(),
-            typ: Type::Function(function),
+            typ: Type::Function(id),
             name_range: final_name.syntax().text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
@@ -1538,10 +1536,9 @@ impl<'db> Collector<'db> {
 
         self.add_container_member(container, final_text, symbol);
 
-        let save_container = self.special_container;
-        self.special_container = Some(container);
-        self.collect_function(function.idx(), stmt);
-        self.special_container = save_container;
+        if let Some(function) = self.get_mut(id) {
+            function.container = container;
+        }
     }
 
     fn enum_statement(&mut self, stmt: &EnumStatement) {
@@ -1730,8 +1727,8 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        if self.arena[function].yielding.is_none() {
-            self.arena[function].yielding = Some(typ);
+        if self.arena[function].yields.is_none() {
+            self.arena[function].yields = Some(typ);
         }
     }
 
@@ -1809,8 +1806,8 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        if self.arena[function].throwing.is_none() {
-            self.arena[function].throwing = Some(typ);
+        if self.arena[function].throws.is_none() {
+            self.arena[function].throws = Some(typ);
         }
     }
 
@@ -2332,6 +2329,10 @@ impl<'db> Collector<'db> {
                     });
                 }
 
+                // We resolve the params first so we can get param type substitution before we run the body
+                // Resolve the deferred functions on the first call site, then reuse the result
+                self.resolve_function(id);
+
                 match self.db.check_special(id) {
                     Some(SpecialFunction::IncludeScript) => {
                         self.include_script(arguments, error_range);
@@ -2350,7 +2351,7 @@ impl<'db> Collector<'db> {
                     None => {}
                 };
 
-                Some(if self.get(id).yielding.is_some() {
+                Some(if self.get(id).yields.is_some() {
                     Type::Generator(id)
                 } else {
                     self.clone_type(self.get(id).ret)
@@ -2655,14 +2656,8 @@ impl<'db> Collector<'db> {
             | BinaryOperator::MultiplyAssign
             | BinaryOperator::DivideAssign
             | BinaryOperator::ModuloAssign => {
-                let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
-
-                let save_container = self.special_container;
-                if let Some(container) = lhs_container(left_kind.as_ref()) {
-                    self.special_container = Some(container);
-                }
                 let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
-                self.special_container = save_container;
+                let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
 
                 self.arithmetic_assign_operator(left_kind, right_kind, operator)
             }
@@ -2784,26 +2779,29 @@ impl<'db> Collector<'db> {
     }
 
     fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
-        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
-        let save_container = self.special_container;
-        if let Some(container) = lhs_container(left_kind.as_ref()) {
-            self.special_container = Some(container);
-        }
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
-        self.special_container = save_container;
+        let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
+
+        if let Some(container) = lhs_container(left_kind.as_ref())
+            && let Type::Function(id) = self.expr_to_type(right_kind)
+            && let Some(function) = self.get_mut(id)
+        {
+            function.container = container;
+        }
 
         self.do_new_slot(left_kind, right_kind, expr.syntax().text_range())
     }
 
     fn assign_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
+        let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
         let left_kind = expr.lhs().and_then(|l| self.assignment_lhs(&l));
 
-        let save_container = self.special_container;
-        if let Some(container) = lhs_container(left_kind.as_ref()) {
-            self.special_container = Some(container);
+        if let Some(container) = lhs_container(left_kind.as_ref())
+            && let Type::Function(id) = self.expr_to_type(right_kind)
+            && let Some(function) = self.get_mut(id)
+        {
+            function.container = container;
         }
-        let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
-        self.special_container = save_container;
 
         match left_kind {
             Some(AssignmentLeftHandSide::CanCreate { parent, range, .. }) => {
@@ -3299,7 +3297,7 @@ impl<'db> Collector<'db> {
 
         match typ {
             Type::Unknown => None,
-            Type::Generator(id) => Some(ExpressionKind::Literal(self.get(id).yielding?)),
+            Type::Generator(id) => Some(ExpressionKind::Literal(self.get(id).yields?)),
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message: "Only generators can be resumed".to_owned(),
@@ -3344,15 +3342,13 @@ impl<'db> Collector<'db> {
     }
 
     fn function_expression(&mut self, expr: &FunctionExpression) -> ExpressionKind {
-        let function = self.function();
-        self.collect_function(function.idx(), expr);
-        ExpressionKind::Literal(Type::Function(function))
+        let id = self.collect_function(expr);
+        ExpressionKind::Literal(Type::Function(id))
     }
 
     fn lambda_expression(&mut self, expr: &LambdaExpression) -> ExpressionKind {
-        let function = self.function();
-        self.collect_function(function.idx(), expr);
-        ExpressionKind::Literal(Type::Function(function))
+        let id = self.collect_function(expr);
+        ExpressionKind::Literal(Type::Function(id))
     }
 
     fn unused_variables_diagnostics(&mut self) {
