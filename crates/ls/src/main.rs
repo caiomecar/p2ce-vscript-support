@@ -4,6 +4,7 @@ mod document_symbols;
 mod find_references;
 mod go_to_definition;
 mod hover;
+mod prepare_rename;
 mod rename;
 mod semantic_tokens;
 mod signature_help;
@@ -16,13 +17,14 @@ use ide::{Database, DbConfig, File, FinishedFile, Source, line_index, parse};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{
-    DocumentSymbolRequest, GotoDefinition, HoverRequest, References, Rename, Request,
-    SemanticTokensFullRequest, SignatureHelpRequest,
+    DocumentSymbolRequest, GotoDefinition, HoverRequest, PrepareRenameRequest, References, Rename,
+    Request, SemanticTokensFullRequest, SignatureHelpRequest,
 };
 use lsp_types::{
     CompletionOptions, DiagnosticSeverity, DiagnosticTag, HoverProviderCapability, OneOf,
-    SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensServerCapabilities, SignatureHelpOptions,
+    RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
+    SignatureHelpOptions,
 };
 // for METHOD consts
 use lsp_types::{
@@ -46,6 +48,7 @@ use crate::document_symbols::handle_document_symbols;
 use crate::find_references::handle_references;
 use crate::go_to_definition::handle_go_to_definition;
 use crate::hover::handle_hover;
+use crate::prepare_rename::handle_prepare_rename;
 use crate::rename::handle_rename;
 use crate::semantic_tokens::handle_semantic_tokens;
 use crate::signature_help::handle_signature_help;
@@ -83,7 +86,11 @@ fn main() -> Result<()> {
         )),
         document_symbol_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
-        rename_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: Default::default(),
+        })),
+
         signature_help_provider: Some(SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
             ..Default::default()
@@ -242,6 +249,11 @@ fn handle_request(db: &Database, conn: &Connection, req: ServerRequest) -> Resul
         Rename::METHOD => {
             let params = serde_json::from_value(req.params)?;
             let result = handle_rename(db, params)?;
+            send_ok(conn, req.id, &result)?;
+        }
+        PrepareRenameRequest::METHOD => {
+            let params = serde_json::from_value(req.params)?;
+            let result = handle_prepare_rename(db, params)?;
             send_ok(conn, req.id, &result)?;
         }
         SignatureHelpRequest::METHOD => {
