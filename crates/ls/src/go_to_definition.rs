@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse};
+use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse, token_name_range};
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location};
 
 use crate::conversions;
@@ -27,8 +27,10 @@ pub fn handle_go_to_definition(
         return Ok(None);
     };
 
+    let range = token_name_range(&token);
+
     let finished_file = FinishedFile::new(db, file);
-    let Some(id) = finished_file.symbol_at(&token) else {
+    let Some(id) = finished_file.symbol_at(range) else {
         return Ok(None);
     };
 

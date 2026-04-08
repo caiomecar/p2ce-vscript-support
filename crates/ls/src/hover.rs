@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, FinishedFile, Source, line_index, parse};
+use ide::{Database, FinishedFile, Source, line_index, parse, token_name_range};
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 
 use crate::conversions;
@@ -24,8 +24,10 @@ pub fn handle_hover(db: &Database, params: HoverParams) -> Result<Option<Hover>>
         return Ok(None);
     };
 
+    let range = token_name_range(&token);
+
     let finished_file = FinishedFile::new(db, file);
-    let Some(id) = finished_file.symbol_at(&token) else {
+    let Some(id) = finished_file.symbol_at(range) else {
         return Ok(None);
     };
 

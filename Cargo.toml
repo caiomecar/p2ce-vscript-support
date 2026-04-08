@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 authors = ["ocet247"]
-license = "MIT"
+license = "GPLv3"
 
 
 [workspace.dependencies]

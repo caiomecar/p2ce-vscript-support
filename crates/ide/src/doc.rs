@@ -52,32 +52,57 @@ impl Doc {
         }
     }
 
+    pub fn typ(text: &str) -> (Option<String>, String) {
+        let Some(rest) = text.strip_prefix('{') else {
+            return (None, text.to_owned());
+        };
+
+        rest.split_once('}')
+            .map_or((None, text.to_owned()), |(typ, rest)| {
+                (
+                    Some(typ.to_owned()),
+                    rest.split_whitespace().next().unwrap_or(rest).to_owned(),
+                )
+            })
+    }
+
+    pub fn name(text: &str) -> (Option<String>, String) {
+        let mut iter = text.split_whitespace();
+        let Some(name) = iter.next() else {
+            return (None, text.to_owned());
+        };
+
+        let rest = if let Some(rest) = iter.next() {
+            rest
+        } else {
+            ""
+        };
+
+        (Some(name.to_owned()), rest.to_owned())
+    }
+
     pub fn tag(text: &str) -> Option<Tag> {
-        let (tag, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
+        let mut iter = text.split_whitespace();
+        let tag = iter.next()?;
+        let rest = iter.next().unwrap_or("");
         Some(match tag {
             "return" | "returns" => {
-                if let Some(rest) = rest.strip_prefix('{')
-                    && let Some((typ, rest)) = rest.split_once('}')
-                {
-                    Tag {
-                        item: TagItem::Return(ReturnTag {
-                            typ: Some(typ.to_owned()),
-                        }),
-                        description: rest.to_owned(),
-                    }
-                } else {
-                    Tag {
-                        item: TagItem::Return(ReturnTag { typ: None }),
-                        description: rest.to_owned(),
-                    }
+                let (typ, description) = Doc::typ(rest);
+                Tag {
+                    item: TagItem::Return(ReturnTag { typ }),
+                    description,
                 }
             }
             "type" => {
                 todo!()
             }
             "param" => {
-                todo!();
-                let name = rest.trim().split_whitespace().next().map(str::to_owned);
+                let (typ, rest) = Doc::typ(rest);
+                let (name, description) = Doc::name(&rest);
+                Tag {
+                    item: TagItem::Parameter(ParameterTag { name, typ }),
+                    description,
+                }
             }
             _ => return None,
         })

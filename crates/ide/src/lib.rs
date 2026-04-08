@@ -11,8 +11,14 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{SyntaxKind, SyntaxToken, TextRange, TextSize};
 
 use crate::{
-    arena::{ClassId, Container, EnumId, FunctionId, ScopeId, SourceArena, TableData, TableId},
-    db::Db,
+    arena::{
+        ClassId, Container, EnumId, FunctionId, ImportTarget, ScopeId, SourceArena, TableData,
+        TableId,
+    },
+    db::{
+        Db, top_const_members, top_root_members, top_source_and_const_members,
+        top_source_and_root_members, top_source_members,
+    },
     symbol::{FlatSymbolTable, Static, to_flat_symbol_table},
 };
 
@@ -73,23 +79,13 @@ builtin_members!(builtin_class_members => class);
 
 #[derive(Debug, Clone, Copy)]
 pub enum ImportMembers {
-    Container(Container),
+    Target(ImportTarget),
     Const,
     Root,
 }
-
-#[derive(Debug, Clone, Copy)]
-pub enum GetMembersInner {
-    Container(Container),
-    RootAsSource,
-    Root,
-    ConstAsSource,
-    Const,
-}
-
 pub enum FindSymbol {
     OnlyBefore(TextSize),
-    BeforeIfInExecutionRange(TextSize),
+    BeforeIfInExecutionRange(TextSize, ScopeId),
 }
 
 #[derive(Debug)]
@@ -98,11 +94,68 @@ pub enum FunctionIdResolution {
     DefaultConstructor,
 }
 
-#[derive(Debug)]
-pub enum FileTableType {
+#[derive(Debug, Clone, Copy)]
+enum GetMembersInner {
+    Target(ImportTarget),
+    RootAsSource,
     Root,
+    ConstAsSource,
     Const,
-    Source,
+}
+
+fn import_members_inner(
+    db: &dyn Db,
+    import: File,
+    already_included: &mut FxHashSet<File>,
+    settings: GetMembersInner,
+) -> FlatSymbolTable {
+    let mut result = match settings {
+        GetMembersInner::Target(_) => top_source_members(db, import),
+        GetMembersInner::ConstAsSource => top_source_and_const_members(db, import),
+        GetMembersInner::Const => top_const_members(db, import),
+        GetMembersInner::RootAsSource => top_source_and_root_members(db, import),
+        GetMembersInner::Root => top_root_members(db, import),
+    };
+
+    let imports = &source_symbol(db, import).imports;
+
+    if let GetMembersInner::Target(target) = settings {
+        let Some(imports) = imports.get(&target) else {
+            return result;
+        };
+
+        for import in imports {
+            if already_included.contains(import) {
+                continue;
+            }
+
+            already_included.insert(*import);
+            result.extend(import_members_inner(
+                db,
+                *import,
+                already_included,
+                settings,
+            ));
+        }
+        return result;
+    }
+
+    for imports in imports.values() {
+        for import in imports {
+            if !already_included.insert(*import) {
+                continue;
+            }
+
+            result.extend(import_members_inner(
+                db,
+                *import,
+                already_included,
+                settings,
+            ));
+        }
+    }
+
+    result
 }
 
 /// This trait exists to share behaviour between Collector and SourceFile
@@ -112,13 +165,14 @@ pub trait Source {
     fn file(&self) -> File;
     fn db(&self) -> &dyn Db;
     fn arena(&self) -> &SourceArena;
-    fn imports(&self) -> &FxHashMap<Container, Vec<File>>;
+    fn imports(&self) -> &FxHashMap<ImportTarget, Vec<File>>;
     fn scope(&self, offset: TextSize) -> ScopeId;
     fn source_table(&self) -> TableId;
     fn root_table(&self) -> TableId;
     fn const_table(&self) -> TableId;
     fn range_to_expr(&self) -> &FxHashMap<TextRange, ExpressionKind>;
     fn range_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId>;
+    fn symbol_to_ranges(&self) -> &FxHashMap<SymbolId, Vec<TextRange>>;
     fn diagnostics(&self) -> &[Diagnostic];
 
     fn get<T>(&self, id: T) -> &T::Data
@@ -204,20 +258,20 @@ pub trait Source {
         to_flat_symbol_table(enum_.members.clone())
     }
 
-    fn table_members(&self, table: TableId) -> SymbolTable {
+    fn additional_table_members(&self, table: TableId) -> SymbolTable {
         let table = self.get(table);
         let mut result = table.members.clone();
 
         if let Some(delegate) = table.delegate {
-            for (k, v) in &self.get(delegate).members {
-                result.entry(k.clone()).or_insert(v.clone());
+            for (k, v) in self.get(delegate).members.clone() {
+                result.entry(k).or_insert(v);
             }
         }
 
         result
     }
 
-    fn class_members(&self, class: ClassId) -> SymbolTable {
+    fn additional_class_members(&self, class: ClassId) -> SymbolTable {
         let class = self.get(class);
         class.members.clone()
     }
@@ -232,24 +286,21 @@ pub trait Source {
         // include just root_table where it's not put in the root table?
         // First iterate through possi
         let (first_settings, second_settings, container) = match settings {
-            ImportMembers::Container(container) => (
-                GetMembersInner::Container(container),
+            ImportMembers::Target(target) => (
+                GetMembersInner::Target(target),
                 None,
                 // Fix later
-                match container {
-                    Container::Instance(id) => Container::Class(id),
-                    _ => container,
-                },
+                target,
             ),
             ImportMembers::Const => (
                 GetMembersInner::ConstAsSource,
                 Some(GetMembersInner::Const),
-                Container::Table(self.const_table()),
+                ImportTarget::Table(self.const_table()),
             ),
             ImportMembers::Root => (
                 GetMembersInner::RootAsSource,
                 Some(GetMembersInner::Root),
-                Container::Table(self.root_table()),
+                ImportTarget::Table(self.root_table()),
             ),
         };
 
@@ -261,7 +312,8 @@ pub trait Source {
                     continue;
                 }
 
-                result.extend(self.import_members_inner(
+                result.extend(import_members_inner(
+                    self.db(),
                     *import,
                     &mut already_included,
                     first_settings,
@@ -279,7 +331,8 @@ pub trait Source {
                     continue;
                 }
 
-                result.extend(self.import_members_inner(
+                result.extend(import_members_inner(
+                    self.db(),
                     *import,
                     &mut already_included,
                     second_settings,
@@ -290,67 +343,10 @@ pub trait Source {
         result
     }
 
-    fn import_members_inner(
-        &self,
-        import: File,
-        already_included: &mut FxHashSet<File>,
-        settings: GetMembersInner,
-    ) -> FlatSymbolTable {
-        let imp = FinishedFile::new(self.db(), import);
-        let mut result = match settings {
-            GetMembersInner::Container(_) => imp.top_level_members(FileTableType::Source),
-            GetMembersInner::ConstAsSource => imp
-                .top_level_members(FileTableType::Const)
-                .into_iter()
-                .chain(imp.top_level_members(FileTableType::Source))
-                .collect(),
-            GetMembersInner::Const => imp.top_level_members(FileTableType::Const),
-            GetMembersInner::RootAsSource => imp
-                .top_level_members(FileTableType::Root)
-                .into_iter()
-                .chain(imp.top_level_members(FileTableType::Source))
-                .collect(),
-            GetMembersInner::Root => imp.top_level_members(FileTableType::Root),
-        };
-
-        if let GetMembersInner::Container(container) = settings {
-            let Some(imports) = imp.imports().get(&container) else {
-                return result;
-            };
-
-            for import in imports {
-                if already_included.contains(import) {
-                    continue;
-                }
-
-                already_included.insert(*import);
-                result.extend(self.import_members_inner(*import, already_included, settings));
-            }
-            return result;
-        }
-
-        for imports in imp.imports().values() {
-            for import in imports {
-                if !already_included.insert(*import) {
-                    continue;
-                }
-
-                result.extend(self.import_members_inner(*import, already_included, settings));
-            }
-        }
-
-        result
-    }
-
-    fn get_scope_execution_range(&self, scope: ScopeId) -> TextRange {
-        if let Some(idx) = self.arena()[scope].function {
-            let function = &self.arena()[idx];
-            function.range
-        } else {
-            // Possibly slow?
-            let parse = parse(self.db(), self.file());
-            parse.syntax().text_range()
-        }
+    fn get_scope_execution_range(&self, scope: ScopeId) -> Option<TextRange> {
+        let idx = self.arena()[scope].function?;
+        let function = &self.arena()[idx];
+        Some(function.range)
     }
 
     fn get_scope_container(&self, scope: ScopeId) -> Container {
@@ -380,11 +376,10 @@ pub trait Source {
         }
 
         let container = self.get_scope_container(scope);
-        dbg!(container);
 
         for (name, id) in self.members_of_container(
             container,
-            FindSymbol::BeforeIfInExecutionRange(offset),
+            FindSymbol::BeforeIfInExecutionRange(offset, scope),
             filter_by_static,
         ) {
             items.entry(name).or_insert(id);
@@ -392,7 +387,7 @@ pub trait Source {
 
         for (name, id) in self.members_of_table(
             self.root_table(),
-            FindSymbol::BeforeIfInExecutionRange(offset),
+            FindSymbol::BeforeIfInExecutionRange(offset, scope),
             ImportMembers::Root,
         ) {
             items.entry(name).or_insert(id);
@@ -409,19 +404,19 @@ pub trait Source {
     ) -> FlatSymbolTable {
         match typ {
             Type::Table(id) => {
-                self.members_of_table(id, settings, ImportMembers::Container(Container::Table(id)))
+                self.members_of_table(id, settings, ImportMembers::Target(ImportTarget::Table(id)))
             }
             Type::Class(id) => self.members_of_class(
                 id,
                 settings,
-                ImportMembers::Container(Container::Class(id)),
+                ImportMembers::Target(ImportTarget::Class(id)),
                 false,
                 filter_by_static,
             ),
             Type::Instance(id) => self.members_of_class(
                 id,
                 settings,
-                ImportMembers::Container(Container::Class(id)),
+                ImportMembers::Target(ImportTarget::Class(id)),
                 true,
                 filter_by_static,
             ),
@@ -448,23 +443,69 @@ pub trait Source {
     ) -> FlatSymbolTable {
         match container {
             Container::Table(id) => {
-                self.members_of_table(id, settings, ImportMembers::Container(container))
+                self.members_of_table(id, settings, ImportMembers::Target(ImportTarget::Table(id)))
             }
             Container::Class(id) => self.members_of_class(
                 id,
                 settings,
-                ImportMembers::Container(container),
+                ImportMembers::Target(ImportTarget::Class(id)),
                 false,
                 filter_by_static,
             ),
             Container::Instance(id) => self.members_of_class(
                 id,
                 settings,
-                ImportMembers::Container(container),
+                ImportMembers::Target(ImportTarget::Class(id)),
                 true,
                 filter_by_static,
             ),
             Container::Enum(id) => self.enum_members(id),
+        }
+    }
+
+    fn filter_symbols(&self, settings: FindSymbol, symbols: SymbolTable) -> FlatSymbolTable {
+        let filter = move |offset, execution_range: Option<TextRange>| {
+            if let Some(range) = execution_range {
+                symbols
+                    .into_iter()
+                    .filter_map(|(name, ids)| {
+                        let mut last = None;
+                        for id in ids {
+                            let symbol = self.get(id);
+                            if range.contains_range(symbol.range) && symbol.range.end() >= offset {
+                                break;
+                            }
+
+                            last = Some(id)
+                        }
+
+                        Some((name, last?))
+                    })
+                    .collect()
+            } else {
+                symbols
+                    .into_iter()
+                    .filter_map(|(name, ids)| {
+                        let mut last = None;
+                        for id in ids {
+                            let symbol = self.get(id);
+                            if symbol.range.end() >= offset {
+                                break;
+                            }
+
+                            last = Some(id)
+                        }
+                        Some((name, last?))
+                    })
+                    .collect()
+            }
+        };
+
+        match settings {
+            FindSymbol::OnlyBefore(offset) => filter(offset, None),
+            FindSymbol::BeforeIfInExecutionRange(offset, scope) => {
+                filter(offset, self.get_scope_execution_range(scope))
+            }
         }
     }
 
@@ -484,46 +525,7 @@ pub trait Source {
             _ => builtin_table_members(self.db()),
         };
 
-        let additional: FlatSymbolTable = match settings {
-            FindSymbol::OnlyBefore(offset) => self
-                .table_members(table)
-                .into_iter()
-                .filter_map(|(name, ids)| {
-                    let mut last = None;
-                    for id in ids {
-                        let symbol = self.get(id);
-                        if symbol.range.end() >= offset {
-                            break;
-                        }
-
-                        last = Some(id)
-                    }
-                    Some((name, last?))
-                })
-                .collect(),
-            FindSymbol::BeforeIfInExecutionRange(offset) => {
-                let scope = self.scope(offset);
-                let execution_range = self.get_scope_execution_range(scope);
-                self.table_members(table)
-                    .into_iter()
-                    .filter_map(|(name, ids)| {
-                        let mut last = None;
-                        for id in ids {
-                            let symbol = self.get(id);
-                            if execution_range.contains_range(symbol.range)
-                                && symbol.range.end() >= offset
-                            {
-                                break;
-                            }
-
-                            last = Some(id)
-                        }
-
-                        Some((name, last?))
-                    })
-                    .collect()
-            }
-        };
+        let additional = self.filter_symbols(settings, self.additional_table_members(table));
 
         let imports = self.import_members(imports);
         for (k, v) in imports {
@@ -551,46 +553,7 @@ pub trait Source {
             builtin_class_members(self.db())
         };
 
-        let additional: FlatSymbolTable = match settings {
-            FindSymbol::OnlyBefore(offset) => self
-                .class_members(class)
-                .into_iter()
-                .filter_map(|(name, ids)| {
-                    let mut last = None;
-                    for id in ids {
-                        let symbol = self.get(id);
-                        if symbol.range.end() >= offset {
-                            break;
-                        }
-
-                        last = Some(id)
-                    }
-                    Some((name, last?))
-                })
-                .collect(),
-            FindSymbol::BeforeIfInExecutionRange(offset) => {
-                let scope = self.scope(offset);
-                let execution_range = self.get_scope_execution_range(scope);
-                self.class_members(class)
-                    .into_iter()
-                    .filter_map(|(name, ids)| {
-                        let mut last = None;
-                        for id in ids {
-                            let symbol = self.get(id);
-                            if execution_range.contains_range(symbol.range)
-                                && symbol.range.end() >= offset
-                            {
-                                break;
-                            }
-
-                            last = Some(id)
-                        }
-
-                        Some((name, last?))
-                    })
-                    .collect()
-            }
-        };
+        let additional = self.filter_symbols(settings, self.additional_class_members(class));
 
         let imports = self.import_members(imports);
         for (k, v) in imports {
@@ -640,15 +603,25 @@ pub trait Source {
     /// must be the symbol we're looking for
     fn get_symbol(&self, table: &SymbolTable, name: &str, offset: TextSize) -> Option<&Symbol> {
         let symbols = table.get(name)?;
-        let execution_range = self.get_scope_execution_range(self.scope(offset));
         let mut last = None;
-        for id in symbols {
-            let symbol = self.get(*id);
-            if execution_range.contains_range(symbol.range) && symbol.range.end() > offset {
-                break;
-            }
+        if let Some(range) = self.get_scope_execution_range(self.scope(offset)) {
+            for id in symbols {
+                let symbol = self.get(*id);
+                if range.contains_range(symbol.range) && symbol.range.end() > offset {
+                    break;
+                }
 
-            last = Some(symbol)
+                last = Some(symbol)
+            }
+        } else {
+            for id in symbols {
+                let symbol = self.get(*id);
+                if symbol.range.end() > offset {
+                    break;
+                }
+
+                last = Some(symbol)
+            }
         }
         last
     }
@@ -665,31 +638,7 @@ pub trait Source {
         self.range_to_expr().get(&range).cloned()
     }
 
-    fn symbol_at(&self, token: &SyntaxToken) -> Option<SymbolId> {
-        let token_range = token.text_range();
-        let range = match token.kind() {
-            SyntaxKind::String => {
-                let text = token.text();
-                let left = if text.starts_with('"') { 1 } else { 0 };
-                let right = if text.ends_with('"') { 1 } else { 0 };
-
-                TextRange::new(
-                    token_range.start() + TextSize::new(left),
-                    token_range.end() - TextSize::new(right),
-                )
-            }
-            SyntaxKind::VerbatimString => {
-                let text = token.text();
-                let left = if text.starts_with("@\"") { 2 } else { 0 };
-                let right = if text.ends_with('"') { 1 } else { 0 };
-
-                TextRange::new(
-                    token_range.start() + TextSize::new(left),
-                    token_range.end() - TextSize::new(right),
-                )
-            }
-            _ => token_range,
-        };
+    fn symbol_at(&self, range: TextRange) -> Option<SymbolId> {
         self.range_to_symbol().get(&range).cloned()
     }
 
@@ -698,22 +647,38 @@ pub trait Source {
     }
 }
 
+pub fn token_name_range(token: &SyntaxToken) -> TextRange {
+    let token_range = token.text_range();
+    match token.kind() {
+        SyntaxKind::String => {
+            let text = token.text();
+            let left = if text.starts_with('"') { 1 } else { 0 };
+            let right = if text.ends_with('"') { 1 } else { 0 };
+
+            TextRange::new(
+                token_range.start() + TextSize::new(left),
+                token_range.end() - TextSize::new(right),
+            )
+        }
+        SyntaxKind::VerbatimString => {
+            let text = token.text();
+            let left = if text.starts_with("@\"") { 2 } else { 0 };
+            let right = if text.ends_with('"') { 1 } else { 0 };
+
+            TextRange::new(
+                token_range.start() + TextSize::new(left),
+                token_range.end() - TextSize::new(right),
+            )
+        }
+        _ => token_range,
+    }
+}
+
 pub struct FinishedFile<'db>(&'db dyn Db, File);
 
 impl<'db> FinishedFile<'db> {
     pub fn new(db: &'db dyn Db, file: File) -> FinishedFile<'db> {
         Self(db, file)
-    }
-
-    fn top_level_members(&self, from: FileTableType) -> FlatSymbolTable {
-        let source = self.source();
-        let table = match from {
-            FileTableType::Root => source.root_table,
-            FileTableType::Const => source.const_table,
-            FileTableType::Source => source.source_table,
-        };
-
-        to_flat_symbol_table(self.table_members(TableId::new(self.1, table)))
     }
 
     fn source(&self) -> &SourceSymbol {
@@ -742,7 +707,7 @@ impl<'db> Source for FinishedFile<'db> {
         self.0
     }
 
-    fn imports(&self) -> &FxHashMap<Container, Vec<File>> {
+    fn imports(&self) -> &FxHashMap<ImportTarget, Vec<File>> {
         &self.source().imports
     }
 
@@ -770,6 +735,10 @@ impl<'db> Source for FinishedFile<'db> {
         &self.source().range_to_symbol
     }
 
+    fn symbol_to_ranges(&self) -> &FxHashMap<SymbolId, Vec<TextRange>> {
+        &self.source().symbol_to_ranges
+    }
+
     fn diagnostics(&self) -> &[Diagnostic] {
         &self.source().diagnostics
     }
@@ -777,7 +746,7 @@ impl<'db> Source for FinishedFile<'db> {
 
 #[derive(Debug, PartialEq)]
 pub struct SourceSymbol {
-    imports: FxHashMap<Container, Vec<File>>,
+    imports: FxHashMap<ImportTarget, Vec<File>>,
 
     arena: SourceArena,
     const_table: Idx<TableData>,
@@ -786,5 +755,6 @@ pub struct SourceSymbol {
 
     range_to_expr: FxHashMap<TextRange, ExpressionKind>,
     range_to_symbol: FxHashMap<TextRange, SymbolId>,
+    symbol_to_ranges: FxHashMap<SymbolId, Vec<TextRange>>,
     diagnostics: Vec<Diagnostic>,
 }

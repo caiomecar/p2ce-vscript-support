@@ -73,6 +73,12 @@ pub enum Container {
     Instance(ClassId),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ImportTarget {
+    Table(TableId),
+    Class(ClassId),
+}
+
 impl From<Container> for Type {
     fn from(value: Container) -> Self {
         match value {
@@ -92,6 +98,30 @@ impl TryFrom<Type> for Container {
             Type::Class(id) => Container::Class(id),
             Type::Instance(id) => Container::Instance(id),
             Type::Enum(id) => Container::Enum(id),
+            _ => return Err(()),
+        })
+    }
+}
+
+impl TryFrom<Container> for ImportTarget {
+    type Error = ();
+    fn try_from(value: Container) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Container::Table(id) => ImportTarget::Table(id),
+            Container::Class(id) => ImportTarget::Class(id),
+            Container::Instance(id) => ImportTarget::Class(id),
+            Container::Enum(_) => return Err(()),
+        })
+    }
+}
+
+impl TryFrom<Type> for ImportTarget {
+    type Error = ();
+    fn try_from(value: Type) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Type::Table(id) => ImportTarget::Table(id),
+            Type::Class(id) => ImportTarget::Class(id),
+            Type::Instance(id) => ImportTarget::Class(id),
             _ => return Err(()),
         })
     }

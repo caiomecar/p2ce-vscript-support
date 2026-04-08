@@ -29,6 +29,8 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
 
     let finished_file = FinishedFile::new(db, file);
 
+    let scope = finished_file.scope(offset);
+
     Ok(CompletionResponse::Array(
         match context_completions(syntax, offset, &finished_file) {
             Some(ContextCompletions::Flat) => finished_file
@@ -54,7 +56,11 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
                 })
                 .collect(),
             Some(ContextCompletions::FromObject { typ, prefix_range }) => finished_file
-                .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
+                .members_of_type(
+                    typ,
+                    FindSymbol::BeforeIfInExecutionRange(offset, scope),
+                    true,
+                )
                 .into_iter()
                 .map(|(mut label, id)| {
                     let symbol = finished_file.get(id);
@@ -103,7 +109,11 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
                 })
                 .collect(),
             Some(ContextCompletions::FromObjectAsString { typ, replace_range }) => finished_file
-                .members_of_type(typ, FindSymbol::BeforeIfInExecutionRange(offset), true)
+                .members_of_type(
+                    typ,
+                    FindSymbol::BeforeIfInExecutionRange(offset, scope),
+                    true,
+                )
                 .into_iter()
                 .map(|(mut label, id)| {
                     let symbol = finished_file.get(id);
@@ -133,7 +143,7 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
             Some(ContextCompletions::Root) => finished_file
                 .members_of_table(
                     finished_file.root_table(),
-                    FindSymbol::BeforeIfInExecutionRange(offset),
+                    FindSymbol::BeforeIfInExecutionRange(offset, scope),
                     ImportMembers::Root,
                 )
                 .into_iter()

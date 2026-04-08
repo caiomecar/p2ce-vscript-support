@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse};
-use lsp_types::{RenameParams, TextEdit, WorkspaceEdit};
+use ide::{Database, FinishedFile, Source, line_index, parse, token_name_range};
+use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
 
 use crate::conversions;
 
@@ -25,33 +25,40 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<Works
         return Ok(None);
     };
 
+    let range = token_name_range(&token);
+
     let finished_file = FinishedFile::new(db, file);
-    let Some(symbol_id) = finished_file.symbol_at(&token) else {
+    let Some(symbol_id) = finished_file.symbol_at(range) else {
         return Ok(None);
     };
 
-    if symbol_id.file() != file {
-        eprintln!("Mutli-file rename is not yet supported");
-        return Ok(None);
+    let name = file.text(db)[range.start().into()..range.end().into()].to_string();
+    let new_name = params.new_name;
+
+    let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+
+    for (candidate_file, candidate_path) in db.all_files() {
+        let text = candidate_file.text(db);
+        if !text.contains(&*name) {
+            continue;
+        }
+
+        let candidate = FinishedFile::new(db, candidate_file);
+
+        let Some(ranges) = candidate.symbol_to_ranges().get(&symbol_id) else {
+            continue;
+        };
+
+        let candidate_line_idx = line_index(db, candidate_file);
+        let uri = conversions::to_uri(&candidate_path);
+
+        for range in ranges {
+            changes.entry(uri.clone()).or_default().push(TextEdit {
+                range: conversions::range(candidate_line_idx, *range).unwrap(),
+                new_text: new_name.clone(),
+            });
+        }
     }
-
-    let edits = finished_file
-        .range_to_symbol()
-        .iter()
-        .filter_map(|(range, id)| {
-            if symbol_id != *id {
-                return None;
-            }
-
-            Some(TextEdit {
-                range: conversions::range(line_idx, *range)?,
-                new_text: params.new_name.clone(),
-            })
-        })
-        .collect();
-
-    let mut changes = HashMap::new();
-    changes.insert(uri, edits);
 
     Ok(Some(WorkspaceEdit {
         changes: Some(changes),

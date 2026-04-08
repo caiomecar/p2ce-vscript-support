@@ -11,8 +11,8 @@ use crate::{
     NullableExprKind, Source, SourceSymbol,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
-        FunctionData, FunctionId, ParamsState, Scope, ScopeId, SourceArena, StringData, StringId,
-        SymbolId, TableData, TableId,
+        FunctionData, FunctionId, ImportTarget, ParamsState, Scope, ScopeId, SourceArena,
+        StringData, StringId, SymbolId, TableData, TableId,
     },
     db::{Db, ScriptResolutionError, SpecialFunction},
     symbol::{Static, Symbol, SymbolKind, SymbolTable, Type, insert_symbol},
@@ -109,7 +109,7 @@ pub struct Collector<'db> {
     db: &'db dyn Db,
     file: File,
 
-    imports: FxHashMap<Container, Vec<File>>,
+    imports: FxHashMap<ImportTarget, Vec<File>>,
 
     arena: SourceArena,
     source_table: Idx<TableData>,
@@ -132,6 +132,7 @@ pub struct Collector<'db> {
 
     range_to_expr: FxHashMap<TextRange, ExpressionKind>,
     range_to_symbol: FxHashMap<TextRange, SymbolId>,
+    symbol_to_ranges: FxHashMap<SymbolId, Vec<TextRange>>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -148,7 +149,7 @@ impl<'db> Source for Collector<'db> {
         &self.arena
     }
 
-    fn imports(&self) -> &FxHashMap<Container, Vec<File>> {
+    fn imports(&self) -> &FxHashMap<ImportTarget, Vec<File>> {
         &self.imports
     }
 
@@ -174,6 +175,10 @@ impl<'db> Source for Collector<'db> {
 
     fn range_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId> {
         &self.range_to_symbol
+    }
+
+    fn symbol_to_ranges(&self) -> &FxHashMap<SymbolId, Vec<TextRange>> {
+        &self.symbol_to_ranges
     }
 
     fn get<T>(&self, id: T) -> &T::Data
@@ -224,7 +229,7 @@ impl<'db> Collector<'db> {
             }
         }
         if !libs.is_empty() {
-            imports.insert(Container::Table(TableId::new(file, root_table)), libs);
+            imports.insert(ImportTarget::Table(TableId::new(file, root_table)), libs);
         }
 
         let mut collector = Self {
@@ -244,6 +249,7 @@ impl<'db> Collector<'db> {
             deferred_functions: FxHashMap::default(),
             range_to_expr: FxHashMap::default(),
             range_to_symbol: FxHashMap::default(),
+            symbol_to_ranges: FxHashMap::default(),
             diagnostics: Vec::new(),
         };
 
@@ -269,6 +275,7 @@ impl<'db> Collector<'db> {
             source_table,
             range_to_expr: collector.range_to_expr,
             range_to_symbol: collector.range_to_symbol,
+            symbol_to_ranges: collector.symbol_to_ranges,
             diagnostics: collector.diagnostics,
         }
     }
@@ -285,10 +292,18 @@ impl<'db> Collector<'db> {
         Some(&mut self.arena[id.idx()])
     }
 
+    fn new_reference(&mut self, range: TextRange, id: SymbolId) {
+        self.range_to_symbol.insert(range, id);
+        self.symbol_to_ranges
+            .entry(id)
+            .and_modify(|list| list.push(range))
+            .or_insert_with(|| vec![range]);
+    }
+
     fn symbol(&mut self, symbol: Symbol) -> SymbolId {
         let name_range = symbol.name_range;
         let id = SymbolId::new(self.file, self.arena.alloc(symbol));
-        self.range_to_symbol.insert(name_range, id);
+        self.new_reference(name_range, id);
         id
     }
 
@@ -641,14 +656,11 @@ impl<'db> Collector<'db> {
                             ..Default::default()
                         });
                     }
-                    MetamethodErrors::YesBinary {
-                        keyword,
-                        right: left,
-                    } => {
-                        if left != Type::Unknown {
+                    MetamethodErrors::YesBinary { keyword, right } => {
+                        if right != Type::Unknown {
                             self.diagnostics.push(Diagnostic {
                                 message: format!(
-                                    "'{typ}' does not support {keyword} with '{left}'"
+                                    "'{typ}' does not support {keyword} with '{right}'"
                                 ),
                                 range: error_range,
                                 ..Default::default()
@@ -966,6 +978,28 @@ impl<'db> Collector<'db> {
         self.resolve_function_idx(idx, trace)
     }
 
+    fn get_member_name(&mut self, name: MemberName) -> Option<(TextRange, String)> {
+        match name {
+            MemberName::Identifier(n) => {
+                let text = n.name().and_then(|n| n.text())?;
+                Some((n.syntax().text_range(), text))
+            }
+            MemberName::String(n) => {
+                let id = n.token().map(|r| self.string(r))?;
+                let s = self.get(id);
+                Some((s.unquoted_range, s.text.to_string()))
+            }
+            MemberName::Computed(n) => {
+                let typ = self.expr_type(&n.expression()?);
+                let Type::String(Some(id)) = typ else {
+                    return None;
+                };
+                let s = self.get(id);
+                Some((s.unquoted_range, s.text.to_string()))
+            }
+        }
+    }
+
     fn collect_table_member(&mut self, member: &Member) {
         match member {
             Member::Property(property) => self.collect_table_property(property),
@@ -1053,33 +1087,8 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let (name_range, text) = match name {
-            MemberName::Identifier(name) => {
-                let Some(text) = name.name().and_then(|n| n.text()) else {
-                    return;
-                };
-                (name.syntax().text_range(), text)
-            }
-            MemberName::String(name) => {
-                let Some(id) = name.token().map(|result| self.string(result)) else {
-                    return;
-                };
-
-                let string = self.get(id);
-                (string.unquoted_range, string.text.to_string())
-            }
-            MemberName::Computed(name) => {
-                let Some(expr) = name.expression() else {
-                    return;
-                };
-                let typ = self.expr_type(&expr);
-                let Type::String(Some(id)) = typ else {
-                    return;
-                };
-
-                let string = self.get(id);
-                (string.unquoted_range, string.text.to_string())
-            }
+        let Some((name_range, text)) = self.get_member_name(name) else {
+            return;
         };
 
         let symbol = self.symbol(Symbol {
@@ -1110,33 +1119,8 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let (name_range, text) = match name {
-            MemberName::Identifier(name) => {
-                let Some(text) = name.name().and_then(|n| n.text()) else {
-                    return;
-                };
-                (name.syntax().text_range(), text)
-            }
-            MemberName::String(name) => {
-                let Some(id) = name.token().map(|result| self.string(result)) else {
-                    return;
-                };
-
-                let string = self.get(id);
-                (string.unquoted_range, string.text.to_string())
-            }
-            MemberName::Computed(name) => {
-                let Some(expr) = name.expression() else {
-                    return;
-                };
-                let typ = self.expr_type(&expr);
-                let Type::String(Some(id)) = typ else {
-                    return;
-                };
-
-                let string = self.get(id);
-                (string.unquoted_range, string.text.to_string())
-            }
+        let Some((name_range, text)) = self.get_member_name(name) else {
+            return;
         };
 
         let symbol = self.symbol(Symbol {
@@ -1160,14 +1144,12 @@ impl<'db> Collector<'db> {
             None => Some(ExpressionKind::Literal(Type::Integer(Some(default_value)))),
         };
 
-        let (name_range, text) = match &property.name() {
-            Some(MemberName::Identifier(name)) => {
-                let Some(text) = name.name().and_then(|n| n.text()) else {
-                    return;
-                };
-                (name.syntax().text_range(), text)
-            }
-            _ => return,
+        let Some(name) = property.name() else {
+            return;
+        };
+
+        let Some((name_range, text)) = self.get_member_name(name) else {
+            return;
         };
 
         let symbol = self.symbol(Symbol {
@@ -1448,7 +1430,7 @@ impl<'db> Collector<'db> {
         let members = self
             .members_of_container(
                 self.execution_container(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
+                FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 false,
             )
             .into_iter()
@@ -1457,7 +1439,7 @@ impl<'db> Collector<'db> {
         let root = || {
             self.members_of_table(
                 self.root_table(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
+                FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 ImportMembers::Root,
             )
             .into_iter()
@@ -1483,8 +1465,8 @@ impl<'db> Collector<'db> {
         };
 
         let mut typ = self.get(symbol_id).typ;
-        let key = names[0].syntax().text_range();
-        self.range_to_symbol.insert(key, symbol_id);
+        let name_range = names[0].syntax().text_range();
+        self.new_reference(name_range, symbol_id);
 
         for segment in &names[1..] {
             let Some(text) = segment.text() else {
@@ -1504,7 +1486,7 @@ impl<'db> Collector<'db> {
             let Some(id) = self
                 .members_of_container(
                     container,
-                    FindSymbol::BeforeIfInExecutionRange(offset),
+                    FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                     false,
                 )
                 .into_iter()
@@ -1514,8 +1496,9 @@ impl<'db> Collector<'db> {
             };
 
             typ = self.get(id).typ;
-            let key = segment.syntax().text_range();
-            self.range_to_symbol.insert(key, id);
+
+            let name_range = segment.syntax().text_range();
+            self.new_reference(name_range, id);
         }
 
         let arguments = vec![
@@ -2004,7 +1987,7 @@ impl<'db> Collector<'db> {
         let members = || {
             self.members_of_container(
                 self.execution_container(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
+                FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 false,
             )
             .into_iter()
@@ -2014,7 +1997,7 @@ impl<'db> Collector<'db> {
         let root = || {
             self.members_of_table(
                 self.root_table(),
-                FindSymbol::BeforeIfInExecutionRange(offset),
+                FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 ImportMembers::Root,
             )
             .into_iter()
@@ -2026,7 +2009,7 @@ impl<'db> Collector<'db> {
             .or_else(members)
             .or_else(root)
             .map(|id| {
-                self.range_to_symbol.insert(expr.syntax().text_range(), id);
+                self.new_reference(expr.syntax().text_range(), id);
                 if matches!(self.get(id).typ, Type::Enum(_))
                     && expr
                         .syntax()
@@ -2054,14 +2037,13 @@ impl<'db> Collector<'db> {
 
         self.members_of_table(
             self.root_table(),
-            FindSymbol::BeforeIfInExecutionRange(offset),
+            FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
             ImportMembers::Root,
         )
         .into_iter()
         .find_map(|(name, id)| {
             if name == text {
-                self.range_to_symbol
-                    .insert(name_node.syntax().text_range(), id);
+                self.new_reference(name_node.syntax().text_range(), id);
                 Some(ExpressionKind::Symbol(id))
             } else {
                 None
@@ -2105,12 +2087,15 @@ impl<'db> Collector<'db> {
         let offset = expr.syntax().text_range().end();
 
         let result = self
-            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
+            .members_of_type(
+                obj,
+                FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
+                false,
+            )
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
-                    self.range_to_symbol
-                        .insert(name_node.syntax().text_range(), id);
+                    self.new_reference(name_node.syntax().text_range(), id);
                     Some(ExpressionKind::Symbol(id))
                 } else {
                     None
@@ -2145,11 +2130,15 @@ impl<'db> Collector<'db> {
         let offset = expr.syntax().text_range().end();
 
         let result = self
-            .members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
+            .members_of_type(
+                obj,
+                FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
+                false,
+            )
             .into_iter()
             .find_map(|(name, id)| {
                 if name == text {
-                    self.range_to_symbol.insert(name_range, id);
+                    self.new_reference(name_range, id);
                     Some(ExpressionKind::Symbol(id))
                 } else {
                     None
@@ -2233,10 +2222,10 @@ impl<'db> Collector<'db> {
             }
         };
 
-        let destination = match arguments.get(1) {
+        let target = match arguments.get(1) {
             Some(Some(expr)) => {
                 let typ = self.expr_to_type(Some(*expr));
-                let Ok(container) = Container::try_from(typ) else {
+                let Ok(target) = ImportTarget::try_from(typ) else {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Type '{typ}' cannot receive new members"),
                         range: error_range,
@@ -2244,13 +2233,25 @@ impl<'db> Collector<'db> {
                     });
                     return;
                 };
-                container
+                target
             }
-            Some(None) | None => self.execution_container(),
+            Some(None) | None => match self.execution_container() {
+                Container::Table(id) => ImportTarget::Table(id),
+                Container::Class(id) => ImportTarget::Class(id),
+                Container::Instance(id) => ImportTarget::Class(id),
+                Container::Enum(_) => {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!("Type 'enum' cannot receive new members"),
+                        range: error_range,
+                        severity: DiagnosticSeverity::Warning,
+                    });
+                    return;
+                }
+            },
         };
 
         self.imports
-            .entry(destination)
+            .entry(target)
             .and_modify(|e| e.push(file))
             .or_insert_with(|| vec![file]);
     }
@@ -2413,8 +2414,8 @@ impl<'db> Collector<'db> {
         &mut self,
         expr: &BinaryExpression,
     ) -> (NullableExprKind, NullableExprKind) {
-        let left = expr.lhs().and_then(|l| self.collect_expr(&l));
         let right = expr.rhs().and_then(|r| self.collect_expr(&r));
+        let left = expr.lhs().and_then(|l| self.collect_expr(&l));
         (left, right)
     }
 
@@ -2434,7 +2435,7 @@ impl<'db> Collector<'db> {
                 let locals = self.local_members(offset).into_iter().find_map(filter);
 
                 if let Some(symbol) = locals {
-                    self.range_to_symbol.insert(range, symbol);
+                    self.new_reference(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: None,
                         symbol,
@@ -2453,7 +2454,7 @@ impl<'db> Collector<'db> {
                     .find_map(filter);
 
                 if let Some(symbol) = consts {
-                    self.range_to_symbol.insert(range, symbol);
+                    self.new_reference(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: None,
                         symbol,
@@ -2465,14 +2466,14 @@ impl<'db> Collector<'db> {
                 let members = self
                     .members_of_container(
                         self.execution_container(),
-                        FindSymbol::BeforeIfInExecutionRange(offset),
+                        FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                         false,
                     )
                     .into_iter()
                     .find_map(filter);
 
                 if let Some(symbol) = members {
-                    self.range_to_symbol.insert(range, symbol);
+                    self.new_reference(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(self.execution_container().into()),
                         symbol,
@@ -2484,14 +2485,14 @@ impl<'db> Collector<'db> {
                 let root = self
                     .members_of_table(
                         self.root_table(),
-                        FindSymbol::BeforeIfInExecutionRange(offset),
+                        FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                         ImportMembers::Root,
                     )
                     .into_iter()
                     .find_map(filter);
 
                 if let Some(symbol) = root {
-                    self.range_to_symbol.insert(range, symbol);
+                    self.new_reference(range, symbol);
                     return Some(AssignmentLeftHandSide::Exists {
                         parent: Some(Type::Table(self.root_table())),
                         symbol,
@@ -2517,26 +2518,30 @@ impl<'db> Collector<'db> {
                 let offset = range.end();
 
                 Some(
-                    self.members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
-                        .into_iter()
-                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
-                        .map_or_else(
-                            || AssignmentLeftHandSide::CanCreate {
-                                parent: obj,
-                                new_key: text.into_boxed_str(),
+                    self.members_of_type(
+                        obj,
+                        FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
+                        false,
+                    )
+                    .into_iter()
+                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                    .map_or_else(
+                        || AssignmentLeftHandSide::CanCreate {
+                            parent: obj,
+                            new_key: text.into_boxed_str(),
+                            name_range,
+                            range,
+                        },
+                        |id| {
+                            self.new_reference(name_range, id);
+                            AssignmentLeftHandSide::Exists {
+                                parent: Some(obj),
+                                symbol: id,
                                 name_range,
                                 range,
-                            },
-                            |id| {
-                                self.range_to_symbol.insert(name_range, id);
-                                AssignmentLeftHandSide::Exists {
-                                    parent: Some(obj),
-                                    symbol: id,
-                                    name_range,
-                                    range,
-                                }
-                            },
-                        ),
+                            }
+                        },
+                    ),
                 )
             }
             Expr::ElementAccess(expr) => {
@@ -2558,26 +2563,30 @@ impl<'db> Collector<'db> {
                 let offset = range.end();
 
                 Some(
-                    self.members_of_type(obj, FindSymbol::BeforeIfInExecutionRange(offset), false)
-                        .into_iter()
-                        .find_map(|(name, id)| if name == text { Some(id) } else { None })
-                        .map_or_else(
-                            || AssignmentLeftHandSide::CanCreate {
-                                parent: obj,
-                                new_key: text.into_boxed_str(),
+                    self.members_of_type(
+                        obj,
+                        FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
+                        false,
+                    )
+                    .into_iter()
+                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                    .map_or_else(
+                        || AssignmentLeftHandSide::CanCreate {
+                            parent: obj,
+                            new_key: text.into_boxed_str(),
+                            name_range,
+                            range,
+                        },
+                        |id| {
+                            self.new_reference(name_range, id);
+                            AssignmentLeftHandSide::Exists {
+                                parent: Some(obj),
+                                symbol: id,
                                 name_range,
                                 range,
-                            },
-                            |id| {
-                                self.range_to_symbol.insert(name_range, id);
-                                AssignmentLeftHandSide::Exists {
-                                    parent: Some(obj),
-                                    symbol: id,
-                                    name_range,
-                                    range,
-                                }
-                            },
-                        ),
+                            }
+                        },
+                    ),
                 )
             }
             Expr::RootAccess(expr) => {
@@ -2590,7 +2599,7 @@ impl<'db> Collector<'db> {
                 Some(
                     self.members_of_table(
                         root,
-                        FindSymbol::BeforeIfInExecutionRange(offset),
+                        FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                         ImportMembers::Root,
                     )
                     .into_iter()
@@ -2603,7 +2612,7 @@ impl<'db> Collector<'db> {
                             range,
                         },
                         |id| {
-                            self.range_to_symbol.insert(name_range, id);
+                            self.new_reference(name_range, id);
                             AssignmentLeftHandSide::Exists {
                                 parent: Some(Type::Table(root)),
                                 symbol: id,
@@ -3354,15 +3363,12 @@ impl<'db> Collector<'db> {
     }
 
     fn unused_variables_diagnostics(&mut self) {
-        let mut seen: FxHashMap<SymbolId, bool> = FxHashMap::default();
-        for id in self.range_to_symbol().values() {
-            seen.entry(*id)
-                .and_modify(|used| *used = true)
-                .or_insert(false);
-        }
+        for (id, references) in self.symbol_to_ranges.iter() {
+            if references.len() > 1 {
+                continue;
+            }
 
-        for (id, _) in seen.into_iter().filter(|(_, seen)| !seen) {
-            let symbol = self.get(id);
+            let symbol = self.get(*id);
             if symbol.kind != SymbolKind::Local {
                 continue;
             }

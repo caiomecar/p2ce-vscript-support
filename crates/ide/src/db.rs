@@ -10,7 +10,7 @@ use salsa::Setter;
 use sq_3_parser::Parse;
 
 use crate::{
-    SourceSymbol, Type,
+    FinishedFile, Source, SourceSymbol, Type,
     arena::{ArenaId, FunctionId},
     collector::Collector,
     symbol::{FlatSymbolTable, SymbolTable, to_flat_symbol_table},
@@ -151,6 +151,7 @@ impl Database {
             this.init_vscript_lib(vscript_lib_path);
         }
         this.tf2_root = config.tf2_root_path;
+        this.load_all_scripts();
 
         this
     }
@@ -167,6 +168,14 @@ impl Database {
         file
     }
 
+    pub fn all_files(&self) -> Vec<(File, PathBuf)> {
+        self.file_to_path
+            .borrow()
+            .iter()
+            .map(|(file, path)| (*file, path.clone()))
+            .collect()
+    }
+
     pub fn get_file(&self, path: &Path) -> Option<File> {
         self.path_to_file.borrow().get(path).cloned()
     }
@@ -174,6 +183,19 @@ impl Database {
     // Can't return a reference because of the ref cell
     pub fn get_path(&self, file: File) -> Option<PathBuf> {
         self.file_to_path.borrow().get(&file).cloned()
+    }
+
+    fn load_all_scripts(&self) {
+        let Some(root) = &self.tf2_root else { return };
+        let scripts = root.join("tf/scripts/vscripts");
+
+        for entry in walkdir::WalkDir::new(scripts)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|e| e.to_str()) == Some("nut"))
+        {
+            self.open_file(entry.into_path());
+        }
     }
 
     fn init_builtins(&mut self, path: PathBuf) {
@@ -314,4 +336,38 @@ pub fn source_symbol(db: &dyn Db, file: File) -> SourceSymbol {
     let source = Collector::symbol_from_source_file(db, file, parse.source_file());
     eprintln!("Source symbol took {:?}", now.elapsed());
     source
+}
+
+#[salsa::tracked]
+pub fn top_root_members(db: &dyn Db, file: File) -> FlatSymbolTable {
+    let finished_file = FinishedFile::new(db, file);
+    to_flat_symbol_table(finished_file.additional_table_members(finished_file.root_table()))
+}
+
+#[salsa::tracked]
+pub fn top_source_members(db: &dyn Db, file: File) -> FlatSymbolTable {
+    let finished_file = FinishedFile::new(db, file);
+    to_flat_symbol_table(finished_file.additional_table_members(finished_file.source_table()))
+}
+
+#[salsa::tracked]
+pub fn top_const_members(db: &dyn Db, file: File) -> FlatSymbolTable {
+    let finished_file = FinishedFile::new(db, file);
+    to_flat_symbol_table(finished_file.additional_table_members(finished_file.const_table()))
+}
+
+#[salsa::tracked]
+pub fn top_source_and_root_members(db: &dyn Db, file: File) -> FlatSymbolTable {
+    top_source_members(db, file)
+        .into_iter()
+        .chain(top_root_members(db, file))
+        .collect()
+}
+
+#[salsa::tracked]
+pub fn top_source_and_const_members(db: &dyn Db, file: File) -> FlatSymbolTable {
+    top_source_members(db, file)
+        .into_iter()
+        .chain(top_const_members(db, file))
+        .collect()
 }

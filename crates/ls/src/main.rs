@@ -20,11 +20,9 @@ use lsp_types::request::{
     SemanticTokensFullRequest, SignatureHelpRequest,
 };
 use lsp_types::{
-    CompletionOptions, CompletionParams, DiagnosticSeverity, DiagnosticTag, DocumentSymbolParams,
-    GotoDefinitionParams, HoverParams, HoverProviderCapability, OneOf, ReferenceParams,
-    RenameParams, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
-    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensServerCapabilities, SignatureHelpOptions, SignatureHelpParams,
+    CompletionOptions, DiagnosticSeverity, DiagnosticTag, HoverProviderCapability, OneOf,
+    SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend,
+    SemanticTokensOptions, SemanticTokensServerCapabilities, SignatureHelpOptions,
 };
 // for METHOD consts
 use lsp_types::{
@@ -107,10 +105,13 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
 
     let config = match init.initialization_options {
         Some(serde_json::Value::Object(map)) => {
-            let tf2_root_path = map
-                .get("tf2Root")
-                .and_then(|v| v.as_str())
-                .map(PathBuf::from);
+            let tf2_root_path = map.get("tf2Root").and_then(|v| v.as_str()).and_then(|v| {
+                if v.len() == 0 {
+                    None
+                } else {
+                    Some(PathBuf::from(v))
+                }
+            });
 
             let builtins_path = map
                 .get("builtinsPath")
@@ -146,17 +147,19 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
                     break;
                 }
                 let now = Instant::now();
-                if let Err(err) = handle_request(&db, &connection, &req) {
-                    eprintln!("[lsp] request {} failed: {err}", &req.method);
+                let method = req.method.clone();
+                if let Err(err) = handle_request(&db, &connection, req) {
+                    eprintln!("[lsp] request {method} failed: {err}");
                 }
-                eprintln!("Handling request took {:?}", now.elapsed());
+                eprintln!("[lsp] request {method} took {:?}", now.elapsed());
             }
             Message::Notification(note) => {
                 let now = Instant::now();
-                if let Err(err) = handle_notification(&mut db, &connection, &note) {
-                    eprintln!("[lsp] notification {} failed: {err}", note.method);
+                let method = note.method.clone();
+                if let Err(err) = handle_notification(&mut db, &connection, note) {
+                    eprintln!("[lsp] notification {method} failed: {err}");
                 }
-                eprintln!("Handling notification took {:?}", now.elapsed());
+                eprintln!("[lsp] notification {method} took {:?}", now.elapsed());
             }
             Message::Response(resp) => eprintln!("[lsp] response: {resp:?}"),
         }
@@ -167,11 +170,11 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
 fn handle_notification(
     db: &mut Database,
     conn: &Connection,
-    note: &lsp_server::Notification,
+    note: lsp_server::Notification,
 ) -> Result<()> {
     match note.method.as_str() {
         DidOpenTextDocument::METHOD => {
-            let p: DidOpenTextDocumentParams = serde_json::from_value(note.params.clone())?;
+            let p: DidOpenTextDocumentParams = serde_json::from_value(note.params)?;
             let Ok(path) = p.text_document.uri.to_file_path() else {
                 return Ok(()); // ignore untitled files
             };
@@ -179,7 +182,7 @@ fn handle_notification(
             publish_diagnostics(&db, conn, file)?;
         }
         DidChangeTextDocument::METHOD => {
-            let p: DidChangeTextDocumentParams = serde_json::from_value(note.params.clone())?;
+            let p: DidChangeTextDocumentParams = serde_json::from_value(note.params)?;
             let Ok(path) = p.text_document.uri.to_file_path() else {
                 return Ok(()); // ignore untitled files
             };
@@ -204,51 +207,51 @@ fn handle_notification(
     Ok(())
 }
 
-fn handle_request(db: &Database, conn: &Connection, req: &ServerRequest) -> Result<()> {
+fn handle_request(db: &Database, conn: &Connection, req: ServerRequest) -> Result<()> {
     match req.method.as_str() {
         Completion::METHOD => {
-            let params: CompletionParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_completions(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         GotoDefinition::METHOD => {
-            let params: GotoDefinitionParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_go_to_definition(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         HoverRequest::METHOD => {
-            let params: HoverParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_hover(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         SemanticTokensFullRequest::METHOD => {
-            let params: SemanticTokensParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_semantic_tokens(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         DocumentSymbolRequest::METHOD => {
-            let params: DocumentSymbolParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_document_symbols(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         References::METHOD => {
-            let params: ReferenceParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_references(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         Rename::METHOD => {
-            let params: RenameParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_rename(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         SignatureHelpRequest::METHOD => {
-            let params: SignatureHelpParams = serde_json::from_value(req.params.clone())?;
+            let params = serde_json::from_value(req.params)?;
             let result = handle_signature_help(db, params)?;
-            send_ok(conn, req.id.clone(), &result)?;
+            send_ok(conn, req.id, &result)?;
         }
         _ => send_err(
             conn,
-            req.id.clone(),
+            req.id,
             lsp_server::ErrorCode::MethodNotFound,
             "unhandled method",
         )?,

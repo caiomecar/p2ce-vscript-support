@@ -38,6 +38,20 @@ export function activate(context: vscode.ExtensionContext) {
         options: { env },
     };
 
+    const config = vscode.workspace.getConfiguration('TF2Vscript');
+    const tf2Root = config.get<string>('TF2Root') ?? '';
+
+    if (!tf2Root) {
+        vscode.window.showWarningMessage(
+            'TF2 VScript: TF2Root is not set. Imports will not work.',
+            'Open Settings'
+        ).then(selection => {
+            if (selection === 'Open Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'TF2Vscript.TF2Root');
+            }
+        });
+    }
+
     const stdlibPath = inDebug() ?
         path.join(context.extensionPath, "..", "..", "vscript_lib") :
         path.join(context.extensionPath, "vscript_lib");
@@ -53,7 +67,7 @@ export function activate(context: vscode.ExtensionContext) {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
         },
         initializationOptions: {
-            tf2Root: "/mnt/d/program files/steam/steamapps/common/team fortress 2",
+            tf2Root,
             builtinsPath: path.join(stdlibPath, "builtins.nut"),
             squirrelLibPath: path.join(stdlibPath, "squirrel.nut"),
             vscriptLibPath: path.join(stdlibPath, "vscript.nut"),
@@ -68,6 +82,17 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     client.start();
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('tf2vscript.tf2Root')) {
+                client.sendNotification('workspace/didChangeConfiguration', {
+                    settings: vscode.workspace.getConfiguration('tf2vscript')
+                });
+            }
+        })
+    );
+
 
     if (inDebug()) {
         client.traceOutputChannel.show(true);

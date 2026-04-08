@@ -81,6 +81,18 @@
         "scopeName": "source.sqDoc",
         "path": "./syntaxes/sqDoc.tmLanguage.json"
       }
+    ],
+    "configuration": [
+      {
+        "title": "TF2 VScript",
+        "properties": {
+          "TF2Vscript.TF2Root": {
+            "type": "string",
+            "default": "",
+            "description": "Path to your Team Fortress 2 installation directory."
+          }
+        }
+      }
     ]
   }
 }
