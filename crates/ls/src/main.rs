@@ -4,6 +4,7 @@ mod document_symbols;
 mod find_references;
 mod go_to_definition;
 mod hover;
+mod inlay_hints;
 mod prepare_rename;
 mod rename;
 mod semantic_tokens;
@@ -17,8 +18,8 @@ use ide::{Database, DbConfig, File, FinishedFile, Source, line_index, parse};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{
-    DocumentSymbolRequest, GotoDefinition, HoverRequest, PrepareRenameRequest, References, Rename,
-    Request, SemanticTokensFullRequest, SignatureHelpRequest,
+    DocumentSymbolRequest, GotoDefinition, HoverRequest, InlayHintRequest, PrepareRenameRequest,
+    References, Rename, Request, SemanticTokensFullRequest, SignatureHelpRequest,
 };
 use lsp_types::{
     CompletionOptions, DiagnosticSeverity, DiagnosticTag, HoverProviderCapability, OneOf,
@@ -48,6 +49,7 @@ use crate::document_symbols::handle_document_symbols;
 use crate::find_references::handle_references;
 use crate::go_to_definition::handle_go_to_definition;
 use crate::hover::handle_hover;
+use crate::inlay_hints::handle_inlay_hints;
 use crate::prepare_rename::handle_prepare_rename;
 use crate::rename::handle_rename;
 use crate::semantic_tokens::handle_semantic_tokens;
@@ -90,11 +92,11 @@ fn main() -> Result<()> {
             prepare_provider: Some(true),
             work_done_progress_options: Default::default(),
         })),
-
         signature_help_provider: Some(SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
             ..Default::default()
         }),
+        inlay_hint_provider: Some(OneOf::Left(true)),
         ..Default::default()
     };
 
@@ -259,6 +261,11 @@ fn handle_request(db: &Database, conn: &Connection, req: ServerRequest) -> Resul
         SignatureHelpRequest::METHOD => {
             let params = serde_json::from_value(req.params)?;
             let result = handle_signature_help(db, params)?;
+            send_ok(conn, req.id, &result)?;
+        }
+        InlayHintRequest::METHOD => {
+            let params = serde_json::from_value(req.params)?;
+            let result = handle_inlay_hints(db, params)?;
             send_ok(conn, req.id, &result)?;
         }
         _ => send_err(
