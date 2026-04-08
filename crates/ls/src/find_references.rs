@@ -31,12 +31,13 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Result<Optio
     };
 
     // can't do token.text() if the token is a string that got unquoted
-    let reference = finished_file.get(reference_id);
+    let reference_file = FinishedFile::new(db, finished_file.file());
+    let reference = reference_file.get(reference_id);
     let name = reference.name.as_str();
     let name_range = reference.name_range;
     let mut all_locations = Vec::new();
 
-    if let Some(ranges) = finished_file.symbol_to_ranges().get(&reference_id) {
+    if let Some(ranges) = reference_file.symbol_to_ranges().get(&reference_id) {
         for range in ranges {
             if *range == name_range {
                 continue;
