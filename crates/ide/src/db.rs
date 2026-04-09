@@ -10,7 +10,7 @@ use salsa::Setter;
 use sq_3_parser::Parse;
 
 use crate::{
-    FinishedFile, Source, SourceSymbol, Type,
+    FinishedFile, Source, SourceSymbol, SymbolId, Type,
     arena::{ArenaId, FunctionId},
     collector::Collector,
     symbol::{FlatSymbolTable, SymbolTable, to_flat_symbol_table},
@@ -44,19 +44,24 @@ pub struct Database {
     special_functions: FxHashMap<FunctionId, SpecialFunction>,
 }
 
+pub struct Builtin {
+    pub symbol: SymbolId,
+    pub members: FlatSymbolTable,
+}
+
 pub struct Builtins {
-    pub integer: FlatSymbolTable,
-    pub float: FlatSymbolTable,
-    pub boolean: FlatSymbolTable,
-    pub string: FlatSymbolTable,
-    pub array: FlatSymbolTable,
-    pub table: FlatSymbolTable,
-    pub function: FlatSymbolTable,
-    pub class: FlatSymbolTable,
-    pub instance: FlatSymbolTable,
-    pub generator: FlatSymbolTable,
-    pub thread: FlatSymbolTable,
-    pub weakref: FlatSymbolTable,
+    pub integer: Builtin,
+    pub float: Builtin,
+    pub boolean: Builtin,
+    pub string: Builtin,
+    pub array: Builtin,
+    pub table: Builtin,
+    pub function: Builtin,
+    pub class: Builtin,
+    pub instance: Builtin,
+    pub generator: Builtin,
+    pub thread: Builtin,
+    pub weakref: Builtin,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -226,8 +231,8 @@ impl Database {
         });
     }
 
-    fn init_builtin(&self, source_members: &SymbolTable, name: &str) -> FlatSymbolTable {
-        let Some(typ) = source_members.iter().find_map(|(symbol_name, ids)| {
+    fn init_builtin(&self, source_members: &SymbolTable, name: &str) -> Builtin {
+        let Some(symbol_id) = source_members.iter().find_map(|(symbol_name, ids)| {
             if symbol_name != name {
                 return None;
             }
@@ -236,16 +241,21 @@ impl Database {
                 eprintln!("Multiple definitions for the symbol '{name}'")
             }
 
-            Some(ids[0].get_data(self).typ)
+            Some(ids[0])
         }) else {
             panic!("'{name}' is not contained inside builtins members");
         };
+
+        let typ = symbol_id.get_data(self).typ;
 
         let Type::Class(id) = typ else {
             panic!("'{name}' member is not of type 'class'");
         };
 
-        to_flat_symbol_table(id.get_data(self).members.clone())
+        Builtin {
+            symbol: symbol_id,
+            members: to_flat_symbol_table(id.get_data(self).members.clone()),
+        }
     }
 
     fn init_squirrel_lib(&mut self, path: PathBuf) {

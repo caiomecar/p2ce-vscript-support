@@ -52,30 +52,34 @@ pub enum ExpressionKind {
 
 pub type NullableExprKind = Option<ExpressionKind>;
 
-macro_rules! builtin_members {
-    ($func:ident => $ty:ident) => {
-        fn $func(db: &dyn Db) -> FlatSymbolTable {
-            if let Some(builtins) = db.builtins().map(|b| &b.$ty) {
+macro_rules! builtin {
+    ($members:ident, $symbol:ident => $ty:ident) => {
+        fn $members(db: &dyn Db) -> FlatSymbolTable {
+            if let Some(builtins) = db.builtins().map(|b| &b.$ty.members) {
                 builtins.clone()
             } else {
                 FlatSymbolTable::default()
             }
         }
+
+        fn $symbol(db: &dyn Db) -> Option<SymbolId> {
+            db.builtins().map(|b| &b.$ty.symbol).cloned()
+        }
     };
 }
 
-builtin_members!(integer_members => integer);
-builtin_members!(float_members => float);
-builtin_members!(boolean_members => boolean);
-builtin_members!(string_members => string);
-builtin_members!(array_members => array);
-builtin_members!(function_members => function);
-builtin_members!(generator_members => generator);
-builtin_members!(thread_members => thread);
-builtin_members!(weakref_members => weakref);
-builtin_members!(instance_members => instance);
-builtin_members!(builtin_table_members => table);
-builtin_members!(builtin_class_members => class);
+builtin!(integer_members, integer_symbol => integer);
+builtin!(float_members, float_symbol => float);
+builtin!(boolean_members, boolean_symbol => boolean);
+builtin!(string_members, string_symbol => string);
+builtin!(array_members, array_symbol => array);
+builtin!(function_members, function_symbol => function);
+builtin!(generator_members, generator_symbol => generator);
+builtin!(thread_members, thread_symbol => thread);
+builtin!(weakref_members, weakref_symbol => weakref);
+builtin!(instance_members, instance_symbol => instance);
+builtin!(builtin_table_members, table_symbol => table);
+builtin!(builtin_class_members, class_symbol => class);
 
 #[derive(Debug, Clone, Copy)]
 pub enum ImportMembers {
@@ -624,6 +628,31 @@ pub trait Source {
             }
         }
         last
+    }
+
+    fn type_to_symbol(&self, typ: Type) -> Option<SymbolId> {
+        Some(match typ {
+            Type::Unknown | Type::Null => return None,
+            Type::Instance(id) => {
+                if let Some(class_id) = self.get(id).symbol {
+                    class_id
+                } else {
+                    instance_symbol(self.db())?
+                }
+            }
+            Type::Integer(_) => integer_symbol(self.db())?,
+            Type::Float(_) => float_symbol(self.db())?,
+            Type::String(_) => string_symbol(self.db())?,
+            Type::Boolean(_) => boolean_symbol(self.db())?,
+            Type::Array(_) => array_symbol(self.db())?,
+            Type::Table(_) => table_symbol(self.db())?,
+            Type::Class(_) => class_symbol(self.db())?,
+            Type::Enum(_) => return None,
+            Type::Function(_) => function_symbol(self.db())?,
+            Type::Generator(_) => generator_symbol(self.db())?,
+            Type::Thread(_) => thread_symbol(self.db())?,
+            Type::Weakref => weakref_symbol(self.db())?,
+        })
     }
 
     fn expr_to_type(&self, expr: NullableExprKind) -> Type {

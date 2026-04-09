@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{ArenaId, Database, FinishedFile, Source, Type, line_index, parse, token_name_range};
+use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse, token_name_range};
 use lsp_types::{
     Location,
     request::{GotoTypeDefinitionParams, GotoTypeDefinitionResponse},
@@ -38,18 +38,8 @@ pub fn handle_go_to_type_definition(
     };
 
     let symbol = finished_file.get(symbol_id);
-
-    let type_id = match symbol.typ {
-        Type::Unknown | Type::Null => return Ok(None),
-        Type::Instance(id) => {
-            let Some(class_symbol_id) = finished_file.get(id).symbol else {
-                return Ok(None);
-            };
-
-            class_symbol_id
-        }
-        // Perhaps point to the builtin class?
-        _ => return Ok(None),
+    let Some(type_id) = finished_file.type_to_symbol(symbol.typ) else {
+        return Ok(None);
     };
 
     let file = type_id.file();
