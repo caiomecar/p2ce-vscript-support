@@ -163,6 +163,7 @@ impl Parser {
     /// Adds the marker as the last element to the events array
     fn start(&mut self) -> Marker {
         // Attach comments to the nodes if there's only a single new line in between them
+        self.has_new_line_after_comment = false;
         if let Some(comments_index) = self.preceding_comments_index {
             // To not trigger on further starts
             self.preceding_comments_index = None;
@@ -216,7 +217,6 @@ impl Parser {
             "Trying to finish marker that was finished or dropped"
         );
 
-        self.preceding_comments_index = None;
         self.events[marker.0] = Event::Start { kind };
         self.events.push(Event::Finish);
     }

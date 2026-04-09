@@ -121,7 +121,7 @@ pub trait HasBody: AstNode<Language = SquirrelLanguage> {
     }
 }
 
-pub trait IsFunction: AstNode<Language = SquirrelLanguage> {
+pub trait IsFunction: AstNode<Language = SquirrelLanguage> + HasDoc {
     fn environment(&self) -> Option<Environment> {
         support::child(self.syntax())
     }
@@ -420,6 +420,7 @@ impl TableLiteralExpression {
 
 ast_node!(FunctionExpression, FunctionExpression);
 impl IsFunction for FunctionExpression {}
+impl HasDoc for FunctionExpression {}
 
 ast_node!(LambdaExpression, LambdaExpression);
 impl IsFunction for LambdaExpression {
@@ -427,6 +428,7 @@ impl IsFunction for LambdaExpression {
         support::child(self.syntax()).map(FunctionBody::Expr)
     }
 }
+impl HasDoc for LambdaExpression {}
 
 ast_node!(ClassExpression, ClassExpression);
 impl IsClass for ClassExpression {}
