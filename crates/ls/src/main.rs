@@ -76,14 +76,17 @@ fn main() -> Result<()> {
                 legend: SemanticTokensLegend {
                     token_types: vec![
                         SemanticTokenType::VARIABLE,
+                        SemanticTokenType::PARAMETER,
                         SemanticTokenType::FUNCTION,
                         SemanticTokenType::CLASS,
                         SemanticTokenType::PROPERTY,
                         SemanticTokenType::ENUM,
                         SemanticTokenType::ENUM_MEMBER,
-                        SemanticTokenType::PARAMETER,
                     ],
-                    token_modifiers: vec![SemanticTokenModifier::READONLY],
+                    token_modifiers: vec![
+                        SemanticTokenModifier::READONLY,
+                        SemanticTokenModifier::STATIC,
+                    ],
                 },
                 full: Some(SemanticTokensFullOptions::Bool(true)),
                 ..Default::default()

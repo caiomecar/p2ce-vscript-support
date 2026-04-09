@@ -1,8 +1,23 @@
 use anyhow::Result;
-use ide::{Database, FinishedFile, Source, SymbolKind, Type, line_index};
+use ide::{Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, Type, line_index};
 use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 
 use crate::conversions;
+
+enum TokenType {
+    Variable = 0,
+    Parameter = 1,
+    Function = 2,
+    Class = 3,
+    Property = 4,
+    Enum = 5,
+    EnumMember = 6,
+}
+enum TokenModifier {
+    None = 0,
+    Readonly = 1 << 0,
+    Static = 1 << 1,
+}
 
 pub fn handle_semantic_tokens(
     db: &Database,
@@ -32,19 +47,32 @@ pub fn handle_semantic_tokens(
         let symbol = finished_file.get(*id);
 
         let (token_type, modifiers) = match symbol.kind {
-            SymbolKind::Local(_) => match symbol.typ {
-                Type::Function(_) => (1, 0),
-                Type::Class(_) => (2, 0),
-                _ => (0, 0),
+            SymbolKind::Local(kind) => match symbol.typ {
+                Type::Function(_) => (TokenType::Function, TokenModifier::None),
+                Type::Class(_) => (TokenType::Class, TokenModifier::None),
+                _ => {
+                    if kind == LocalKind::Parameter {
+                        (TokenType::Parameter, TokenModifier::None)
+                    } else {
+                        (TokenType::Variable, TokenModifier::None)
+                    }
+                }
             },
-            SymbolKind::Property(_) => match symbol.typ {
-                Type::Function(_) => (1, 0),
-                Type::Class(_) => (2, 0),
-                _ => (3, 0),
-            },
-            SymbolKind::Enum => (4, 0),
-            SymbolKind::EnumMember => (5, 1),
-            SymbolKind::Constant => (0, 1),
+            SymbolKind::Property(kind) => {
+                let modifiers = if kind == PropertyKind::Yes {
+                    TokenModifier::Static
+                } else {
+                    TokenModifier::None
+                };
+                match symbol.typ {
+                    Type::Function(_) => (TokenType::Function, modifiers),
+                    Type::Class(_) => (TokenType::Class, modifiers),
+                    _ => (TokenType::Property, modifiers),
+                }
+            }
+            SymbolKind::Enum => (TokenType::Enum, TokenModifier::Readonly),
+            SymbolKind::EnumMember => (TokenType::EnumMember, TokenModifier::Readonly),
+            SymbolKind::Constant => (TokenType::Variable, TokenModifier::Readonly),
         };
 
         let Some(lsp_range) = conversions::range(line_idx, *range) else {
@@ -66,8 +94,8 @@ pub fn handle_semantic_tokens(
             delta_line,
             delta_start,
             length: length.into(),
-            token_type,
-            token_modifiers_bitset: modifiers,
+            token_type: token_type as u32,
+            token_modifiers_bitset: modifiers as u32,
         });
 
         prev_line = line;
