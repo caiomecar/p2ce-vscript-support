@@ -100,7 +100,7 @@ pub fn handle_signature_help(
         label.push_str(&param.name);
         let typ = param.typ;
         if typ != Type::Unknown {
-            label.push_str(format!(": {typ}").as_str());
+            label.push_str(format!(": {}", finished_file.type_to_string(typ)).as_str());
         }
 
         let end = label.len();
@@ -134,7 +134,7 @@ pub fn handle_signature_help(
 
     let ret = func.ret;
     if !matches!(ret, Type::Unknown | Type::Null) {
-        label.push_str(format!(" -> {ret}").as_str());
+        label.push_str(format!("-> {}", finished_file.type_to_string(ret)).as_str());
     }
 
     Ok(Some(SignatureHelp {

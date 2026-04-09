@@ -37,6 +37,7 @@ pub fn handle_document_symbols(
     });
 
     fn build_symbol(
+        finished_file: &FinishedFile<'_>,
         symbol: &Symbol,
         children: Vec<DocumentSymbol>,
         line_idx: &LineIndex,
@@ -64,7 +65,7 @@ pub fn handle_document_symbols(
         #[allow(deprecated)]
         Some(DocumentSymbol {
             name,
-            detail: Some(symbol.typ.to_string()),
+            detail: Some(finished_file.type_to_string(symbol.typ)),
             kind,
             range,
             selection_range: name_range,
@@ -87,7 +88,7 @@ pub fn handle_document_symbols(
                 break;
             }
             let (_, psymbol, children) = stack.pop().unwrap();
-            if let Some(doc_sym) = build_symbol(psymbol, children, line_idx) {
+            if let Some(doc_sym) = build_symbol(&finished_file, psymbol, children, line_idx) {
                 if let Some((_, _, parent_children)) = stack.last_mut() {
                     parent_children.push(doc_sym);
                 } else {
@@ -99,7 +100,7 @@ pub fn handle_document_symbols(
     }
 
     while let Some((_, symbol, children)) = stack.pop() {
-        if let Some(doc_sym) = build_symbol(symbol, children, line_idx) {
+        if let Some(doc_sym) = build_symbol(&finished_file, symbol, children, line_idx) {
             if let Some((_, _, parent_children)) = stack.last_mut() {
                 parent_children.push(doc_sym);
             } else {

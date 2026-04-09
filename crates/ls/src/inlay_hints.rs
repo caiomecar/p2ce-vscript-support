@@ -43,27 +43,22 @@ pub fn handle_inlay_hints(
             }
 
             // skip if type is unknown or null - nothing useful to show
-            let (label, tooltip) = match symbol.typ {
-                Type::Unknown | Type::Null => return None,
-                Type::Instance(id) => {
-                    if let Some(id) = id
-                        && let Some(class_symbol_id) = finished_file.get(id).symbol
-                    {
-                        let symbol = finished_file.get(class_symbol_id);
-                        let typ = &symbol.name;
+            if matches!(symbol.typ, Type::Unknown | Type::Null) {
+                return None;
+            }
 
-                        let content = symbol.display(&finished_file);
+            let label = format!(": {}", finished_file.type_to_string(symbol.typ));
+            let tooltip = if let Type::Instance(Some(id)) = symbol.typ
+                && let Some(class_symbol_id) = finished_file.get(id).symbol
+            {
+                let content = finished_file.symbol_to_string(class_symbol_id);
 
-                        let tooltip = InlayHintTooltip::MarkupContent(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: format!("```sqDoc\n{content}\n```"),
-                        });
-                        (format!(": {typ}"), Some(tooltip))
-                    } else {
-                        (": instance".to_owned(), None)
-                    }
-                }
-                typ => (format!(": {typ}"), None),
+                Some(InlayHintTooltip::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!("```sqDoc\n{content}\n```"),
+                }))
+            } else {
+                None
             };
 
             let position = conversions::range(line_idx, symbol.name_range)?.end;

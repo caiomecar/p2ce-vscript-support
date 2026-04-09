@@ -290,39 +290,41 @@ impl Database {
     fn find_special_functions(&self, file: File) -> Vec<(FunctionId, SpecialFunction)> {
         let source = source_symbol(self, file);
         let source_members = &source.arena[source.source_table].members;
-        source_members.into_iter().filter_map(|(name, ids)| {
-            // Both squirrel and vscript files use the same match, this works fine since
-            // there's no name clashing for special functions but it might not be the best
-            // practice
-            let kind = match name.as_str() {
-                "getroottable" => SpecialFunction::GetRootTable,
-                "getconsttable" => SpecialFunction::GetConstTable,
-                "IncludeScript" => SpecialFunction::IncludeScript,
-                "DoIncludeScript" => SpecialFunction::DoIncludeScript,
-                _ => return None,
-            };
+        source_members
+            .into_iter()
+            .filter_map(|(name, ids)| {
+                // Both squirrel and vscript files use the same match, this works fine since
+                // there's no name clashing for special functions but it might not be the best
+                // practice
+                let kind = match name.as_str() {
+                    "getroottable" => SpecialFunction::GetRootTable,
+                    "getconsttable" => SpecialFunction::GetConstTable,
+                    "IncludeScript" => SpecialFunction::IncludeScript,
+                    "DoIncludeScript" => SpecialFunction::DoIncludeScript,
+                    _ => return None,
+                };
 
-            if ids.len() > 1 {
-                eprintln!("Multiple definitions for the standard library symbol '{name}'");
-            }
+                if ids.len() > 1 {
+                    eprintln!("Multiple definitions for the standard library symbol '{name}'");
+                }
 
-            let id = ids.last().unwrap();
+                let id = ids.last().unwrap();
 
-            if id.file() != file {
-                eprintln!("Standard library symbol '{name}' is defined externally");
-                return None;
-            }
+                if id.file() != file {
+                    eprintln!("Standard library symbol '{name}' is defined externally");
+                    return None;
+                }
 
-            let Type::Function(Some(function_id)) = source.arena[id.idx()].typ else {
-                eprintln!(
-                    "Standard library symbol '{name}' has the type of '{}'. (Expected 'function')",
-                    source.arena[id.idx()].typ
-                );
-                return None;
-            };
+                let Type::Function(Some(function_id)) = source.arena[id.idx()].typ else {
+                    eprintln!(
+                        "Standard library symbol '{name}' has a wrong type. (Expected 'function')",
+                    );
+                    return None;
+                };
 
-            Some((function_id, kind))
-        }).collect()
+                Some((function_id, kind))
+            })
+            .collect()
     }
 }
 

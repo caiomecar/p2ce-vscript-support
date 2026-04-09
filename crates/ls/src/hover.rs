@@ -31,8 +31,7 @@ pub fn handle_hover(db: &Database, params: HoverParams) -> Result<Option<Hover>>
         return Ok(None);
     };
 
-    let symbol = finished_file.get(id);
-    let content = symbol.display(&finished_file).to_string();
+    let content = finished_file.symbol_to_string(id);
 
     Ok(Some(Hover {
         contents: HoverContents::Markup(MarkupContent {

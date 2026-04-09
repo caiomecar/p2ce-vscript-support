@@ -1,10 +1,7 @@
 use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
 
-use crate::{
-    FinishedFile, Source,
-    arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId},
-};
+use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId};
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Symbol {
@@ -116,118 +113,6 @@ impl SymbolKind {
         match self {
             SymbolKind::Local(_) | SymbolKind::Property(_) => true,
             _ => false,
-        }
-    }
-}
-
-impl std::fmt::Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Unknown => write!(f, "unknown"),
-            Type::Any => write!(f, "any"),
-            Type::Integer(_) => write!(f, "integer"),
-            Type::Float(_) => write!(f, "float"),
-            Type::String(_) => write!(f, "string"),
-            Type::Boolean(_) => write!(f, "bool"),
-            Type::Null => write!(f, "null"),
-            Type::Instance(_) => write!(f, "instance"),
-            Type::Array(_) => write!(f, "array"),
-            Type::Table(_) => write!(f, "table"),
-            Type::Class(_) => write!(f, "class"),
-            Type::Enum(_) => write!(f, "enum"),
-            Type::Function(_) => write!(f, "function"),
-            Type::Generator(_) => write!(f, "generator"),
-            Type::Thread(_) => write!(f, "thread"),
-            Type::Weakref => write!(f, "weakref"),
-        }
-    }
-}
-
-impl Symbol {
-    pub fn display<'a>(&'a self, file: &'a FinishedFile) -> SymbolDisplay<'a> {
-        SymbolDisplay { symbol: self, file }
-    }
-}
-
-pub struct SymbolDisplay<'a> {
-    symbol: &'a Symbol,
-    file: &'a FinishedFile<'a>,
-}
-
-impl std::fmt::Display for SymbolDisplay<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.symbol;
-        match s.kind {
-            SymbolKind::Local(_) => write!(f, "local ")?,
-            SymbolKind::Property(statik) => {
-                if statik == PropertyKind::Yes {
-                    write!(f, "static ")?;
-                }
-            }
-            SymbolKind::Enum => return write!(f, "enum {}", s.name),
-            SymbolKind::Constant | SymbolKind::EnumMember => {
-                let type_text = match s.typ {
-                    Type::Integer(Some(value)) => value.to_string(),
-                    Type::Float(Some(value)) => value.to_string(),
-                    Type::Boolean(Some(value)) => value.to_string(),
-                    Type::String(Some(id)) => {
-                        format!("\"{}\"", self.file.get(id).text)
-                    }
-                    _ => return write!(f, "const {}", s.name),
-                };
-                return write!(f, "const {}: {}", s.name, type_text);
-            }
-        };
-
-        match s.typ {
-            Type::Function(id) => {
-                let Some(id) = id else {
-                    return write!(f, "function {}()", s.name);
-                };
-
-                let func = self.file.get(id);
-                write!(f, "function {}(", s.name)?;
-                for (i, &param) in func.params.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    let param = self.file.get(param);
-                    if param.typ != Type::Unknown {
-                        write!(f, "{}: {}", param.name, param.typ)?;
-                    } else {
-                        write!(f, "{}", param.name)?;
-                    }
-                }
-
-                if func.throws.is_some() {
-                    write!(f, ")!")?;
-                } else {
-                    write!(f, ")")?;
-                }
-
-                // Result of unknown can technically provide some value,
-                // while there's no point in saving 'null' return at all
-                // so it just pollutes the signature
-                if func.ret != Type::Null {
-                    write!(f, " -> {}", func.ret)
-                } else {
-                    Ok(())
-                }
-            }
-
-            Type::Instance(id) => {
-                let typ = if let Some(id) = id
-                    && let Some(symbol) = self.file.get(id).symbol
-                {
-                    &self.file.get(symbol).name
-                } else {
-                    "instance"
-                };
-
-                write!(f, "{}: {}", s.name, typ)
-            }
-            Type::Class(_) => write!(f, "class {}", s.name),
-            _ => write!(f, "{}: {}", s.name, s.typ),
         }
     }
 }

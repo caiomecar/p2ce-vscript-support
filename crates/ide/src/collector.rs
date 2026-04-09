@@ -263,7 +263,7 @@ impl<'db> Collector<'db> {
         // Resolve remaining functions
         while let Some(idx) = collector.deferred_functions.keys().next().cloned() {
             let trace = collector.deferred_functions.remove(&idx).unwrap();
-            collector.resolve_function_idx(idx, trace);
+            collector.resolve_function_idx(idx, trace, node.syntax().text_range().end());
         }
 
         collector.unused_variables_diagnostics();
@@ -317,7 +317,7 @@ impl<'db> Collector<'db> {
                 Type::Unknown => None,
                 typ => {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to inherit from {typ}"),
+                        message: format!("Trying to inherit from {}", self.type_to_string(typ)),
                         range: expr.syntax().text_range(),
                         ..Default::default()
                     });
@@ -689,9 +689,12 @@ impl<'db> Collector<'db> {
                     return None;
                 };
 
-                let members = &self.get(delegate_idx).members;
                 // possibly change error_range.start() to the real offset parameter?
-                let Some(member) = self.get_symbol(members, metamethod, error_range.start()) else {
+                let Some(member) = self.find_member(
+                    Container::Table(delegate_idx),
+                    metamethod,
+                    error_range.start(),
+                ) else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
                         | MetamethodErrors::YesBinary { keyword, .. } => {
@@ -713,8 +716,8 @@ impl<'db> Collector<'db> {
                     return None;
                 };
 
-                let class = self.get(id);
-                let Some(member) = self.get_symbol(&class.members, metamethod, error_range.start())
+                let Some(member) =
+                    self.find_member(Container::Instance(id), metamethod, error_range.start())
                 else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
@@ -737,7 +740,11 @@ impl<'db> Collector<'db> {
                 match errors {
                     MetamethodErrors::Yes { keyword } => {
                         self.diagnostics.push(Diagnostic {
-                            message: format!("'{typ}' does not support {keyword}"),
+                            message: format!(
+                                "'{}' does not support {}",
+                                self.type_to_string(typ),
+                                keyword
+                            ),
                             range: error_range,
                             ..Default::default()
                         });
@@ -746,7 +753,10 @@ impl<'db> Collector<'db> {
                         if right != Type::Unknown {
                             self.diagnostics.push(Diagnostic {
                                 message: format!(
-                                    "'{typ}' does not support {keyword} with '{right}'"
+                                    "'{}' does not support {} with '{}'",
+                                    self.type_to_string(typ),
+                                    keyword,
+                                    self.type_to_string(right)
                                 ),
                                 range: error_range,
                                 ..Default::default()
@@ -984,7 +994,10 @@ impl<'db> Collector<'db> {
                 } else {
                     if typ != Type::Unknown {
                         self.diagnostics.push(Diagnostic {
-                            message: format!("Trying to use '{typ}' as function's environment"),
+                            message: format!(
+                                "Trying to use '{}' as function's environment",
+                                self.type_to_string(typ)
+                            ),
                             range,
                             severity: DiagnosticSeverity::Warning,
                             ..Default::default()
@@ -1033,10 +1046,14 @@ impl<'db> Collector<'db> {
         id
     }
 
-    fn resolve_function_idx(&mut self, idx: Idx<FunctionData>, trace: DeferredFunctionTrace) {
+    fn resolve_function_idx(
+        &mut self,
+        idx: Idx<FunctionData>,
+        trace: DeferredFunctionTrace,
+        offset: TextSize,
+    ) {
         if let Some(doc_token) = trace.node.doc() {
             let doc = Doc::new(doc_token.text());
-            let offset = trace.node.syntax().text_range().start();
             for tag in doc.tags {
                 match tag.item {
                     TagItem::Return(item) => {
@@ -1098,7 +1115,7 @@ impl<'db> Collector<'db> {
         self.function = save_function;
     }
 
-    fn resolve_function(&mut self, id: FunctionId) {
+    fn resolve_function(&mut self, id: FunctionId, offset: TextSize) {
         // If function is external it is already resolved
         if id.file() != self.file {
             return;
@@ -1110,7 +1127,7 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        self.resolve_function_idx(idx, trace)
+        self.resolve_function_idx(idx, trace, offset)
     }
 
     fn get_member_name(&mut self, name: MemberName) -> Option<(TextRange, String)> {
@@ -1796,7 +1813,7 @@ impl<'db> Collector<'db> {
                                 | (Type::Boolean(_), Type::Boolean(_))
                         ) {
                             self.diagnostics.push(Diagnostic {
-                                message: format!("Case of type '{case_type}' is incompitable with discriminant of type '{typ}'"),
+                                message: format!("Case of type '{}' is incompitable with discriminant of type '{}'", self.type_to_string(case_type), self.type_to_string(typ)),
                                 range: test.syntax().text_range(),
                                 severity: DiagnosticSeverity::Warning,
                                 ..Default::default()
@@ -2227,7 +2244,11 @@ impl<'db> Collector<'db> {
             )
         {
             self.diagnostics.push(Diagnostic {
-                message: format!("'{obj}' has no member named '{text}'"),
+                message: format!(
+                    "'{}' has no member named '{}'",
+                    self.type_to_string(obj),
+                    text
+                ),
                 range: expr.syntax().text_range(),
                 ..Default::default()
             });
@@ -2270,7 +2291,11 @@ impl<'db> Collector<'db> {
             )
         {
             self.diagnostics.push(Diagnostic {
-                message: format!("'{obj}' has no member named '{text}'"),
+                message: format!(
+                    "'{}' has no member named '{}'",
+                    self.type_to_string(obj),
+                    text
+                ),
                 range: expr.syntax().text_range(),
                 ..Default::default()
             });
@@ -2345,7 +2370,10 @@ impl<'db> Collector<'db> {
                 let typ = self.expr_to_type(Some(*expr));
                 let Ok(target) = ImportTarget::try_from(typ) else {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Type '{typ}' cannot receive new members"),
+                        message: format!(
+                            "Type '{}' cannot receive new members",
+                            self.type_to_string(typ)
+                        ),
                         range: error_range,
                         severity: DiagnosticSeverity::Warning,
                     });
@@ -2425,7 +2453,11 @@ impl<'db> Collector<'db> {
                         (passed, required) => {
                             if discriminant(&passed) != discriminant(&required) {
                                 self.diagnostics.push(Diagnostic {
-                                    message: format!("Expected parameter of type '{required}', but got '{passed}'"),
+                                    message: format!(
+                                        "Expected parameter of type '{}', but got '{}'",
+                                        self.type_to_string(required),
+                                        self.type_to_string(passed)
+                                    ),
                                     range: error_range,
                                     severity: DiagnosticSeverity::Warning,
                                     ..Default::default()
@@ -2454,7 +2486,7 @@ impl<'db> Collector<'db> {
 
                 // We resolve the params first so we can get param type substitution before we run the body
                 // Resolve the deferred functions on the first call site, then reuse the result
-                self.resolve_function(id);
+                self.resolve_function(id, error_range.end());
 
                 match self.db.check_special(id) {
                     Some(SpecialFunction::IncludeScript) => {
@@ -2481,9 +2513,8 @@ impl<'db> Collector<'db> {
                 })
             }
             Type::Class(id) => {
-                let class = self.get(id?);
                 if let Some(symbol) =
-                    self.get_symbol(&class.members, "constructor", error_range.start())
+                    self.find_member(Container::Class(id?), "constructor", error_range.start())
                 {
                     self.call_type(symbol.typ, arguments, error_range);
                 } else if arguments.len() != 0 {
@@ -3011,7 +3042,7 @@ impl<'db> Collector<'db> {
                 let left = self.expr_to_type(left_kind);
                 if !matches!(left, Type::Unknown | Type::Integer(_)) {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to index into an array using '{left}' (only integers are applicable)"),
+                        message: format!("Trying to index into an array using '{}' (only integers are applicable)", self.type_to_string(left)),
                         range: expr.syntax().text_range(),
                         severity: DiagnosticSeverity::Warning,
                         ..Default::default()
@@ -3021,7 +3052,10 @@ impl<'db> Collector<'db> {
             Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown => {}
             _ => {
                 self.diagnostics.push(Diagnostic {
-                    message: format!("Indexing into '{right}' will always return false"),
+                    message: format!(
+                        "Indexing into '{}' will always return false",
+                        self.type_to_string(right)
+                    ),
                     range: expr.syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
                     ..Default::default()
@@ -3044,7 +3078,9 @@ impl<'db> Collector<'db> {
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message: format!(
-                        "'instanceof' operator between '{left}' and '{right}' is not supported"
+                        "'instanceof' operator between '{}' and '{}' is not supported",
+                        self.type_to_string(left),
+                        self.type_to_string(right)
                     ),
                     range: expr.syntax().text_range(),
                     ..Default::default()
@@ -3105,7 +3141,11 @@ impl<'db> Collector<'db> {
                 }
             }
             _ => self.diagnostics.push(Diagnostic {
-                message: format!("'{left}' does not support comparison with '{right}'"),
+                message: format!(
+                    "'{}' does not support comparison with '{}'",
+                    self.type_to_string(left),
+                    self.type_to_string(right)
+                ),
                 range: expr.syntax().text_range(),
                 ..Default::default()
             }),
@@ -3142,7 +3182,11 @@ impl<'db> Collector<'db> {
             }
             _ => {
                 self.diagnostics.push(Diagnostic {
-                    message: format!("'{left}' does not support bitwise operator with '{right}'"),
+                    message: format!(
+                        "'{}' does not support bitwise operator with '{}'",
+                        self.type_to_string(left),
+                        self.type_to_string(right)
+                    ),
                     range: expr.syntax().text_range(),
                     ..Default::default()
                 });
@@ -3316,7 +3360,10 @@ impl<'db> Collector<'db> {
         match typ {
             Type::Integer(_) | Type::Unknown => {}
             _ => self.diagnostics.push(Diagnostic {
-                message: format!("'{typ}' does not support bitwise not operator"),
+                message: format!(
+                    "'{}' does not support bitwise not operator",
+                    self.type_to_string(typ)
+                ),
                 range: expr.syntax().text_range(),
                 ..Default::default()
             }),

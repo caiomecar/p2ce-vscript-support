@@ -191,8 +191,8 @@ pub trait Source {
     fn to_function_id(&self, typ: Type, offset: TextSize) -> Option<FunctionIdResolution> {
         match typ {
             Type::Class(id) => {
-                let class = self.get(id?);
-                let Some(member) = self.get_symbol(&class.members, "constructor", offset) else {
+                let Some(member) = self.find_member(Container::Class(id?), "constructor", offset)
+                else {
                     return Some(FunctionIdResolution::DefaultConstructor);
                 };
 
@@ -203,14 +203,12 @@ pub trait Source {
                 let table = self.get(id?);
                 let delegate_idx = table.delegate?;
 
-                let members = &self.get(delegate_idx).members;
-                let member = self.get_symbol(members, "_call", offset)?;
+                let member = self.find_member(Container::Table(delegate_idx), "_call", offset)?;
 
                 self.to_function_id(member.typ, offset)
             }
             Type::Instance(id) => {
-                let class = self.get(id?);
-                let member = self.get_symbol(&class.members, "_call", offset)?;
+                let member = self.find_member(Container::Instance(id?), "_call", offset)?;
 
                 self.to_function_id(member.typ, offset)
             }
@@ -625,8 +623,23 @@ pub trait Source {
 
     /// The vector is in order of symbols being added, therefore the last symbol that passes the condition
     /// must be the symbol we're looking for
-    fn get_symbol(&self, table: &SymbolTable, name: &str, offset: TextSize) -> Option<&Symbol> {
-        let symbols = table.get(name)?;
+    fn find_member(&self, from: Container, name: &str, offset: TextSize) -> Option<&Symbol> {
+        let (file, members) = match from {
+            Container::Class(id) | Container::Instance(id) => {
+                (id.file(), self.additional_class_members(id))
+            }
+            Container::Table(id) => (id.file(), self.additional_table_members(id)),
+            // Shouldn't be used here
+            Container::Enum(_) => return None,
+        };
+
+        if file != self.file() {
+            return to_flat_symbol_table(members)
+                .get(name)
+                .map(|id| self.get(*id));
+        };
+
+        let symbols = members.get(name)?;
         let mut last = None;
         if let Some(range) = self.get_scope_execution_range(self.scope(offset)) {
             for id in symbols {
@@ -695,6 +708,104 @@ pub trait Source {
 
     fn type_at(&self, text_range: TextRange) -> Type {
         self.expr_to_type(self.expr_at(text_range))
+    }
+
+    fn type_to_string(&self, typ: Type) -> String {
+        match typ {
+            Type::Unknown => "unknown".to_owned(),
+            Type::Any => "any".to_owned(),
+            Type::Integer(_) => "integer".to_owned(),
+            Type::Float(_) => "float".to_owned(),
+            Type::String(_) => "string".to_owned(),
+            Type::Boolean(_) => "bool".to_owned(),
+            Type::Null => "null".to_owned(),
+            Type::Instance(id) => {
+                if let Some(id) = id
+                    && let Some(symbol) = self.get(id).symbol
+                {
+                    self.get(symbol).name.clone()
+                } else {
+                    "instance".to_owned()
+                }
+            }
+            Type::Array(_) => "array".to_owned(),
+            Type::Table(_) => "table".to_owned(),
+            Type::Class(_) => "class".to_owned(),
+            Type::Enum(_) => "enum".to_owned(),
+            Type::Function(_) => "function".to_owned(),
+            Type::Generator(_) => "generator".to_owned(),
+            Type::Thread(_) => "thread".to_owned(),
+            Type::Weakref => "weakref".to_owned(),
+        }
+    }
+
+    fn symbol_to_string(&self, id: SymbolId) -> String {
+        let s = self.get(id);
+        let mut str = match s.kind {
+            SymbolKind::Local(_) => "local ".to_owned(),
+            SymbolKind::Property(statik) => {
+                if statik == PropertyKind::Yes {
+                    "static ".to_owned()
+                } else {
+                    String::new()
+                }
+            }
+            SymbolKind::Enum => return format!("enum {}", s.name),
+            SymbolKind::Constant | SymbolKind::EnumMember => {
+                let type_text = match s.typ {
+                    Type::Integer(Some(value)) => value.to_string(),
+                    Type::Float(Some(value)) => value.to_string(),
+                    Type::Boolean(Some(value)) => value.to_string(),
+                    Type::String(Some(id)) => {
+                        format!("\"{}\"", self.get(id).text)
+                    }
+                    _ => return format!("const {}", s.name),
+                };
+                return format!("const {}: {}", s.name, type_text);
+            }
+        };
+
+        match s.typ {
+            Type::Function(id) => {
+                let Some(id) = id else {
+                    return format!("{}function {}()", str, s.name);
+                };
+
+                let func = self.get(id);
+                str.push_str(format!("function {}(", s.name).as_str());
+                for (i, &param) in func.params.iter().enumerate() {
+                    if i > 0 {
+                        str.push_str(", ");
+                    }
+                    let param = self.get(param);
+                    if param.typ != Type::Unknown {
+                        str.push_str(
+                            format!("{}: {}", param.name, self.type_to_string(param.typ)).as_str(),
+                        );
+                    } else {
+                        str.push_str(format!("{}", param.name).as_str());
+                    }
+                }
+
+                if func.throws.is_some() {
+                    str.push_str(")!");
+                } else {
+                    str.push_str(")");
+                }
+
+                // Result of unknown can technically provide some value,
+                // while there's no point in saving 'null' return at all
+                // so it just pollutes the signature
+                if func.ret != Type::Null {
+                    str.push_str(format!(" -> {}", self.type_to_string(func.ret)).as_str())
+                }
+
+                str
+            }
+
+            Type::Class(_) => format!("{}class {}", str, s.name),
+            _ => format!("{}{}: {}", str, s.name, self.type_to_string(s.typ)),
+        }
     }
 }
 
