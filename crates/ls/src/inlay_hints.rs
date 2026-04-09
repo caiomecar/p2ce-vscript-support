@@ -1,6 +1,9 @@
 use anyhow::Result;
 use ide::{Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, Type, line_index};
-use lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams};
+use lsp_types::{
+    InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent,
+    MarkupKind,
+};
 
 use crate::conversions;
 
@@ -21,9 +24,15 @@ pub fn handle_inlay_hints(
     let line_idx = line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
 
+    let range = conversions::text_range(line_idx, params.range).unwrap();
+
     let hints = finished_file
         .all_symbols()
         .filter_map(|(_, symbol)| {
+            if !range.contains_range(symbol.name_range) {
+                return None;
+            }
+
             if !matches!(
                 symbol.kind,
                 SymbolKind::Local(
@@ -34,18 +43,25 @@ pub fn handle_inlay_hints(
             }
 
             // skip if type is unknown or null - nothing useful to show
-            let label = match symbol.typ {
+            let (label, tooltip) = match symbol.typ {
                 Type::Unknown | Type::Null => return None,
                 Type::Instance(id) => {
-                    let typ = if let Some(symbol) = finished_file.get(id).symbol {
-                        &finished_file.get(symbol).name
-                    } else {
-                        "instance"
-                    };
+                    if let Some(class_symbol_id) = finished_file.get(id).symbol {
+                        let symbol = finished_file.get(class_symbol_id);
+                        let typ = &symbol.name;
 
-                    format!(": {typ}")
+                        let content = symbol.display(&finished_file);
+
+                        let tooltip = InlayHintTooltip::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: format!("```sqDoc\n{content}\n```"),
+                        });
+                        (format!(": {typ}"), Some(tooltip))
+                    } else {
+                        (": instance".to_owned(), None)
+                    }
                 }
-                typ => format!(": {typ}"),
+                typ => (format!(": {typ}"), None),
             };
 
             let position = conversions::range(line_idx, symbol.name_range)?.end;
@@ -55,7 +71,7 @@ pub fn handle_inlay_hints(
                 label: InlayHintLabel::String(label),
                 kind: Some(InlayHintKind::TYPE),
                 text_edits: None,
-                tooltip: None,
+                tooltip,
                 padding_left: Some(false),
                 padding_right: Some(false),
                 data: None,
