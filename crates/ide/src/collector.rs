@@ -1141,27 +1141,28 @@ impl<'db> Collector<'db> {
         self.add_current_container_member(text, symbol);
     }
 
-    fn collect_enum_property(&mut self, property: &Property, default_value: i32) {
-        let value = match property.value() {
+    /// returns whether the value was assigned via '=' (used to increment the internal auto assign counter)
+    fn collect_enum_property(&mut self, property: &Property, default_value: i32) -> bool {
+        let (has_value, typ) = match property.value() {
             Some(expr) => {
                 let value = self.collect_expr(&expr);
                 self.check_constant(value, expr.syntax().text_range());
-                value
+                (true, self.expr_to_type(value))
             }
-            None => Some(ExpressionKind::Literal(Type::Integer(Some(default_value)))),
+            None => (false, Type::Integer(Some(default_value))),
         };
 
         let Some(name) = property.name() else {
-            return;
+            return has_value;
         };
 
         let Some((name_range, text)) = self.get_member_name(name) else {
-            return;
+            return has_value;
         };
 
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ: self.expr_to_type(value),
+            typ,
             kind: SymbolKind::EnumMember,
             name_range,
             range: property.syntax().text_range(),
@@ -1169,6 +1170,7 @@ impl<'db> Collector<'db> {
         });
 
         self.add_current_container_member(text, symbol);
+        has_value
     }
 
     fn collect_stmt(&mut self, stmt: &Stmt) {
@@ -1558,8 +1560,11 @@ impl<'db> Collector<'db> {
 
         let save_symbol = self.container;
         self.container = Container::Enum(enum_);
-        for (value, property) in stmt.members().enumerate() {
-            self.collect_enum_property(&property, value as i32);
+        let mut value = 0;
+        for property in stmt.members() {
+            if !self.collect_enum_property(&property, value) {
+                value += 1;
+            }
         }
         self.container = save_symbol;
     }
