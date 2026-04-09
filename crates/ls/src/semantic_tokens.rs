@@ -32,7 +32,7 @@ pub fn handle_semantic_tokens(
         let symbol = finished_file.get(*id);
 
         let (token_type, modifiers) = match symbol.kind {
-            SymbolKind::Local => match symbol.typ {
+            SymbolKind::Local(_) => match symbol.typ {
                 Type::Function(_) => (1, 0),
                 Type::Class(_) => (2, 0),
                 _ => (0, 0),

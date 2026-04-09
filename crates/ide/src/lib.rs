@@ -19,12 +19,12 @@ use crate::{
         Db, top_const_members, top_root_members, top_source_and_const_members,
         top_source_and_root_members, top_source_members,
     },
-    symbol::{FlatSymbolTable, Static, to_flat_symbol_table},
+    symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
 pub use arena::{ArenaId, FunctionData, ParamsState, SymbolId};
 pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
-pub use symbol::{Symbol, SymbolKind, SymbolTable, Type};
+pub use symbol::{LocalKind, PropertyKind, Symbol, SymbolKind, SymbolTable, Type};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -562,9 +562,9 @@ pub trait Source {
 
         if filter_by_static {
             let avoid_static = if for_instance {
-                Static::Yes
+                PropertyKind::Yes
             } else {
-                Static::No
+                PropertyKind::No
             };
 
             // Just not overwriting the 'members' with symbols that don't pass the filter is not enough

@@ -15,7 +15,7 @@ use crate::{
         StringData, StringId, SymbolId, TableData, TableId,
     },
     db::{Db, ScriptResolutionError, SpecialFunction},
-    symbol::{Static, Symbol, SymbolKind, SymbolTable, Type, insert_symbol},
+    symbol::{LocalKind, PropertyKind, Symbol, SymbolKind, SymbolTable, Type, insert_symbol},
 };
 
 #[derive(Debug, Clone)]
@@ -332,7 +332,14 @@ impl<'db> Collector<'db> {
             None => SymbolTable::default(),
         };
 
-        ClassId::new(self.file, self.arena.alloc(ClassData { inherits, members }))
+        ClassId::new(
+            self.file,
+            self.arena.alloc(ClassData {
+                inherits,
+                members,
+                symbol: None,
+            }),
+        )
     }
 
     fn array(&mut self, array: ArrayData) -> ArrayId {
@@ -455,7 +462,7 @@ impl<'db> Collector<'db> {
         &mut self,
         member: &impl IsClassMember,
         method_id: Option<FunctionId>,
-    ) -> Static {
+    ) -> PropertyKind {
         if let Container::Class(id) = self.container
             && member.static_keyword().is_none()
         {
@@ -463,9 +470,9 @@ impl<'db> Collector<'db> {
                 func.container = Container::Instance(id);
             }
 
-            Static::No
+            PropertyKind::No
         } else {
-            Static::Yes
+            PropertyKind::Yes
         }
     }
 
@@ -513,7 +520,7 @@ impl<'db> Collector<'db> {
                         let symbol = self.symbol(Symbol {
                             name: text.clone(),
                             typ: Type::Unknown,
-                            kind: SymbolKind::Local,
+                            kind: SymbolKind::Local(LocalKind::Parameter),
                             name_range: name.syntax().text_range(),
                             range: var.syntax().text_range(),
                             ..Default::default()
@@ -529,7 +536,7 @@ impl<'db> Collector<'db> {
                     let symbol = self.symbol(Symbol {
                         name: text.clone(),
                         typ,
-                        kind: SymbolKind::Local,
+                        kind: SymbolKind::Local(LocalKind::Parameter),
                         name_range: name.syntax().text_range(),
                         range: var.syntax().text_range(),
                         ..Default::default()
@@ -1213,7 +1220,7 @@ impl<'db> Collector<'db> {
                 let id = self.symbol(Symbol {
                     name: text.clone(),
                     typ: Type::Null,
-                    kind: SymbolKind::Local,
+                    kind: SymbolKind::Local(LocalKind::Variable),
                     name_range: name.syntax().text_range(),
                     range: var.syntax().text_range(),
                     ..Default::default()
@@ -1227,7 +1234,7 @@ impl<'db> Collector<'db> {
             let id = self.symbol(Symbol {
                 name: text.clone(),
                 typ,
-                kind: SymbolKind::Local,
+                kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.syntax().text_range(),
                 range: var.syntax().text_range(),
                 ..Default::default()
@@ -1246,7 +1253,7 @@ impl<'db> Collector<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ: Type::Function(id),
-            kind: SymbolKind::Local,
+            kind: SymbolKind::Local(LocalKind::Function),
             name_range: name.syntax().text_range(),
             range: decl.syntax().text_range(),
             ..Default::default()
@@ -1313,7 +1320,7 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     name: text.clone(),
                     typ: key_type,
-                    kind: SymbolKind::Local,
+                    kind: SymbolKind::Local(LocalKind::Variable),
                     name_range: name.syntax().text_range(),
                     range: key.syntax().text_range(),
                     ..Default::default()
@@ -1328,7 +1335,7 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     name: text.clone(),
                     typ: value_type,
-                    kind: SymbolKind::Local,
+                    kind: SymbolKind::Local(LocalKind::Variable),
                     name_range: name.syntax().text_range(),
                     range: value.syntax().text_range(),
                     ..Default::default()
@@ -1376,11 +1383,18 @@ impl<'db> Collector<'db> {
         let class = self.class(stmt);
 
         let name = stmt.name().and_then(|n| self.assignment_lhs(&n));
-        self.do_new_slot(
+        let symbol = self.do_new_slot(
             name,
             Some(ExpressionKind::Literal(Type::Class(class))),
             stmt.syntax().text_range(),
+            PropertyKind::NoSupport,
         );
+
+        if symbol.is_some()
+            && let Some(class) = self.get_mut(class)
+        {
+            class.symbol = symbol;
+        }
 
         let save_symbol = self.container;
         self.container = Container::Class(class);
@@ -1761,7 +1775,7 @@ impl<'db> Collector<'db> {
                 let symbol = self.symbol(Symbol {
                     typ: Type::String(None),
                     name: text.clone(),
-                    kind: SymbolKind::Local,
+                    kind: SymbolKind::Local(LocalKind::Exception),
                     name_range: name.syntax().text_range(),
                     range: binding.syntax().text_range(),
                     ..Default::default()
@@ -2681,7 +2695,8 @@ impl<'db> Collector<'db> {
         left_kind: Option<AssignmentLeftHandSide>,
         right_kind: NullableExprKind,
         expr_range: TextRange,
-    ) -> NullableExprKind {
+        property_kind: PropertyKind,
+    ) -> Option<SymbolId> {
         match left_kind {
             Some(AssignmentLeftHandSide::CanCreate {
                 parent,
@@ -2695,18 +2710,19 @@ impl<'db> Collector<'db> {
                 ];
 
                 let Some(container) = self.call_new_slot(parent, &arguments, range) else {
-                    return right_kind;
+                    return None;
                 };
 
                 let symbol = self.symbol(Symbol {
                     name: new_key.to_string(),
                     typ: self.expr_to_type(right_kind),
+                    kind: SymbolKind::Property(property_kind),
                     name_range,
                     range: expr_range,
-                    ..Default::default()
                 });
 
                 self.add_container_member(container, new_key.into_string(), symbol);
+                Some(symbol)
             }
             Some(AssignmentLeftHandSide::Exists {
                 parent,
@@ -2738,7 +2754,7 @@ impl<'db> Collector<'db> {
                     ];
 
                     let Some(container) = self.call_new_slot(parent, &arguments, range) else {
-                        return right_kind;
+                        return None;
                     };
 
                     let name = self.get(symbol).name.clone();
@@ -2746,14 +2762,15 @@ impl<'db> Collector<'db> {
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
                         typ: self.expr_to_type(right_kind),
+                        kind: SymbolKind::Property(property_kind),
                         name_range,
                         range: expr_range,
-                        ..Default::default()
                     });
 
                     self.add_container_member(container, name, symbol);
-                    // Parent is only None for locals and consts
+                    Some(symbol)
                 } else {
+                    // Parent is only None for locals and consts
                     // ```
                     // local a = 2
                     // a <- 1
@@ -2764,29 +2781,16 @@ impl<'db> Collector<'db> {
                         range,
                         ..Default::default()
                     });
-                    return right_kind;
-                }
-
-                let typ = self.expr_to_type(right_kind);
-
-                let Some(symbol) = self.get_mut(symbol) else {
-                    return right_kind;
-                };
-
-                // Update symbol kind if it's null or unknown
-                if matches!(symbol.typ, Type::Unknown | Type::Null)
-                    && !matches!(typ, Type::Unknown | Type::Null)
-                {
-                    symbol.typ = typ;
+                    None
                 }
             }
             Some(AssignmentLeftHandSide::NonStringKey { parent, key, range }) => {
                 let arguments = vec![key, right_kind];
                 self.call_new_slot(parent, &arguments, range);
+                None
             }
-            _ => {}
+            _ => None,
         }
-        right_kind
     }
 
     fn new_slot_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
@@ -2800,7 +2804,14 @@ impl<'db> Collector<'db> {
             function.container = container;
         }
 
-        self.do_new_slot(left_kind, right_kind, expr.syntax().text_range())
+        self.do_new_slot(
+            left_kind,
+            right_kind,
+            expr.syntax().text_range(),
+            PropertyKind::NewSlot,
+        );
+
+        right_kind
     }
 
     fn assign_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
@@ -3369,7 +3380,10 @@ impl<'db> Collector<'db> {
             }
 
             let symbol = self.get(*id);
-            if symbol.kind != SymbolKind::Local {
+            if !matches!(
+                symbol.kind,
+                SymbolKind::Local(LocalKind::Function | LocalKind::Parameter | LocalKind::Variable)
+            ) {
                 continue;
             }
 

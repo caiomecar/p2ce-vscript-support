@@ -6,13 +6,6 @@ use crate::{
     arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId},
 };
 
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub enum Static {
-    #[default]
-    NoSupport,
-    No,
-    Yes,
-}
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Symbol {
     pub name: String,
@@ -82,23 +75,40 @@ impl Type {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    Local,
+    Local(LocalKind),
     Constant,
     Enum,
     EnumMember,
-    Property(Static),
+    Property(PropertyKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalKind {
+    Variable,
+    Function,
+    Parameter,
+    Exception,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+pub enum PropertyKind {
+    #[default]
+    NoSupport,
+    NewSlot,
+    No,
+    Yes,
 }
 
 impl Default for SymbolKind {
     fn default() -> Self {
-        Self::Property(Static::default())
+        Self::Property(PropertyKind::default())
     }
 }
 
 impl SymbolKind {
     pub fn is_modifiable(self) -> bool {
         match self {
-            SymbolKind::Local | SymbolKind::Property(_) => true,
+            SymbolKind::Local(_) | SymbolKind::Property(_) => true,
             _ => false,
         }
     }
@@ -141,9 +151,9 @@ impl std::fmt::Display for SymbolDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self.symbol;
         match s.kind {
-            SymbolKind::Local => write!(f, "local ")?,
+            SymbolKind::Local(_) => write!(f, "local ")?,
             SymbolKind::Property(statik) => {
-                if statik == Static::Yes {
+                if statik == PropertyKind::Yes {
                     write!(f, "static ")?;
                 }
             }
@@ -188,6 +198,15 @@ impl std::fmt::Display for SymbolDisplay<'_> {
                 } else {
                     write!(f, ")")
                 }
+            }
+            Type::Instance(id) => {
+                let typ = if let Some(symbol) = self.file.get(id).symbol {
+                    &self.file.get(symbol).name
+                } else {
+                    "instance"
+                };
+
+                write!(f, "{}: {}", s.name, typ)
             }
             Type::Class(_) => write!(f, "class {}", s.name),
             _ => write!(f, "{}: {}", s.name, s.typ),

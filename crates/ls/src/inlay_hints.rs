@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, FinishedFile, Source, SymbolKind, Type, line_index};
+use ide::{Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, Type, line_index};
 use lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams};
 
 use crate::conversions;
@@ -24,15 +24,27 @@ pub fn handle_inlay_hints(
     let hints = finished_file
         .all_symbols()
         .filter_map(|(_, symbol)| {
-            // only locals at their declaration
-            // Possibly add <- property declarations too?
-            if symbol.kind != SymbolKind::Local {
+            if !matches!(
+                symbol.kind,
+                SymbolKind::Local(
+                    LocalKind::Exception | LocalKind::Parameter | LocalKind::Variable
+                ) | SymbolKind::Property(PropertyKind::NewSlot)
+            ) {
                 return None;
             }
 
             // skip if type is unknown or null - nothing useful to show
             let label = match symbol.typ {
                 Type::Unknown | Type::Null => return None,
+                Type::Instance(id) => {
+                    let typ = if let Some(symbol) = finished_file.get(id).symbol {
+                        &finished_file.get(symbol).name
+                    } else {
+                        "instance"
+                    };
+
+                    format!(": {typ}")
+                }
                 typ => format!(": {typ}"),
             };
 

@@ -177,7 +177,7 @@ fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
         Type::Function(_) => CompletionItemKind::FUNCTION,
         Type::Class(_) => CompletionItemKind::CLASS,
         _ => match symbol.kind {
-            SymbolKind::Local => CompletionItemKind::VARIABLE,
+            SymbolKind::Local(_) => CompletionItemKind::VARIABLE,
             SymbolKind::Constant => CompletionItemKind::CONSTANT,
             SymbolKind::Property(_) => CompletionItemKind::FIELD,
             SymbolKind::Enum => CompletionItemKind::ENUM,

@@ -135,6 +135,7 @@ pub struct TableData {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ClassData {
+    pub symbol: Option<SymbolId>,
     pub inherits: Option<ClassId>,
     pub members: SymbolTable,
 }
