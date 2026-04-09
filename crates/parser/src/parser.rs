@@ -116,6 +116,8 @@ struct Parser {
     lookahead_index: usize,
     preceding_comments_index: Option<usize>,
 
+    fuel: u32,
+
     has_preceding_new_line: bool,
     has_new_line_after_comment: bool,
 
@@ -473,6 +475,11 @@ impl Parser {
             return self.parse_guaranteed_name();
         }
 
+        if self.fuel > 10000 {
+            panic!();
+        }
+        self.fuel += 1;
+
         let m = self.start();
         if self.at(SyntaxKind::DecimalInteger) {
             // It would've been possible to make the identifier recovery where we have a
@@ -778,7 +785,14 @@ impl Parser {
                         "Expected '=' for initialisation".to_owned(),
                     );
                     self.parse_expression();
-                } else if object_kind != MemberObject::Enum {
+                } else if object_kind == MemberObject::Enum {
+                    // For enums '=' is optional, however if we see an
+                    // expression we parse it as if '=' is missing
+                    if self.at_set(NON_MEMBER_FIRST_EXPRESSIONS) {
+                        self.error_at_token(self.expected_but_got("'='"));
+                        self.parse_expression();
+                    }
+                } else {
                     // method() {} recovery
                     if self.at(SyntaxKind::OpenParenthesis) {
                         if self.is_marker_valid(name) {
@@ -1932,7 +1946,10 @@ impl Parser {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::EnumKeyword);
         self.parse_name("enum's name", Some(STATEMENT_OR_EXPRESSION));
-        self.expect(SyntaxKind::OpenBrace);
+        if !self.expect(SyntaxKind::OpenBrace) {
+            self.finish(m, SyntaxKind::EnumStatement);
+            return;
+        }
 
         let save_separator = self.object_separator;
         self.object_separator = ParsingObjectSeparator::Comma;
