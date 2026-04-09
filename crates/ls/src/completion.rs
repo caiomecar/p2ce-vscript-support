@@ -236,12 +236,12 @@ pub fn can_use_identifier(name: &str) -> bool {
         return name == "constructor";
     }
 
-    if !first.is_ascii_alphabetic() {
+    if !first.is_ascii_alphabetic() && first != '_' {
         return false;
     }
 
     for char in chars {
-        if !char.is_alphanumeric() {
+        if !char.is_alphanumeric() && char != '_' {
             return false;
         }
     }
