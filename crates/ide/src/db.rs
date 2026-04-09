@@ -68,6 +68,7 @@ pub struct Builtins {
 pub enum SpecialFunction {
     GetRootTable,
     GetConstTable,
+    NewThread,
     IncludeScript,
     DoIncludeScript,
 }
@@ -299,6 +300,7 @@ impl Database {
                 let kind = match name.as_str() {
                     "getroottable" => SpecialFunction::GetRootTable,
                     "getconsttable" => SpecialFunction::GetConstTable,
+                    "newthread" => SpecialFunction::NewThread,
                     "IncludeScript" => SpecialFunction::IncludeScript,
                     "DoIncludeScript" => SpecialFunction::DoIncludeScript,
                     _ => return None,

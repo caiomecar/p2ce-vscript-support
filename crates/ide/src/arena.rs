@@ -187,12 +187,12 @@ pub struct FunctionData {
     pub throws: Option<Type>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub enum ParamsState {
     #[default]
     NoDefault,
     Default(u32),
-    VarArgs(u32),
+    VarArgs(u32, SymbolId),
 }
 
 #[derive(Debug, PartialEq)]

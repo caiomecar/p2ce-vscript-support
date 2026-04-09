@@ -314,7 +314,7 @@ impl<'db> Collector<'db> {
         let inherits = if let Some(expr) = expr {
             match self.expr_type(&expr) {
                 Type::Class(id) => id,
-                Type::Unknown => None,
+                Type::Unknown | Type::Any => None,
                 typ => {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to inherit from {}", self.type_to_string(typ)),
@@ -576,7 +576,7 @@ impl<'db> Collector<'db> {
                                 });
                                 params_state = ParamsState::NoDefault;
                             }
-                            ParamsState::VarArgs(_) => {
+                            ParamsState::VarArgs(_, _) => {
                                 self.diagnostics.push(Diagnostic {
                                     message: "Parameters cannot be preceded by varied arguments"
                                         .to_owned(),
@@ -620,7 +620,7 @@ impl<'db> Collector<'db> {
                             params_state = ParamsState::Default(count as u32);
                         }
                         ParamsState::Default(_) => {}
-                        ParamsState::VarArgs(var_args_at) => {
+                        ParamsState::VarArgs(var_args_at, _) => {
                             self.diagnostics.push(Diagnostic {
                                 message: "Parameters cannot be preceded by varied arguments"
                                     .to_owned(),
@@ -632,7 +632,19 @@ impl<'db> Collector<'db> {
                     }
                 }
                 Parameter::Ellipsis(var_args) => match params_state {
-                    ParamsState::NoDefault => params_state = ParamsState::VarArgs(count as u32),
+                    ParamsState::NoDefault => {
+                        let symbol = self.symbol(Symbol {
+                            name: "vargv".to_owned(),
+                            typ: Type::Array(None),
+                            kind: SymbolKind::Local(LocalKind::Parameter),
+                            name_range: var_args.syntax().text_range(),
+                            range: var_args.syntax().text_range(),
+                            ..Default::default()
+                        });
+
+                        insert_symbol(&mut self.current_scope().locals, "vargv".to_owned(), symbol);
+                        params_state = ParamsState::VarArgs(count as u32, symbol)
+                    }
                     ParamsState::Default(_) => {
                         self.diagnostics.push(Diagnostic {
                             message:
@@ -642,7 +654,7 @@ impl<'db> Collector<'db> {
                             ..Default::default()
                         });
                     }
-                    ParamsState::VarArgs(_) => {
+                    ParamsState::VarArgs(_, _) => {
                         self.diagnostics.push(Diagnostic {
                             message: "There can't be 2 varied arguments in a function signature"
                                 .to_owned(),
@@ -735,7 +747,7 @@ impl<'db> Collector<'db> {
 
                 Some(self.call_type(member.typ, arguments, error_range)?)
             }
-            Type::Unknown => None,
+            Type::Unknown | Type::Any => None,
             _ => {
                 match errors {
                     MetamethodErrors::Yes { keyword } => {
@@ -750,7 +762,7 @@ impl<'db> Collector<'db> {
                         });
                     }
                     MetamethodErrors::YesBinary { keyword, right } => {
-                        if right != Type::Unknown {
+                        if !matches!(right, Type::Unknown | Type::Any) {
                             self.diagnostics.push(Diagnostic {
                                 message: format!(
                                     "'{}' does not support {} with '{}'",
@@ -992,7 +1004,7 @@ impl<'db> Collector<'db> {
                 if let Ok(container) = Container::try_from(typ) {
                     Some(container)
                 } else {
-                    if typ != Type::Unknown {
+                    if !matches!(typ, Type::Unknown | Type::Any) {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
@@ -1083,6 +1095,42 @@ impl<'db> Collector<'db> {
                             && let Some(param) = self.get_mut(*param_id)
                         {
                             param.typ = doc_type;
+                        }
+                    }
+                    TagItem::Throw(item) => {
+                        let Some(text) = item.typ else {
+                            continue;
+                        };
+
+                        if let Some(doc_type) = self.resolve_doc_type(&text, offset) {
+                            self.arena[idx].throws = Some(doc_type);
+                        }
+                    }
+                    TagItem::Yield(item) => {
+                        let Some(text) = item.typ else {
+                            continue;
+                        };
+
+                        if let Some(doc_type) = self.resolve_doc_type(&text, offset) {
+                            self.arena[idx].yields = Some(doc_type);
+                        }
+                    }
+                    TagItem::VarArgs(item) => {
+                        let ParamsState::VarArgs(_, id) = self.arena[idx].params_state else {
+                            continue;
+                        };
+
+                        let Some(text) = item.typ else {
+                            continue;
+                        };
+
+                        let Some(typ) = self.resolve_doc_type(&text, offset) else {
+                            continue;
+                        };
+
+                        let array_id = self.array(ArrayData { typ });
+                        if let Some(symbol) = self.get_mut(id) {
+                            symbol.typ = Type::Array(Some(array_id));
                         }
                     }
                     _ => {}
@@ -1860,15 +1908,8 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        if !matches!(self.arena[function].ret, Type::Unknown | Type::Null) {
-            return;
-        }
-
-        match typ {
-            None | Some(Type::Unknown) => {}
-            Some(typ) => {
-                self.arena[function].ret = typ;
-            }
+        if let Some(typ) = typ {
+            self.arena[function].ret.try_substitute_with(typ);
         }
     }
 
@@ -2240,7 +2281,7 @@ impl<'db> Collector<'db> {
         if result.is_none()
             && !matches!(
                 obj,
-                Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown
+                Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown | Type::Any
             )
         {
             self.diagnostics.push(Diagnostic {
@@ -2287,7 +2328,7 @@ impl<'db> Collector<'db> {
         if result.is_none()
             && !matches!(
                 obj,
-                Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown
+                Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown | Type::Any
             )
         {
             self.diagnostics.push(Diagnostic {
@@ -2412,7 +2453,7 @@ impl<'db> Collector<'db> {
             Type::Function(id) => {
                 let id = id?;
 
-                let is_variadic = matches!(self.get(id).params_state, ParamsState::VarArgs(_));
+                let is_variadic = matches!(self.get(id).params_state, ParamsState::VarArgs(_, _));
                 if !is_variadic && arguments.len() > self.get(id).params.len() {
                     self.diagnostics.push(Diagnostic {
                         message: format!(
@@ -2430,27 +2471,47 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    match (self.expr_to_type(argument_kind), self.get(param).typ) {
-                        (Type::Unknown | Type::Null, required_kind) => {
+                    let passed = self.expr_to_type(argument_kind);
+                    let required = self.get(param).typ;
+
+                    match (passed, required) {
+                        (Type::Unknown | Type::Null, _) => {
                             // If passed in parameter has type of unknown
                             // we can coerce it to be the type of a required parameter
-                            if let Some(ExpressionKind::Symbol(id)) = argument_kind {
-                                if let Some(symbol) = self.get_mut(id)
-                                    && symbol.typ.should_substitute_with(required_kind)
-                                {
-                                    symbol.typ = required_kind;
-                                }
+                            if let Some(ExpressionKind::Symbol(id)) = argument_kind
+                                && let Some(symbol) = self.get_mut(id)
+                            {
+                                symbol.typ.try_substitute_with(required);
                             }
                         }
-                        (passed, Type::Unknown | Type::Null) => {
+                        (_, Type::Unknown | Type::Null) => {
                             if let Some(symbol) = self.get_mut(param) {
                                 symbol.typ = passed;
                             }
                         }
 
-                        (Type::Integer(_) | Type::Float(_), Type::Integer(_) | Type::Float(_)) => {}
+                        (Type::Integer(_) | Type::Float(_), Type::Float(_)) => {}
+                        (Type::Any, _) => {}
+                        (_, Type::Any) => {}
+                        (
+                            Type::Instance(Some(passed_class)),
+                            Type::Instance(Some(required_class)),
+                        ) => {
+                            if passed_class != required_class {
+                                self.diagnostics.push(Diagnostic {
+                                    message: format!(
+                                        "Expected parameter of type '{}', but got '{}'",
+                                        self.type_to_string(required),
+                                        self.type_to_string(passed)
+                                    ),
+                                    range: error_range,
+                                    severity: DiagnosticSeverity::Warning,
+                                    ..Default::default()
+                                });
+                            }
+                        }
 
-                        (passed, required) => {
+                        (_, _) => {
                             if discriminant(&passed) != discriminant(&required) {
                                 self.diagnostics.push(Diagnostic {
                                     message: format!(
@@ -2469,7 +2530,7 @@ impl<'db> Collector<'db> {
 
                 let least_params_required = match self.get(id).params_state {
                     ParamsState::NoDefault => self.get(id).params.len(),
-                    ParamsState::Default(from) | ParamsState::VarArgs(from) => from as usize,
+                    ParamsState::Default(from) | ParamsState::VarArgs(from, _) => from as usize,
                 };
 
                 if arguments.len() < least_params_required {
@@ -2502,6 +2563,15 @@ impl<'db> Collector<'db> {
                     Some(SpecialFunction::GetConstTable) => {
                         // Overrides return
                         return Some(Type::Table(Some(self.const_table())));
+                    }
+                    Some(SpecialFunction::NewThread) => {
+                        if let Some(first) = arguments.first()
+                            && let Type::Function(func) = self.expr_to_type(*first)
+                        {
+                            return Some(Type::Thread(func));
+                        } else {
+                            return Some(Type::Thread(None));
+                        }
                     }
                     None => {}
                 };
@@ -3014,9 +3084,7 @@ impl<'db> Collector<'db> {
                     return right_kind;
                 };
 
-                if symbol.typ.should_substitute_with(typ) {
-                    symbol.typ = typ;
-                }
+                symbol.typ.try_substitute_with(typ);
             }
             Some(AssignmentLeftHandSide::NonStringKey { parent, key, range }) => {
                 let arguments = vec![key, right_kind];
@@ -3040,7 +3108,7 @@ impl<'db> Collector<'db> {
         match right {
             Type::Array(_) => {
                 let left = self.expr_to_type(left_kind);
-                if !matches!(left, Type::Unknown | Type::Integer(_)) {
+                if !matches!(left, Type::Unknown | Type::Any | Type::Integer(_)) {
                     self.diagnostics.push(Diagnostic {
                         message: format!("Trying to index into an array using '{}' (only integers are applicable)", self.type_to_string(left)),
                         range: expr.syntax().text_range(),
@@ -3049,7 +3117,8 @@ impl<'db> Collector<'db> {
                     });
                 }
             }
-            Type::Table(_) | Type::Class(_) | Type::Instance(_) | Type::Unknown => {}
+            Type::Table(_) | Type::Class(_) | Type::Instance(_) => {}
+            Type::Unknown | Type::Any => {}
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message: format!(
@@ -3071,9 +3140,9 @@ impl<'db> Collector<'db> {
         let right = self.expr_to_type(right_kind);
 
         match (left, right) {
-            (Type::Unknown, Type::Class(_))
-            | (Type::Instance(_), Type::Unknown)
-            | (Type::Unknown, Type::Unknown)
+            (Type::Unknown | Type::Any, Type::Class(_))
+            | (Type::Instance(_), Type::Unknown | Type::Any)
+            | (Type::Unknown | Type::Any, Type::Unknown | Type::Any)
             | (Type::Instance(_), Type::Class(_)) => {}
             _ => {
                 self.diagnostics.push(Diagnostic {
@@ -3106,8 +3175,8 @@ impl<'db> Collector<'db> {
         let right = self.expr_to_type(right_kind);
 
         match (left, right) {
-            (Type::Unknown | Type::Null, _)
-            | (_, Type::Unknown | Type::Null)
+            (Type::Unknown | Type::Any | Type::Null, _)
+            | (_, Type::Unknown | Type::Any | Type::Null)
             | (Type::Integer(_) | Type::Float(_), Type::Integer(_) | Type::Float(_))
             | (Type::String(_), Type::String(_))
             | (Type::Boolean(_), Type::Boolean(_)) => {}
@@ -3165,15 +3234,15 @@ impl<'db> Collector<'db> {
 
         match (left, right) {
             (Type::Integer(_), Type::Integer(_)) => {}
-            (Type::Unknown | Type::Null, Type::Unknown | Type::Null) => {}
-            (Type::Integer(_), Type::Unknown | Type::Null) => {
+            (Type::Unknown | Type::Any | Type::Null, Type::Unknown | Type::Any | Type::Null) => {}
+            (Type::Integer(_), Type::Unknown | Type::Any | Type::Null) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = right_kind {
                     if let Some(symbol) = self.get_mut(symbol) {
                         symbol.typ = Type::Integer(None);
                     }
                 }
             }
-            (Type::Unknown | Type::Null, Type::Integer(_)) => {
+            (Type::Unknown | Type::Any | Type::Null, Type::Integer(_)) => {
                 if let Some(ExpressionKind::Symbol(symbol)) = left_kind {
                     if let Some(symbol) = self.get_mut(symbol) {
                         symbol.typ = Type::Integer(None);
@@ -3201,7 +3270,7 @@ impl<'db> Collector<'db> {
         let left = self.expr_to_type(left_kind);
         let right = self.expr_to_type(right_kind);
 
-        ExpressionKind::Literal(if left == Type::Unknown { right } else { left })
+        ExpressionKind::Literal(left.merge(right))
     }
 
     fn arithmetic_operator(
@@ -3280,9 +3349,7 @@ impl<'db> Collector<'db> {
                     return right_kind;
                 };
 
-                if symbol.typ.should_substitute_with(typ) {
-                    symbol.typ = typ;
-                }
+                symbol.typ.try_substitute_with(typ);
             }
             Some(AssignmentLeftHandSide::NonStringKey { parent, key, range }) => {
                 let Some(typ) = self.call_arithmetic(key, right_kind, operator, range) else {
@@ -3303,23 +3370,19 @@ impl<'db> Collector<'db> {
             self.collect_expr(&expr);
         };
 
-        let then_kind = if let Some(expr) = expr.then_branch().and_then(|b| b.expression()) {
+        let then_type = if let Some(expr) = expr.then_branch().and_then(|b| b.expression()) {
             self.expr_type(&expr)
         } else {
             Type::Unknown
         };
 
-        let else_kind = if let Some(expr) = expr.else_branch().and_then(|b| b.expression()) {
+        let else_type = if let Some(expr) = expr.else_branch().and_then(|b| b.expression()) {
             self.expr_type(&expr)
         } else {
             Type::Unknown
         };
 
-        ExpressionKind::Literal(if then_kind != Type::Unknown {
-            then_kind
-        } else {
-            else_kind
-        })
+        ExpressionKind::Literal(then_type.merge(else_type))
     }
 
     fn prefix_unary_expression(&mut self, expr: &PrefixUnaryExpression) -> NullableExprKind {
@@ -3358,7 +3421,7 @@ impl<'db> Collector<'db> {
         };
 
         match typ {
-            Type::Integer(_) | Type::Unknown => {}
+            Type::Integer(_) | Type::Unknown | Type::Any => {}
             _ => self.diagnostics.push(Diagnostic {
                 message: format!(
                     "'{}' does not support bitwise not operator",
@@ -3484,7 +3547,7 @@ impl<'db> Collector<'db> {
         let typ = self.expr_type(&expr.operand()?);
 
         match typ {
-            Type::Unknown => None,
+            Type::Unknown | Type::Any => None,
             Type::Generator(id) => Some(ExpressionKind::Literal(self.get(id?).yields?)),
             _ => {
                 self.diagnostics.push(Diagnostic {

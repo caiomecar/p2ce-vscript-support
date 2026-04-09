@@ -66,12 +66,40 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn should_substitute_with(&self, other: Type) -> bool {
-        match (self, other) {
+    pub fn try_substitute_with(&mut self, other: Type) {
+        match (&self, other) {
             // We want to replace null with unknown to not error out
-            (Type::Null, Type::Unknown) => true,
-            (Type::Null | Type::Unknown, _) => true,
-            _ => false,
+            (Type::Null, Type::Unknown) => *self = other,
+            (Type::Null | Type::Unknown, _) => *self = other,
+            _ => {}
+        }
+    }
+
+    pub fn merge(&self, other: Type) -> Type {
+        match (*self, other) {
+            (Type::Any | Type::Unknown | Type::Null, _) => other,
+            (_, Type::Any | Type::Unknown | Type::Null) => *self,
+
+            (Type::Integer(_), Type::Integer(_)) => Type::Integer(None),
+            (Type::Integer(_) | Type::Float(_), Type::Integer(_) | Type::Float(_)) => {
+                Type::Float(None)
+            }
+            (Type::String(_), Type::String(_)) => Type::String(None),
+            (Type::Boolean(_), Type::Boolean(_)) => Type::Boolean(None),
+            (Type::Instance(Some(self_id)), Type::Instance(Some(other_id)))
+                if self_id == other_id =>
+            {
+                other
+            }
+            (Type::Instance(_), Type::Instance(_)) => Type::Instance(None),
+            (Type::Table(_), Type::Table(_)) => Type::Table(None),
+            (Type::Class(_), Type::Class(_)) => Type::Class(None),
+            (Type::Array(_), Type::Array(_)) => Type::Array(None),
+            (Type::Function(_), Type::Function(_)) => Type::Function(None),
+            (Type::Generator(_), Type::Generator(_)) => Type::Generator(None),
+            (Type::Thread(_), Type::Thread(_)) => Type::Thread(None),
+            (Type::Weakref, Type::Weakref) => Type::Weakref,
+            (_, _) => Type::Any,
         }
     }
 }

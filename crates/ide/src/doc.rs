@@ -15,6 +15,9 @@ pub enum TagItem {
     Return(ReturnTag),
     Parameter(ParameterTag),
     Type(TypeTag),
+    Throw(ThrowTag),
+    Yield(YieldTag),
+    VarArgs(VarArgsTag),
 }
 
 #[derive(Debug)]
@@ -30,6 +33,21 @@ pub struct ParameterTag {
 
 #[derive(Debug)]
 pub struct TypeTag {
+    pub typ: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct ThrowTag {
+    pub typ: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct YieldTag {
+    pub typ: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct VarArgsTag {
     pub typ: Option<String>,
 }
 
@@ -110,6 +128,33 @@ impl Doc {
                 (
                     TagItem::Parameter(ParameterTag {
                         name: name.to_owned(),
+                        typ: typ.map(str::to_owned),
+                    }),
+                    rest,
+                )
+            }
+            "throw" | "throws" => {
+                let (typ, rest) = Doc::typ(rest);
+                (
+                    TagItem::Throw(ThrowTag {
+                        typ: typ.map(str::to_owned),
+                    }),
+                    rest,
+                )
+            }
+            "yield" | "yields" => {
+                let (typ, rest) = Doc::typ(rest);
+                (
+                    TagItem::Yield(YieldTag {
+                        typ: typ.map(str::to_owned),
+                    }),
+                    rest,
+                )
+            }
+            "varargs" | "vargv" => {
+                let (typ, rest) = Doc::typ(rest);
+                (
+                    TagItem::VarArgs(VarArgsTag {
                         typ: typ.map(str::to_owned),
                     }),
                     rest,

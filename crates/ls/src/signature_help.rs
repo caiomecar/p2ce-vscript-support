@@ -98,9 +98,8 @@ pub fn handle_signature_help(
 
         let param = finished_file.get(*param_id);
         label.push_str(&param.name);
-        let typ = param.typ;
-        if typ != Type::Unknown {
-            label.push_str(format!(": {}", finished_file.type_to_string(typ)).as_str());
+        if param.typ != Type::Unknown {
+            label.push_str(format!(": {}", finished_file.type_to_string(param.typ)).as_str());
         }
 
         let end = label.len();
@@ -111,13 +110,17 @@ pub fn handle_signature_help(
         });
     }
 
-    if let ParamsState::VarArgs(after) = func.params_state {
+    if let ParamsState::VarArgs(after, id) = func.params_state {
         if !func.params.is_empty() {
             label.push_str(", ");
         }
 
         let start = label.len();
-        label.push_str("...");
+        label.push_str("...vargv");
+        let symbol = finished_file.get(id);
+        if symbol.typ != Type::Unknown {
+            label.push_str(format!(": {}", finished_file.type_to_string(symbol.typ)).as_str());
+        }
         let end = label.len();
 
         param_infos.push(ParameterInformation {
@@ -132,9 +135,12 @@ pub fn handle_signature_help(
 
     label.push(')');
 
-    let ret = func.ret;
-    if !matches!(ret, Type::Unknown | Type::Null) {
-        label.push_str(format!("-> {}", finished_file.type_to_string(ret)).as_str());
+    if func.throws.is_some() {
+        label.push('!');
+    }
+
+    if !matches!(func.ret, Type::Unknown | Type::Null) {
+        label.push_str(format!(" -> {}", finished_file.type_to_string(func.ret)).as_str());
     }
 
     Ok(Some(SignatureHelp {

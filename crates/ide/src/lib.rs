@@ -787,6 +787,17 @@ pub trait Source {
                     }
                 }
 
+                if let ParamsState::VarArgs(_, id) = func.params_state {
+                    if !func.params.is_empty() {
+                        str.push_str(", ");
+                    }
+                    str.push_str("...vargv");
+                    let symbol = self.get(id);
+                    if symbol.typ != Type::Unknown {
+                        str.push_str(format!(": {}", self.type_to_string(symbol.typ)).as_str());
+                    }
+                }
+
                 if func.throws.is_some() {
                     str.push_str(")!");
                 } else {
