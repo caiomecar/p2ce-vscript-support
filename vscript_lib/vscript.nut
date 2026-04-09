@@ -4706,10 +4706,10 @@ function EntFire(target, action, value = null, delay = 0.0, activator = null);
  * Note: With 0 delay, processed at end of frame. Use AcceptInput for instant/synchronous I/O.
  * @param {entity} entity
  * @param {string} action
- * @param {string|null} value
+ * @param {string} value
  * @param {float} delay
- * @param {entity|null} activator
- * @param {entity|null} caller
+ * @param {entity} activator
+ * @param {entity} caller
  */
 function EntFireByHandle(entity, action, value, delay, activator, caller);
 

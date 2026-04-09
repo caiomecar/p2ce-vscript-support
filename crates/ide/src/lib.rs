@@ -191,31 +191,26 @@ pub trait Source {
     fn to_function_id(&self, typ: Type, offset: TextSize) -> Option<FunctionIdResolution> {
         match typ {
             Type::Class(id) => {
-                let class = self.get(id);
+                let class = self.get(id?);
                 let Some(member) = self.get_symbol(&class.members, "constructor", offset) else {
                     return Some(FunctionIdResolution::DefaultConstructor);
                 };
+
                 self.to_function_id(member.typ, offset)
             }
-            Type::Function(id) => Some(FunctionIdResolution::Function(id)),
+            Type::Function(id) => Some(FunctionIdResolution::Function(id?)),
             Type::Table(id) => {
-                let table = self.get(id);
-                let Some(delegate_idx) = table.delegate else {
-                    return None;
-                };
+                let table = self.get(id?);
+                let delegate_idx = table.delegate?;
 
                 let members = &self.get(delegate_idx).members;
-                let Some(member) = self.get_symbol(members, "_call", offset) else {
-                    return None;
-                };
+                let member = self.get_symbol(members, "_call", offset)?;
 
                 self.to_function_id(member.typ, offset)
             }
             Type::Instance(id) => {
-                let class = self.get(id);
-                let Some(member) = self.get_symbol(&class.members, "_call", offset) else {
-                    return None;
-                };
+                let class = self.get(id?);
+                let member = self.get_symbol(&class.members, "_call", offset)?;
 
                 self.to_function_id(member.typ, offset)
             }
@@ -408,22 +403,38 @@ pub trait Source {
     ) -> FlatSymbolTable {
         match typ {
             Type::Table(id) => {
+                let Some(id) = id else {
+                    return builtin_table_members(self.db());
+                };
+
                 self.members_of_table(id, settings, ImportMembers::Target(ImportTarget::Table(id)))
             }
-            Type::Class(id) => self.members_of_class(
-                id,
-                settings,
-                ImportMembers::Target(ImportTarget::Class(id)),
-                false,
-                filter_by_static,
-            ),
-            Type::Instance(id) => self.members_of_class(
-                id,
-                settings,
-                ImportMembers::Target(ImportTarget::Class(id)),
-                true,
-                filter_by_static,
-            ),
+            Type::Class(id) => {
+                let Some(id) = id else {
+                    return builtin_class_members(self.db());
+                };
+
+                self.members_of_class(
+                    id,
+                    settings,
+                    ImportMembers::Target(ImportTarget::Class(id)),
+                    false,
+                    filter_by_static,
+                )
+            }
+            Type::Instance(id) => {
+                let Some(id) = id else {
+                    return instance_members(self.db());
+                };
+
+                self.members_of_class(
+                    id,
+                    settings,
+                    ImportMembers::Target(ImportTarget::Class(id)),
+                    true,
+                    filter_by_static,
+                )
+            }
             Type::Enum(id) => self.enum_members(id),
             Type::Integer(_) => integer_members(self.db()),
             Type::Float(_) => float_members(self.db()),
@@ -436,6 +447,7 @@ pub trait Source {
             Type::Weakref => weakref_members(self.db()),
             Type::Unknown => FlatSymbolTable::default(),
             Type::Null => FlatSymbolTable::default(),
+            Type::Any => FlatSymbolTable::default(),
         }
     }
 
@@ -529,7 +541,11 @@ pub trait Source {
             _ => builtin_table_members(self.db()),
         };
 
-        let additional = self.filter_symbols(settings, self.additional_table_members(table));
+        let additional = if table.file() == self.file() {
+            self.filter_symbols(settings, self.additional_table_members(table))
+        } else {
+            to_flat_symbol_table(self.additional_table_members(table))
+        };
 
         let imports = self.import_members(imports);
         for (k, v) in imports {
@@ -557,7 +573,11 @@ pub trait Source {
             builtin_class_members(self.db())
         };
 
-        let additional = self.filter_symbols(settings, self.additional_class_members(class));
+        let additional = if class.file() == self.file() {
+            self.filter_symbols(settings, self.additional_class_members(class))
+        } else {
+            to_flat_symbol_table(self.additional_class_members(class))
+        };
 
         let imports = self.import_members(imports);
         for (k, v) in imports {
@@ -632,9 +652,11 @@ pub trait Source {
 
     fn type_to_symbol(&self, typ: Type) -> Option<SymbolId> {
         Some(match typ {
-            Type::Unknown | Type::Null => return None,
+            Type::Unknown | Type::Null | Type::Any => return None,
             Type::Instance(id) => {
-                if let Some(class_id) = self.get(id).symbol {
+                if let Some(id) = id
+                    && let Some(class_id) = self.get(id).symbol
+                {
                     class_id
                 } else {
                     instance_symbol(self.db())?

@@ -46,7 +46,9 @@ pub fn handle_inlay_hints(
             let (label, tooltip) = match symbol.typ {
                 Type::Unknown | Type::Null => return None,
                 Type::Instance(id) => {
-                    if let Some(class_symbol_id) = finished_file.get(id).symbol {
+                    if let Some(id) = id
+                        && let Some(class_symbol_id) = finished_file.get(id).symbol
+                    {
                         let symbol = finished_file.get(class_symbol_id);
                         let typ = &symbol.name;
 

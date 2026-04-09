@@ -248,7 +248,7 @@ impl Database {
 
         let typ = symbol_id.get_data(self).typ;
 
-        let Type::Class(id) = typ else {
+        let Type::Class(Some(id)) = typ else {
             panic!("'{name}' member is not of type 'class'");
         };
 
@@ -313,7 +313,7 @@ impl Database {
                 return None;
             }
 
-            let Type::Function(function_id) = source.arena[id.idx()].typ else {
+            let Type::Function(Some(function_id)) = source.arena[id.idx()].typ else {
                 eprintln!(
                     "Standard library symbol '{name}' has the type of '{}'. (Expected 'function')",
                     source.arena[id.idx()].typ

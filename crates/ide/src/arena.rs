@@ -79,26 +79,47 @@ pub enum ImportTarget {
     Class(ClassId),
 }
 
+#[derive(Debug)]
+pub enum TypeConversionError {
+    WrongType,
+    NotSpecific,
+}
+
 impl From<Container> for Type {
     fn from(value: Container) -> Self {
         match value {
-            Container::Table(idx) => Type::Table(idx),
-            Container::Class(idx) => Type::Class(idx),
-            Container::Instance(idx) => Type::Instance(idx),
+            Container::Table(idx) => Type::Table(Some(idx)),
+            Container::Class(idx) => Type::Class(Some(idx)),
+            Container::Instance(idx) => Type::Instance(Some(idx)),
             Container::Enum(idx) => Type::Enum(idx),
         }
     }
 }
 
 impl TryFrom<Type> for Container {
-    type Error = ();
+    type Error = TypeConversionError;
     fn try_from(value: Type) -> Result<Self, Self::Error> {
         Ok(match value {
-            Type::Table(id) => Container::Table(id),
-            Type::Class(id) => Container::Class(id),
-            Type::Instance(id) => Container::Instance(id),
+            Type::Table(id) => {
+                let Some(id) = id else {
+                    return Err(TypeConversionError::NotSpecific);
+                };
+                Container::Table(id)
+            }
+            Type::Class(id) => {
+                let Some(id) = id else {
+                    return Err(TypeConversionError::NotSpecific);
+                };
+                Container::Class(id)
+            }
+            Type::Instance(id) => {
+                let Some(id) = id else {
+                    return Err(TypeConversionError::NotSpecific);
+                };
+                Container::Class(id)
+            }
             Type::Enum(id) => Container::Enum(id),
-            _ => return Err(()),
+            _ => return Err(TypeConversionError::WrongType),
         })
     }
 }
@@ -116,13 +137,22 @@ impl TryFrom<Container> for ImportTarget {
 }
 
 impl TryFrom<Type> for ImportTarget {
-    type Error = ();
+    type Error = TypeConversionError;
     fn try_from(value: Type) -> Result<Self, Self::Error> {
         Ok(match value {
-            Type::Table(id) => ImportTarget::Table(id),
-            Type::Class(id) => ImportTarget::Class(id),
-            Type::Instance(id) => ImportTarget::Class(id),
-            _ => return Err(()),
+            Type::Table(id) => {
+                let Some(id) = id else {
+                    return Err(TypeConversionError::NotSpecific);
+                };
+                ImportTarget::Table(id)
+            }
+            Type::Instance(id) | Type::Class(id) => {
+                let Some(id) = id else {
+                    return Err(TypeConversionError::NotSpecific);
+                };
+                ImportTarget::Class(id)
+            }
+            _ => return Err(TypeConversionError::WrongType),
         })
     }
 }

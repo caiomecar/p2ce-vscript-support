@@ -40,25 +40,31 @@ pub fn to_flat_symbol_table(table: SymbolTable) -> FlatSymbolTable {
         .collect()
 }
 
-// For option: if not None the value is known at compile time
-// otherwise it's not (primarily used for consts features)
+/// options here basically mean: we know it would be this type
+/// but we don't really know what is the exact data behind it
+/// for instances tables with different keys, or
+/// instances coming from different classes.
+/// It's better to use None here rather than to turn everything
+/// into Unknown since we at least can get partial completions
+/// and operations
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Type {
     #[default]
     Unknown,
+    Any,
     Integer(Option<i32>),
     Float(Option<f32>),
     String(Option<StringId>),
     Boolean(Option<bool>),
     Null,
-    Instance(ClassId),
-    Array(ArrayId),
-    Table(TableId),
-    Class(ClassId),
+    Instance(Option<ClassId>),
+    Array(Option<ArrayId>),
+    Table(Option<TableId>),
+    Class(Option<ClassId>),
     Enum(EnumId),
-    Function(FunctionId),
-    Generator(FunctionId),
-    Thread(FunctionId),
+    Function(Option<FunctionId>),
+    Generator(Option<FunctionId>),
+    Thread(Option<FunctionId>),
     Weakref,
 }
 
@@ -118,6 +124,7 @@ impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Unknown => write!(f, "unknown"),
+            Type::Any => write!(f, "any"),
             Type::Integer(_) => write!(f, "integer"),
             Type::Float(_) => write!(f, "float"),
             Type::String(_) => write!(f, "string"),
@@ -174,6 +181,10 @@ impl std::fmt::Display for SymbolDisplay<'_> {
 
         match s.typ {
             Type::Function(id) => {
+                let Some(id) = id else {
+                    return write!(f, "function {}()", s.name);
+                };
+
                 let func = self.file.get(id);
                 write!(f, "function {}(", s.name)?;
                 for (i, &param) in func.params.iter().enumerate() {
@@ -187,20 +198,27 @@ impl std::fmt::Display for SymbolDisplay<'_> {
                         write!(f, "{}", param.name)?;
                     }
                 }
-                if func.ret != Type::Unknown {
-                    if func.throws.is_some() {
-                        write!(f, ") -> !{}", func.ret)
-                    } else {
-                        write!(f, ") -> {}", func.ret)
-                    }
-                } else if func.throws.is_some() {
-                    write!(f, ") -> !")
+
+                if func.throws.is_some() {
+                    write!(f, ")!")?;
                 } else {
-                    write!(f, ")")
+                    write!(f, ")")?;
+                }
+
+                // Result of unknown can technically provide some value,
+                // while there's no point in saving 'null' return at all
+                // so it just pollutes the signature
+                if func.ret != Type::Null {
+                    write!(f, " -> {}", func.ret)
+                } else {
+                    Ok(())
                 }
             }
+
             Type::Instance(id) => {
-                let typ = if let Some(symbol) = self.file.get(id).symbol {
+                let typ = if let Some(id) = id
+                    && let Some(symbol) = self.file.get(id).symbol
+                {
                     &self.file.get(symbol).name
                 } else {
                     "instance"

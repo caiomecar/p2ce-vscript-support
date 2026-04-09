@@ -1,29 +1,46 @@
+#[derive(Debug)]
 pub struct Doc {
     pub description: String,
     pub tags: Vec<Tag>,
 }
 
+#[derive(Debug)]
 pub struct Tag {
-    item: TagItem,
-    description: String,
+    pub item: TagItem,
+    pub description: String,
 }
 
+#[derive(Debug)]
 pub enum TagItem {
     Return(ReturnTag),
     Parameter(ParameterTag),
+    Type(TypeTag),
 }
 
+#[derive(Debug)]
 pub struct ReturnTag {
     pub typ: Option<String>,
 }
 
+#[derive(Debug)]
+pub struct ParameterTag {
+    pub name: String,
+    pub typ: Option<String>,
+}
+
+#[derive(Debug)]
 pub struct TypeTag {
     pub typ: Option<String>,
 }
 
-pub struct ParameterTag {
-    pub name: Option<String>,
-    pub typ: Option<String>,
+fn split_once_ws(s: &str) -> (&str, &str) {
+    match s.find(char::is_whitespace) {
+        Some(idx) => {
+            let (first, rest) = s.split_at(idx);
+            (first, rest.trim_start())
+        }
+        None => (s, ""),
+    }
 }
 
 impl Doc {
@@ -52,59 +69,58 @@ impl Doc {
         }
     }
 
-    pub fn typ(text: &str) -> (Option<String>, String) {
+    pub fn typ(text: &str) -> (Option<&str>, &str) {
         let Some(rest) = text.strip_prefix('{') else {
-            return (None, text.to_owned());
+            return (None, text);
         };
 
-        rest.split_once('}')
-            .map_or((None, text.to_owned()), |(typ, rest)| {
-                (
-                    Some(typ.to_owned()),
-                    rest.split_whitespace().next().unwrap_or(rest).to_owned(),
-                )
-            })
-    }
-
-    pub fn name(text: &str) -> (Option<String>, String) {
-        let mut iter = text.split_whitespace();
-        let Some(name) = iter.next() else {
-            return (None, text.to_owned());
-        };
-
-        let rest = if let Some(rest) = iter.next() {
-            rest
-        } else {
-            ""
-        };
-
-        (Some(name.to_owned()), rest.to_owned())
+        match rest.find(|c| c == '}') {
+            Some(idx) => {
+                let (typ, rest) = rest.split_at(idx);
+                (Some(typ.trim()), rest[1..].trim_start())
+            }
+            None => (Some(rest.trim()), ""),
+        }
     }
 
     pub fn tag(text: &str) -> Option<Tag> {
-        let mut iter = text.split_whitespace();
-        let tag = iter.next()?;
-        let rest = iter.next().unwrap_or("");
-        Some(match tag {
+        let (tag, rest) = split_once_ws(text);
+        let (item, rest) = match tag {
             "return" | "returns" => {
-                let (typ, description) = Doc::typ(rest);
-                Tag {
-                    item: TagItem::Return(ReturnTag { typ }),
-                    description,
-                }
+                let (typ, rest) = Doc::typ(rest);
+                (
+                    TagItem::Return(ReturnTag {
+                        typ: typ.map(str::to_owned),
+                    }),
+                    rest,
+                )
             }
             "type" => {
-                todo!()
+                let (typ, rest) = Doc::typ(rest);
+                (
+                    TagItem::Type(TypeTag {
+                        typ: typ.map(str::to_owned),
+                    }),
+                    rest,
+                )
             }
             "param" => {
                 let (typ, rest) = Doc::typ(rest);
-                let (name, description) = Doc::name(&rest);
-                Tag {
-                    item: TagItem::Parameter(ParameterTag { name, typ }),
-                    description,
-                }
+                let (name, rest) = split_once_ws(rest);
+                (
+                    TagItem::Parameter(ParameterTag {
+                        name: name.to_owned(),
+                        typ: typ.map(str::to_owned),
+                    }),
+                    rest,
+                )
             }
             _ => return None,
+        };
+
+        Some(Tag {
+            item,
+            description: rest.strip_suffix("*/").unwrap_or(rest).to_owned(),
         })
     }
 }

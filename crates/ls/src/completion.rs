@@ -198,29 +198,32 @@ fn modify_if_function(
         return None;
     };
 
-    let func = finished_file.get(id);
     let text = if let Some(text) = insert_text {
         text.as_str()
     } else {
         label.as_str()
     };
 
-    if func.params.is_empty() {
-        *insert_text = Some(format!("{text}()"));
-        *label = format!("{label}()");
-        None
-    } else {
-        *insert_text = Some(format!("{text}($1)"));
-        *label = format!("{label}(…)");
-        Some((
-            InsertTextFormat::SNIPPET,
-            Command {
-                title: "Trigger Signature Help".to_owned(),
-                command: "editor.action.triggerParameterHints".to_owned(),
-                arguments: None,
-            },
-        ))
+    if let Some(id) = id {
+        let func = finished_file.get(id);
+
+        if func.params.is_empty() {
+            *insert_text = Some(format!("{text}()"));
+            *label = format!("{label}()");
+            return None;
+        }
     }
+
+    *insert_text = Some(format!("{text}($1)"));
+    *label = format!("{label}(…)");
+    Some((
+        InsertTextFormat::SNIPPET,
+        Command {
+            title: "Trigger Signature Help".to_owned(),
+            command: "editor.action.triggerParameterHints".to_owned(),
+            arguments: None,
+        },
+    ))
 }
 
 pub fn can_use_identifier(name: &str) -> bool {

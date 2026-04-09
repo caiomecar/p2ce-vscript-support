@@ -70,6 +70,9 @@ class array {
 
     function reverse();
 
+    /**
+     * @param {integer} start_index
+     */
     function slice(start_index, end_index = -1);
 
     function sort(compare = @(a, b) a <=> b);
