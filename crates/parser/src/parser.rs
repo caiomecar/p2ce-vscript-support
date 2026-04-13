@@ -237,6 +237,10 @@ impl Parser {
         self.events.insert(marker.0, Event::Pending);
     }
 
+    fn invalid_marker(&self) -> Marker {
+        Marker(self.events.len())
+    }
+
     fn marker_range(&self, marker: Marker) -> TextRange {
         assert!(
             marker.0 < self.events.len(),
@@ -449,6 +453,51 @@ impl Parser {
     /// pass the proper token into this function that will either proceed without errors
     /// or wrap the incorrect token into the error node and proceed as if we've read
     /// the correct operator
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "local a = abc";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(parse.errors().is_empty());
+    /// let source_file = parse.source_file();
+    /// assert_eq!(source_file.statements().count(), 1);
+    /// let stmt = source_file.statements().next().unwrap();
+    /// let Stmt::LocalVariable(l) = stmt else {
+    ///     panic!("Expected local variable")
+    /// };
+    ///
+    /// assert_eq!(l.declarations().count(), 1);
+    /// let decl = l.declarations().next().unwrap();
+    /// assert!(decl.name().is_some());
+    /// assert!(matches!(
+    ///     decl.initialiser().unwrap().expression().unwrap(),
+    ///     Expr::Name(_)
+    /// ));
+    /// ```
+    ///
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "local a <- 123";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert_eq!(parse.errors().len(), 1);
+    /// let source_file = parse.source_file();
+    /// assert_eq!(source_file.statements().count(), 1);
+    /// let stmt = source_file.statements().next().unwrap();
+    /// let Stmt::LocalVariable(l) = stmt else {
+    ///     panic!("Expected local variable")
+    /// };
+    ///
+    /// assert_eq!(l.declarations().count(), 1);
+    /// let decl = l.declarations().next().unwrap();
+    /// assert!(decl.name().is_some());
+    /// assert!(matches!(
+    ///     decl.initialiser().unwrap().expression().unwrap(),
+    ///     Expr::Literal(_)
+    /// ));
+    /// ```
     fn parse_proper_or_error(&mut self, proper: SyntaxKind, message: String) {
         if !self.at(proper) {
             self.error_and_advance(message);
@@ -457,61 +506,44 @@ impl Parser {
         }
     }
 
-    fn bump_as_identifier(&mut self) {
+    fn parse_guaranteed_name(&mut self) -> Marker {
+        let m = self.start();
         // "Rescan" soft keywords as identifiers
         self.tokens[self.lookahead_index].kind = SyntaxKind::Identifier;
         self.bump();
-    }
-
-    fn parse_guaranteed_name(&mut self) -> Marker {
-        let m = self.start();
-        self.bump_as_identifier();
         self.finish(m, SyntaxKind::Name);
         m
     }
 
-    fn parse_name(&mut self, message: &str, recovery: Option<TokenSet>) -> Marker {
+    fn parse_name(&mut self, message: &str, recovery: TokenSet) -> Option<Marker> {
         if self.at_set(NAME) {
-            return self.parse_guaranteed_name();
+            return Some(self.parse_guaranteed_name());
         }
 
-        if self.fuel > 10000 {
-            panic!();
+        // Need this here since it's used by parse_expression
+        if self.fuel > 100000 {
+            panic!("Most likely stuck in an infinite loop, number of attempts exceeded");
         }
         self.fuel += 1;
 
-        let m = self.start();
         if self.at(SyntaxKind::DecimalInteger) {
             // It would've been possible to make the identifier recovery where we have a
             // preceding number and identifier afterwards, but this can be valid syntax in
             // squirrel due to optionality of the commas. E.g. local abc = 0, a = [123abc]
-            self.error_at_token(format!(
+            self.error_and_advance(format!(
                 "{}. Digit cannot be the starting character of an identifier",
                 self.expected_but_got(message),
             ));
-            self.bump();
-            self.finish(m, SyntaxKind::Error);
-            m
         } else if self.at_set(KEYWORDS) && !self.has_preceding_new_line {
-            self.error_at_token(format!(
+            self.error_and_advance(format!(
                 "{}. {} is a reserved word that can't be used here",
                 self.expected_but_got(message),
                 self.token().text()
             ));
-            self.bump();
-            self.finish(m, SyntaxKind::Error);
-            m
         } else {
-            self.drop(m);
-
-            if let Some(recovery) = recovery {
-                self.error_with_recovery(message, recovery);
-            } else {
-                self.error_at_token(self.expected_but_got(message));
-            }
-
-            m
+            self.error_with_recovery(message, recovery);
         }
+        None
     }
 
     // function func[this](a, b, c = 2) { stmts }
@@ -521,7 +553,7 @@ impl Parser {
             let m = self.start();
 
             self.expect_or_panic(SyntaxKind::OpenBracket);
-            self.parse_expression();
+            self.parse_expression(STATEMENT_OR_CLOSE_BRACKET);
             self.expect(SyntaxKind::CloseBracket);
             self.finish(m, SyntaxKind::Environment);
             true
@@ -554,7 +586,7 @@ impl Parser {
                 }
 
                 if !self.try_bump(SyntaxKind::Comma) {
-                    if self.at_set(STATEMENT) || self.at(SyntaxKind::CloseBrace) {
+                    if self.at_set(STATEMENT_WITH_SEMICOLON) || self.at(SyntaxKind::CloseBrace) {
                         break;
                     }
 
@@ -569,20 +601,14 @@ impl Parser {
     // abc(1, 2, 3) {a = 2}
     //    _________________
     fn parse_call_arguments(&mut self) {
-        if self.expect(SyntaxKind::OpenParenthesis) && !self.try_bump(SyntaxKind::CloseParenthesis)
-        {
-            loop {
-                self.parse_expression();
+        if self.expect(SyntaxKind::OpenParenthesis) {
+            while !self.at_set(CALL_ARGUMENTS_STOP) {
+                self.parse_expression(STATEMENT_OR_CLOSE_PARENTHESIS);
                 if self.at_set(SEPARATORS) {
                     self.parse_proper_or_error(
                         SyntaxKind::Comma,
                         "Expected ',' between arguments".to_owned(),
                     );
-                    continue;
-                }
-
-                if self.at_set(CALL_ARGUMENTS_STOP) {
-                    break;
                 }
             }
             self.expect(SyntaxKind::CloseParenthesis);
@@ -692,7 +718,7 @@ impl Parser {
 
                 let name = self.start();
                 self.expect_or_panic(SyntaxKind::OpenBracket);
-                self.parse_comma_expression();
+                self.parse_comma_expression(STATEMENT_OR_CLOSE_BRACKET);
                 self.expect(SyntaxKind::CloseBracket);
                 self.finish(name, SyntaxKind::ComputedName);
 
@@ -701,15 +727,11 @@ impl Parser {
                         SyntaxKind::Equals,
                         "Expected '=' for initialisation".to_owned(),
                     );
-                    if self.at(SyntaxKind::LessThanSlash) {
-                        self.error_and_advance(self.expected_but_got("expression"));
-                    } else {
-                        self.parse_expression();
-                    }
+                    self.parse_expression(STATEMENT_OR_ATTRIBUTE);
                 } else if object_kind != MemberObject::Enum {
                     self.error_at_token(self.expected_but_got("'='"));
                     if !self.has_preceding_new_line && self.at_set(EXPRESSIONS) {
-                        self.parse_expression();
+                        self.parse_expression(STATEMENT_OR_ATTRIBUTE);
                     }
                 }
                 self.finish(m, SyntaxKind::Property);
@@ -730,11 +752,11 @@ impl Parser {
                         SyntaxKind::Colon,
                         "Expected ':' for initialisation".to_owned(),
                     );
-                    self.parse_expression();
+                    self.parse_expression(STATEMENT_OR_ATTRIBUTE);
                 } else if object_kind != MemberObject::Enum {
                     self.error_at_token(self.expected_but_got("':'"));
                     if !self.has_preceding_new_line && self.at_set(EXPRESSIONS) {
-                        self.parse_expression();
+                        self.parse_expression(STATEMENT_OR_ATTRIBUTE);
                     }
                 }
                 self.finish(m, SyntaxKind::Property);
@@ -764,43 +786,47 @@ impl Parser {
                     );
                 }
                 self.bump();
-                self.parse_name("method's name", None);
+                self.parse_name("method's name", EVERYTHING);
                 self.parse_function_signature();
                 self.parse_statement(/* parse_end */ false);
                 self.finish(m, SyntaxKind::Method);
             }
             _ => {
-                let simple_name = self.start();
-                let name = self.parse_name(error(), Some(MEMBER_RECOVERY));
-                if !self.finish_wrapper_or_drop(simple_name, name, SyntaxKind::SimpleName)
-                    && !self.at_set(MEMBER_RECOVERY)
-                {
-                    self.drop(m);
-                    return m;
-                }
+                let name_range = if let Some(name) = self.parse_name(error(), MEMBER_RECOVERY) {
+                    self.precede(name);
+                    self.finish(name, SyntaxKind::SimpleName);
+                    Some(self.marker_range(name))
+                } else {
+                    if !self.at_set(MEMBER_RECOVERY) {
+                        self.drop(m);
+                        return m;
+                    }
+                    None
+                };
 
                 if self.at_set(INIT_OPERATORS) {
                     self.parse_proper_or_error(
                         SyntaxKind::Equals,
                         "Expected '=' for initialisation".to_owned(),
                     );
-                    self.parse_expression();
+                    self.parse_expression(STATEMENT_OR_ATTRIBUTE);
                 } else if object_kind == MemberObject::Enum {
                     // For enums '=' is optional, however if we see an
                     // expression we parse it as if '=' is missing
                     if self.at_set(NON_MEMBER_FIRST_EXPRESSIONS) {
                         self.error_at_token(self.expected_but_got("'='"));
-                        self.parse_expression();
+                        // recovery is unreachable
+                        self.parse_expression(STATEMENT);
                     }
                 } else {
                     // method() {} recovery
                     if self.at(SyntaxKind::OpenParenthesis) {
-                        if self.is_marker_valid(name) {
+                        if let Some(range) = name_range {
                             self.error(SyntaxError {
                                 message:
                                     "Method name needs to be prepended with 'function' keyword"
                                         .to_owned(),
-                                range: self.marker_range(name),
+                                range,
                             });
                         } else {
                             self.error_at_token(
@@ -815,7 +841,8 @@ impl Parser {
 
                     self.error_at_token(self.expected_but_got("'='"));
                     if self.at_set(NON_MEMBER_FIRST_EXPRESSIONS) {
-                        self.parse_expression();
+                        // recovery is unreachable
+                        self.parse_expression(STATEMENT);
                     }
                 }
                 self.finish(m, SyntaxKind::Property);
@@ -830,7 +857,7 @@ impl Parser {
         let message = if self.at(SyntaxKind::ExtendsKeyword) {
             let m = self.start();
             self.bump();
-            self.parse_expression();
+            self.parse_expression(STATEMENT);
             self.finish(m, SyntaxKind::Extends);
             "'{'"
         } else {
@@ -857,49 +884,12 @@ impl Parser {
         self.expect(SyntaxKind::CloseBrace);
     }
 
-    // fn parse_scalar(&mut self) -> Marker {
-    //     match self.token() {
-    //         SyntaxKind::TrueKeyword
-    //         | SyntaxKind::FalseKeyword
-    //         | SyntaxKind::String
-    //         | SyntaxKind::VerbatimString
-    //         | SyntaxKind::Integer
-    //         | SyntaxKind::Character
-    //         | SyntaxKind::Float => self.parse_literal_expression(),
-
-    //         SyntaxKind::Minus | SyntaxKind::Plus => {
-    //             let m = self.start();
-    //             if self.at(SyntaxKind::Plus) {
-    //                 self.error_at_token("Leading plus is not supported");
-    //             }
-    //             self.parse_operator();
-    //             let at_number = self.at_set(NUMBERS);
-    //             let operand = self.parse_prefix_expression();
-    //             if self.marker_valid(operand) && (!at_number || self.marker_kind(operand) != SyntaxKind::LiteralExpression) {
-    //                 self.error(self.marker_range(operand), "Expected number");
-    //             }
-    //             self.finish(m, SyntaxKind::PrefixUnaryExpression);
-    //             m
-    //         }
-    //         _ => {
-    //             let expr = self.parse_expression();
-    //             if self.marker_valid(expr) {
-    //                 self.error(
-    //                     self.marker_range(expr),
-    //                     "Expected number, string or boolean",
-    //                 )
-    //             };
-    //             expr
-    //         }
-    //     }
-    // }
-
     // 1, 2, 3, 4, [], {}, 6
-    fn parse_comma_expression(&mut self) -> Marker {
+    fn parse_comma_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
-        self.parse_expression();
+        self.parse_expression(recovery);
         while self.try_bump(SyntaxKind::Comma) {
-            self.parse_expression();
+            self.parse_expression(recovery);
             self.finish(m, SyntaxKind::BinaryExpression);
             self.precede(m);
         }
@@ -911,9 +901,9 @@ impl Parser {
     // 1 + 2
     // abc = 12 - 4112
     // a ? b : c
-    fn parse_expression(&mut self) -> Marker {
+    fn parse_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
-        let lhs = self.parse_binary_expression(BinaryOperatorPrecedence::Lowest);
+        let lhs = self.parse_binary_expression(BinaryOperatorPrecedence::Lowest, recovery);
         if self.at_set(ASSIGNMENT_OPERATORS) {
             if !self.is_lhs_expression(lhs) {
                 self.error(SyntaxError {
@@ -922,7 +912,7 @@ impl Parser {
                 });
             }
             self.expect_set_or_panic(ASSIGNMENT_OPERATORS);
-            self.parse_expression();
+            self.parse_expression(recovery);
             self.finish(m, SyntaxKind::BinaryExpression);
         } else if self.at(SyntaxKind::Question) {
             self.parse_conditional_expression(m);
@@ -945,17 +935,13 @@ impl Parser {
     fn parse_conditional_expression(&mut self, m: Marker) {
         self.expect_or_panic(SyntaxKind::Question);
 
-        if !self.at(SyntaxKind::Colon) {
-            let then = self.start();
-            let expr = self.parse_expression();
-            self.finish_wrapper_or_drop(then, expr, SyntaxKind::ThenBranch);
-        } else {
-            self.error_at_token(self.expected_but_got("expression"));
-        }
+        let then = self.start();
+        let expr = self.parse_expression(STATEMENT_OR_COLON);
+        self.finish_wrapper_or_drop(then, expr, SyntaxKind::ThenBranch);
 
         if self.expect(SyntaxKind::Colon) || self.at_set(EXPRESSIONS) {
             let else_ = self.start();
-            let expr = self.parse_expression();
+            let expr = self.parse_expression(STATEMENT);
             self.finish_wrapper_or_drop(else_, expr, SyntaxKind::ElseBranch);
         }
 
@@ -964,9 +950,13 @@ impl Parser {
 
     // 1 + 2
     // abc() * 12312 + 2 - 124
-    fn parse_binary_expression(&mut self, precedence: BinaryOperatorPrecedence) -> Marker {
+    fn parse_binary_expression(
+        &mut self,
+        precedence: BinaryOperatorPrecedence,
+        recovery: TokenSet,
+    ) -> Marker {
         let m = self.start();
-        self.parse_prefix_expression();
+        self.parse_prefix_expression(recovery);
         loop {
             let new_precedence = match BinaryOperatorPrecedence::from(self.token()) {
                 Some(precedence) => precedence,
@@ -979,7 +969,7 @@ impl Parser {
 
             self.expect_set_or_panic(BINARY_OPERATORS);
 
-            self.parse_binary_expression(new_precedence);
+            self.parse_binary_expression(new_precedence, recovery);
 
             self.finish(m, SyntaxKind::BinaryExpression);
             self.precede(m);
@@ -993,37 +983,39 @@ impl Parser {
     // ~512
     // ++5123
     // delete a
-    fn parse_prefix_expression(&mut self) -> Marker {
+    fn parse_prefix_expression(&mut self, recovery: TokenSet) -> Marker {
         match self.token() {
             SyntaxKind::Minus | SyntaxKind::Tilde | SyntaxKind::Exclamation => {
-                self.parse_prefix_unary_expression()
+                self.parse_prefix_unary_expression(recovery)
             }
             SyntaxKind::Plus => {
                 self.error_and_advance("Leading plus is not supported".to_owned());
-                self.parse_prefix_expression()
+                self.parse_prefix_expression(recovery)
             }
-            SyntaxKind::PlusPlus | SyntaxKind::MinusMinus => self.parse_prefix_update_expression(),
-            SyntaxKind::DeleteKeyword => self.parse_delete_expression(),
-            SyntaxKind::TypeOfKeyword => self.parse_type_of_expression(),
-            SyntaxKind::ResumeKeyword => self.parse_resume_expression(),
-            SyntaxKind::CloneKeyword => self.parse_clone_expression(),
+            SyntaxKind::PlusPlus | SyntaxKind::MinusMinus => {
+                self.parse_prefix_update_expression(recovery)
+            }
+            SyntaxKind::DeleteKeyword => self.parse_delete_expression(recovery),
+            SyntaxKind::TypeOfKeyword => self.parse_type_of_expression(recovery),
+            SyntaxKind::ResumeKeyword => self.parse_resume_expression(recovery),
+            SyntaxKind::CloneKeyword => self.parse_clone_expression(recovery),
             SyntaxKind::RawCallKeyword => self.parse_raw_call_expression(),
-            _ => self.parse_postfix_expression(),
+            _ => self.parse_postfix_expression(recovery),
         }
     }
 
-    fn parse_prefix_unary_expression(&mut self) -> Marker {
+    fn parse_prefix_unary_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
         self.expect_set_or_panic(PREFIX_UNARY_OPERATORS);
-        self.parse_prefix_expression();
+        self.parse_prefix_expression(recovery);
         self.finish(m, SyntaxKind::PrefixUnaryExpression);
         m
     }
 
-    fn parse_prefix_update_expression(&mut self) -> Marker {
+    fn parse_prefix_update_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
         self.expect_set_or_panic(UPDATE_OPERATORS);
-        let operand = self.parse_prefix_expression();
+        let operand = self.parse_prefix_expression(recovery);
         if !self.is_lhs_expression(operand) {
             self.error(SyntaxError {
                 message: "The operand of an increment or decrement operator must be a variable or a property access".to_owned(),
@@ -1034,10 +1026,10 @@ impl Parser {
         m
     }
 
-    fn parse_delete_expression(&mut self) -> Marker {
+    fn parse_delete_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::DeleteKeyword);
-        let operand = self.parse_prefix_expression();
+        let operand = self.parse_prefix_expression(recovery);
         if !self.is_lhs_expression(operand) {
             self.error(SyntaxError {
                 range: self.marker_range(operand),
@@ -1048,26 +1040,26 @@ impl Parser {
         m
     }
 
-    fn parse_type_of_expression(&mut self) -> Marker {
+    fn parse_type_of_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::TypeOfKeyword);
-        self.parse_prefix_expression();
+        self.parse_prefix_expression(recovery);
         self.finish(m, SyntaxKind::TypeOfExpression);
         m
     }
 
-    fn parse_resume_expression(&mut self) -> Marker {
+    fn parse_resume_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ResumeKeyword);
-        self.parse_prefix_expression();
+        self.parse_prefix_expression(recovery);
         self.finish(m, SyntaxKind::ResumeExpression);
         m
     }
 
-    fn parse_clone_expression(&mut self) -> Marker {
+    fn parse_clone_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::CloneKeyword);
-        self.parse_prefix_expression();
+        self.parse_prefix_expression(recovery);
         self.finish(m, SyntaxKind::CloneExpression);
         m
     }
@@ -1082,12 +1074,12 @@ impl Parser {
 
     // abc().a[123]
     // b++
-    fn parse_postfix_expression(&mut self) -> Marker {
+    fn parse_postfix_expression(&mut self, recovery: TokenSet) -> Marker {
         let m = self.start();
 
         let save_separator = self.object_separator;
         self.object_separator = ParsingObjectSeparator::None;
-        let operand = self.parse_primary_expression();
+        let operand = self.parse_primary_expression(recovery);
         self.object_separator = save_separator;
 
         loop {
@@ -1128,7 +1120,7 @@ impl Parser {
         self.parse_proper_or_error(SyntaxKind::Dot, "Expected '.' for member access".to_owned());
 
         let member = self.start();
-        self.parse_name("member's name", None);
+        self.parse_name("member's name", EVERYTHING);
         self.finish(member, SyntaxKind::MemberPart);
 
         self.finish(m, SyntaxKind::MemberAccessExpression);
@@ -1156,7 +1148,7 @@ impl Parser {
         }
         let index = self.start();
         self.expect_or_panic(SyntaxKind::OpenBracket);
-        self.parse_expression();
+        self.parse_expression(STATEMENT_OR_CLOSE_BRACKET);
         self.expect(SyntaxKind::CloseBracket);
         self.finish(index, SyntaxKind::Index);
         self.finish(m, SyntaxKind::ElementAccessExpression);
@@ -1175,7 +1167,7 @@ impl Parser {
     // 12321
     // ::abc
     // (function (){})
-    fn parse_primary_expression(&mut self) -> Marker {
+    fn parse_primary_expression(&mut self, recovery: TokenSet) -> Marker {
         match self.token() {
             SyntaxKind::NullKeyword
             | SyntaxKind::TrueKeyword
@@ -1199,7 +1191,9 @@ impl Parser {
             SyntaxKind::FunctionKeyword => self.parse_function_expression(),
             SyntaxKind::At => self.parse_lambda_expression(),
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
-            _ => self.parse_name("expression", Some(EXPRESSION_RECOVERY)),
+            _ => self
+                .parse_name("expression", recovery)
+                .unwrap_or(self.invalid_marker()),
         }
     }
 
@@ -1213,7 +1207,7 @@ impl Parser {
     fn parse_root_access_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ColonColon);
-        self.parse_name("root variable's name", None);
+        self.parse_name("root variable's name", EVERYTHING);
         self.finish(m, SyntaxKind::RootAccessExpression);
         m
     }
@@ -1249,7 +1243,7 @@ impl Parser {
     fn parse_parenthesised_expression(&mut self) -> Marker {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::OpenParenthesis);
-        self.parse_comma_expression();
+        self.parse_comma_expression(STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
         self.finish(m, SyntaxKind::ParenthesisedExpression);
         m
@@ -1260,9 +1254,9 @@ impl Parser {
         self.expect_or_panic(SyntaxKind::OpenBracket);
         while !self.at(SyntaxKind::CloseBracket)
             && !self.at(SyntaxKind::Eof)
-            && !self.at_set(STATEMENT)
+            && !self.at_set(STATEMENT_WITH_SEMICOLON)
         {
-            self.parse_expression();
+            self.parse_expression(STATEMENT_OR_CLOSE_BRACKET);
             if self.at_set(SEPARATORS) {
                 self.parse_proper_or_error(
                     SyntaxKind::Comma,
@@ -1321,7 +1315,7 @@ impl Parser {
         self.expect_or_panic(SyntaxKind::At);
 
         self.parse_function_signature();
-        self.parse_expression();
+        self.parse_expression(STATEMENT);
 
         self.finish(m, SyntaxKind::LambdaExpression);
         m
@@ -1428,32 +1422,51 @@ impl Parser {
         self.finish(m, SyntaxKind::BlockStatement);
     }
 
-    // 'else if' doesn't have a special case, it's handled as else branch
-    // of an if above with a single if statement so else if trees do not
-    // look like flat lists of conditions but they're rather
-    // skewed and have their depth incremented at every additional branch
-    // if (a) { return b } else { b = 3;}
+    /// Parsing end of the statement here is not an oversight, this
+    /// is to mirror the compiler behaviour. Why does the compiler
+    /// do it? Because it's a squirrel language
+    /// Consider the follwing:
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "local a = {function a() if (0) 0;}";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(parse.errors().is_empty());
+    /// ```
+    /// This compiles fine without errors since semicolon in parsed by the if statement,
+    ///
+    ///
+    /// Same for else
+    /// local a = {function a() if (0) 0; else 0;}
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "local a = {function a() if (0) 0; else 0;}";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(parse.errors().is_empty());
+    /// ```
+    ///
+    /// However this
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "local a = {function a() while (0) 0;}";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(!parse.errors().is_empty());
+    /// ```
+    /// Gives a compiler error since the semicolon is not parsed by the while statement
+    /// Normally only parse_source_file or parse_block_statement should use parse_end,
+    /// But it's squirrel so what can you do
     fn parse_if_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::IfKeyword);
         self.expect(SyntaxKind::OpenParenthesis);
-        self.parse_comma_expression();
+        self.parse_comma_expression(STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
-        // parsing end of the statement here is not an oversight, this is to mirror the compiler behaviour
-        // Why? Because it's a squirrel language
-        //
-        // consider the following:
-        // local a = {function a() if (0) 0;}
-        // This compiles fine without errors since semicolon in parsed by the if statement,
-        //
-        // Same for else
-        // local a = {function a() if (0) 0; else 0;}
-        //
-        // However this
-        // local a = {function a() while (0) 0;}
-        // Gives a compiler error since the semicolon is not parsed by the while statement
-        // Normally only parse_source_file or parse_block_statment should use parse_end, otherwise the semicolon
-        // Breaks higher construct
+
         self.parse_statement(/* parse_end */ true);
         if self.at(SyntaxKind::ElseKeyword) {
             let m = self.start();
@@ -1469,7 +1482,7 @@ impl Parser {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::WhileKeyword);
         self.expect(SyntaxKind::OpenParenthesis);
-        self.parse_comma_expression();
+        self.parse_comma_expression(STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
 
         self.parse_statement(/* parse_end */ false);
@@ -1477,48 +1490,7 @@ impl Parser {
         self.finish(m, SyntaxKind::WhileStatement);
     }
 
-    /// ```
-    /// use sq_3_parser::ast::*;
-    /// use sq_3_parser::*;
-    /// let source = "do { smth } while (yes);";
-    ///
-    /// let parse = Parse::new(source);
-    /// assert!(parse.errors().is_empty());
-    /// let source_file = parse.source_file();
-    /// assert_eq!(source_file.statements().count(), 1);
-    /// let stmt = source_file.statements().next().unwrap();
-    /// let Stmt::DoWhile(w) = stmt else {
-    ///     panic!("expected do while")
-    /// };
-    /// assert!(matches!(
-    ///     w.body(),
-    ///     Some(Stmt::Block(_))
-    /// ));
-    /// assert!(matches!(
-    ///     w.condition(),
-    ///     Some(Expr::Name(_))
-    /// ));
-    /// ```
-    ///
-    /// ```
-    /// use sq_3_parser::ast::*;
-    /// use sq_3_parser::*;
-    /// let source = "do 123 while;";
-    ///
-    /// let parse = Parse::new(source);
-    /// assert_eq!(parse.errors().len(), 1);
-    /// let source_file = parse.source_file();
-    /// assert_eq!(source_file.statements().count(), 1);
-    /// let stmt = source_file.statements().next().unwrap();
-    /// let Stmt::DoWhile(w) = stmt else {
-    ///     panic!("expected do while")
-    /// };
-    /// assert!(matches!(
-    ///     w.body(),
-    ///     Some(Stmt::Expression(_))
-    /// ));
-    /// assert!(w.condition().is_none());
-    /// ```
+    // do { stuff } while (a--)
     fn parse_do_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::DoKeyword);
@@ -1526,64 +1498,13 @@ impl Parser {
 
         self.expect(SyntaxKind::WhileKeyword);
         self.expect(SyntaxKind::OpenParenthesis);
-        self.parse_comma_expression();
+        self.parse_comma_expression(STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
 
         self.finish(m, SyntaxKind::DoWhileStatement);
     }
 
-    /// ```
-    /// use sq_3_parser::ast::*;
-    /// use sq_3_parser::*;
-    /// let source = "for (local a = 1; a != null; a++) {}";
-    ///
-    /// let parse = Parse::new(source);
-    /// assert!(parse.errors().is_empty());
-    /// let source_file = parse.source_file();
-    /// assert_eq!(source_file.statements().count(), 1);
-    /// let stmt = source_file.statements().next().unwrap();
-    /// let Stmt::For(f) = stmt else {
-    ///     panic!("expected for")
-    /// };
-    /// assert!(matches!(
-    ///     f.initialiser().unwrap().kind(),
-    ///     Some(ForInitialiserKind::LocalVariableDeclaration(_))
-    /// ));
-    /// assert!(matches!(
-    ///     f.condition().unwrap().expression(),
-    ///     Some(Expr::Binary(_))
-    /// ));
-    /// assert!(matches!(
-    ///     f.increment().unwrap().expression(),
-    ///     Some(Expr::PostfixUpdate(_))
-    /// ));
-    /// assert!(matches!(
-    ///     f.body(),
-    ///     Some(Stmt::Block(_))
-    /// ));
-    /// ```
-    ///
-    /// ```
-    /// use sq_3_parser::ast::*;
-    /// use sq_3_parser::*;
-    /// let source = "for (;;);";
-    ///
-    /// let parse = Parse::new(source);
-    /// assert!(parse.errors().is_empty());
-    /// let source_file = parse.source_file();
-    /// assert_eq!(source_file.statements().count(), 1);
-    /// let stmt = source_file.statements().next().unwrap();
-    /// let Stmt::For(f) = stmt else {
-    ///     panic!("expected for")
-    /// };
-    /// assert!(f.initialiser().is_none());
-    /// assert!(f.condition().is_none());
-    /// assert!(f.increment().is_none());
-    /// assert!(matches!(
-    ///     f.body(),
-    ///     Some(Stmt::Empty(_))
-    /// ));
-    /// ```
+    // for (local function a(){}; a != null; i++) { break }
     fn parse_for_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ForKeyword);
@@ -1601,32 +1522,35 @@ impl Parser {
 
     fn parse_for_initialiser(&mut self) {
         self.expect(SyntaxKind::OpenParenthesis);
-        if !self.try_bump(SyntaxKind::Semicolon) {
-            let m = self.start();
-            if self.at(SyntaxKind::LocalKeyword) {
-                self.parse_local_statement();
-            } else if self.at_set(EXPRESSIONS) {
-                self.parse_comma_expression();
-            } else {
-                self.error_with_recovery("expression, 'local' or ';'", STATEMENT_OR_EXPRESSION);
-                self.drop(m);
-                return;
-            }
-
-            self.finish(m, SyntaxKind::ForInitialiser);
-            self.expect(SyntaxKind::Semicolon);
+        if self.try_bump(SyntaxKind::Semicolon) {
+            return;
         }
+
+        let m = self.start();
+        if self.at(SyntaxKind::LocalKeyword) {
+            self.parse_local_statement();
+        } else if self.at_set(EXPRESSIONS) {
+            // Guaranteed to parse
+            self.parse_comma_expression(STATEMENT);
+        } else {
+            self.error_with_recovery("expression, 'local' or ';'", STATEMENT_OR_CLOSE_PARENTHESIS);
+            self.drop(m);
+            return;
+        }
+
+        self.finish(m, SyntaxKind::ForInitialiser);
+        self.expect(SyntaxKind::Semicolon);
     }
 
     fn parse_for_condition(&mut self) {
         if !self.try_bump(SyntaxKind::Semicolon) {
             if self.at_set(EXPRESSIONS) {
                 let m = self.start();
-                self.parse_comma_expression();
+                self.parse_comma_expression(STATEMENT);
                 self.finish(m, SyntaxKind::ForCondition);
                 self.expect(SyntaxKind::Semicolon);
             } else {
-                self.error_with_recovery("expression or ';'", STATEMENT_OR_EXPRESSION);
+                self.error_with_recovery("expression or ';'", STATEMENT_OR_CLOSE_PARENTHESIS);
             }
         }
     }
@@ -1635,14 +1559,15 @@ impl Parser {
         if !self.try_bump(SyntaxKind::CloseParenthesis) {
             if self.at_set(EXPRESSIONS) {
                 let m = self.start();
-                self.parse_comma_expression();
+                self.parse_comma_expression(STATEMENT);
                 self.finish(m, SyntaxKind::ForIncrement);
                 self.expect(SyntaxKind::CloseParenthesis);
             } else {
-                self.error_with_recovery("expression or ')'", STATEMENT_OR_EXPRESSION);
+                self.error_with_recovery("expression or ')'", STATEMENT);
             }
         }
     }
+
     // foreach (v in array) { continue }
     // foreach (k, v in table) { letsgo++ }
     fn parse_for_each_statement(&mut self) {
@@ -1651,37 +1576,48 @@ impl Parser {
 
         self.expect(SyntaxKind::OpenParenthesis);
 
-        // This needs to be explicit so that 'in' is not considered as identifier written with reserved keyword
-        // And is not bumped over
-        let key_or_value = self.start();
-        let name = self.parse_name("key's or value's name", Some(STATEMENT_OR_EXPRESSION));
+        let key_or_value_name = self.parse_name("key's or value's name", FOREACH_RECOVERY);
 
         if self.at_set(SEPARATORS) {
-            self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachKey);
+            if let Some(name) = key_or_value_name {
+                self.precede(name);
+                self.finish(name, SyntaxKind::ForeachKey);
+            }
+
             self.parse_proper_or_error(
                 SyntaxKind::Comma,
                 "Expected ',' to separate key and value".to_owned(),
             );
 
-            let value = self.start();
-            let name = self.parse_name("value's name", Some(STATEMENT_OR_EXPRESSION));
-            self.finish_wrapper_or_drop(value, name, SyntaxKind::ForeachValue);
+            let value_name = self.parse_name("value's name", FOREACH_RECOVERY);
+            if let Some(name) = value_name {
+                self.precede(name);
+                self.finish(name, SyntaxKind::ForeachValue);
+            }
 
             self.expect(SyntaxKind::InKeyword);
             // foreach (k v in ...)
         } else if self.at_set(NAME) {
-            self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachKey);
+            if let Some(name) = key_or_value_name {
+                self.precede(name);
+                self.finish(name, SyntaxKind::ForeachKey);
+            }
 
             self.error_at_token("Expected ',' to separate key and value".to_owned());
+            let value = self.start();
             self.parse_guaranteed_name();
+            self.finish(value, SyntaxKind::ForeachValue);
 
             self.expect(SyntaxKind::InKeyword);
         } else {
-            self.finish_wrapper_or_drop(key_or_value, name, SyntaxKind::ForeachValue);
+            if let Some(name) = key_or_value_name {
+                self.precede(name);
+                self.finish(name, SyntaxKind::ForeachValue);
+            }
             self.expect_with_message(SyntaxKind::InKeyword, "',' or 'in'");
         };
 
-        self.parse_expression();
+        self.parse_expression(STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
 
         self.parse_statement(/* parse_end */ false);
@@ -1694,7 +1630,7 @@ impl Parser {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::SwitchKeyword);
         self.expect(SyntaxKind::OpenParenthesis);
-        self.parse_expression();
+        self.parse_expression(STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
 
         self.expect(SyntaxKind::OpenBrace);
@@ -1703,12 +1639,8 @@ impl Parser {
                 SyntaxKind::CaseKeyword => {
                     let m = self.start();
                     self.expect_or_panic(SyntaxKind::CaseKeyword);
-                    if self.at(SyntaxKind::Colon) {
-                        self.error_and_advance(self.expected_but_got("expression"));
-                    } else {
-                        self.parse_expression();
-                        self.expect(SyntaxKind::Colon);
-                    }
+                    self.parse_expression(STATEMENT_OR_COLON);
+                    self.expect(SyntaxKind::Colon);
                     self.parse_case_body();
                     self.finish(m, SyntaxKind::CaseClause);
                 }
@@ -1757,14 +1689,14 @@ impl Parser {
             VariableDeclaration::Parameter => PARAMETER_RECOVERY,
             VariableDeclaration::Catch => CATCH_RECOVERY,
         };
-        self.parse_name(message, Some(recovery));
+        self.parse_name(message, recovery);
         if self.at_set(INIT_OPERATORS) {
             if kind == VariableDeclaration::Catch {
                 // We parse it anyways for better recovery
                 // Perhaps it shouldn't omit errors for parse_expression to not be misleading?
                 let err = self.start();
                 self.error_and_advance("Assignment is not allowed here".to_owned());
-                self.parse_expression();
+                self.parse_expression(recovery);
                 self.finish(err, SyntaxKind::Error);
             } else {
                 let m = self.start();
@@ -1772,13 +1704,13 @@ impl Parser {
                     SyntaxKind::Equals,
                     "Expected '=' for initialisation".to_owned(),
                 );
-                self.parse_expression();
+                self.parse_expression(recovery);
                 self.finish(m, SyntaxKind::Initialiser);
             }
         } else if self.at_set(EXPRESSIONS) {
             let m = self.start();
             self.error_at_token("Expected '=' before expression".to_owned());
-            self.parse_expression();
+            self.parse_expression(recovery);
             self.finish(m, SyntaxKind::Initialiser);
         }
 
@@ -1794,7 +1726,7 @@ impl Parser {
         if self.at(SyntaxKind::FunctionKeyword) {
             self.expect_or_panic(SyntaxKind::FunctionKeyword);
 
-            self.parse_name("function's name", Some(FUNCTION_NAME_RECOVERY));
+            self.parse_name("function's name", FUNCTION_NAME_RECOVERY);
             if self.at_set(NAME_QUALIFIER) {
                 self.error_and_advance(
                     "Name qualification is only allowed for function statements.".to_owned(),
@@ -1815,13 +1747,39 @@ impl Parser {
         self.finish(m, SyntaxKind::LocalVariableDeclaration);
     }
 
-    // const can only take literals as value since it needs to be known at
-    // compile time, this however isn't handled here
-    // const
+    /// Parsing end of the statement here is not an oversight, this
+    /// is to mirror the compiler behaviour. Why does the compiler
+    /// do it? Because it's a squirrel language
+    /// Consider the follwing:
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "local a = {function a() const abc = 1;}";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(parse.errors().is_empty());
+    /// ```
+    /// This compiles fine without errors since semicolon in parsed by the const statement,
+    ///
+    /// However this
+    /// ```
+    /// use sq_3_parser::ast::*;
+    /// use sq_3_parser::*;
+    /// let source = "local a = {function a() foreach (k, v in this) 0;}";
+    ///
+    /// let parse = Parse::new(source);
+    /// assert!(!parse.errors().is_empty());
+    /// ```
+    /// Gives a compiler error since the semicolon is not parsed by the while statement
+    /// Normally only parse_source_file or parse_block_statement should use parse_end,
+    /// But it's squirrel so what can you do
+    ///
+    /// const can only take literals as value since it needs to be known at
+    /// compile time, this however is handled in
     fn parse_const_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ConstKeyword);
-        self.parse_name("constant's name", Some(VARIABLE_RECOVERY));
+        self.parse_name("constant's name", VARIABLE_RECOVERY);
 
         if self.at_set(INIT_OPERATORS) {
             let m = self.start();
@@ -1829,12 +1787,12 @@ impl Parser {
                 SyntaxKind::Equals,
                 "Expected '=' for initialisation".to_owned(),
             );
-            self.parse_expression();
+            self.parse_expression(STATEMENT_WITH_SEMICOLON);
             self.finish(m, SyntaxKind::Initialiser);
         } else if self.at_set(EXPRESSIONS) {
             let m = self.start();
             self.error_at_token("Expected '=' before expression".to_owned());
-            self.parse_expression();
+            self.parse_expression(STATEMENT_WITH_SEMICOLON);
             self.finish(m, SyntaxKind::Initialiser);
         }
 
@@ -1850,7 +1808,7 @@ impl Parser {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ReturnKeyword);
         if !self.can_parse_end_of_statement() {
-            self.parse_comma_expression();
+            self.parse_comma_expression(STATEMENT);
         }
 
         self.finish(m, SyntaxKind::ReturnStatement);
@@ -1862,7 +1820,7 @@ impl Parser {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::YieldKeyword);
         if !self.can_parse_end_of_statement() {
-            self.parse_comma_expression();
+            self.parse_comma_expression(STATEMENT_WITH_SEMICOLON);
         }
 
         self.finish(m, SyntaxKind::YieldStatement);
@@ -1898,9 +1856,9 @@ impl Parser {
     //          _______
     fn parse_qualified_name(&mut self) -> Marker {
         let m = self.start();
-        let name = self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
+        let name = self.parse_name("name", FUNCTION_NAME_RECOVERY);
         // Didn't parse the name
-        if !self.is_marker_valid(name) {
+        if name.is_none() {
             if !self.at_set(NAME_QUALIFIER) {
                 self.drop(m);
                 return m;
@@ -1910,7 +1868,7 @@ impl Parser {
                 SyntaxKind::ColonColon,
                 "Expected '::' to qualify a name".to_owned(),
             );
-            self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
+            self.parse_name("name", FUNCTION_NAME_RECOVERY);
         };
 
         while self.at_set(NAME_QUALIFIER) {
@@ -1918,7 +1876,7 @@ impl Parser {
                 SyntaxKind::ColonColon,
                 "Expected '::' to qualify a name".to_owned(),
             );
-            self.parse_name("name", Some(FUNCTION_NAME_RECOVERY));
+            self.parse_name("name", FUNCTION_NAME_RECOVERY);
         }
 
         self.finish(m, SyntaxKind::QualifiedName);
@@ -1929,12 +1887,16 @@ impl Parser {
     fn parse_class_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ClassKeyword);
-        let name = self.parse_expression();
-        if !self.is_lhs_expression(name) {
-            self.error(SyntaxError {
-                message: "The class name must be a variable or a property access".to_owned(),
-                range: self.marker_range(name),
-            });
+        if self.at(SyntaxKind::ExtendsKeyword) {
+            self.error_at_token("Class statement must have a name".to_owned());
+        } else {
+            let name = self.parse_expression(STATEMENT);
+            if !self.is_lhs_expression(name) {
+                self.error(SyntaxError {
+                    message: "The class name must be a variable or a property access".to_owned(),
+                    range: self.marker_range(name),
+                });
+            }
         }
         self.parse_class_body();
         self.finish(m, SyntaxKind::ClassStatement);
@@ -1945,7 +1907,7 @@ impl Parser {
     fn parse_enum_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::EnumKeyword);
-        self.parse_name("enum's name", Some(STATEMENT_OR_EXPRESSION));
+        self.parse_name("enum's name", STATEMENT_OR_EXPRESSION);
         if !self.expect(SyntaxKind::OpenBrace) {
             self.finish(m, SyntaxKind::EnumStatement);
             return;
@@ -2001,14 +1963,14 @@ impl Parser {
     fn parse_throw_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::ThrowKeyword);
-        self.parse_comma_expression();
+        self.parse_comma_expression(STATEMENT_WITH_SEMICOLON);
         self.finish(m, SyntaxKind::ThrowStatement);
     }
 
     // abc = 312 + 2
     fn parse_expression_statement(&mut self) {
         let m = self.start();
-        self.parse_comma_expression();
+        self.parse_comma_expression(STATEMENT_WITH_SEMICOLON);
         self.finish(m, SyntaxKind::ExpressionStatement);
     }
 }

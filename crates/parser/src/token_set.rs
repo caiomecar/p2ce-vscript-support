@@ -1,5 +1,8 @@
+use std::u128;
+
 use crate::cst::SyntaxKind;
 
+#[derive(Clone, Copy)]
 pub struct TokenSet(u128);
 
 impl TokenSet {
@@ -8,16 +11,6 @@ impl TokenSet {
         let mut i = 0;
         while i < kinds.len() {
             bitset |= mask(kinds[i]);
-            i += 1;
-        }
-        TokenSet(bitset)
-    }
-
-    const fn besides(kinds: &[SyntaxKind]) -> TokenSet {
-        let mut bitset = u128::MAX;
-        let mut i = 0;
-        while i < kinds.len() {
-            bitset &= !mask(kinds[i]);
             i += 1;
         }
         TokenSet(bitset)
@@ -43,6 +36,8 @@ const fn mask(kind: SyntaxKind) -> u128 {
     );
     1u128 << (kind as u16)
 }
+
+pub const EVERYTHING: TokenSet = TokenSet(u128::MAX);
 
 pub const ALWAYS_RECOVER: TokenSet = TokenSet::new(&[
     SyntaxKind::Eof,
@@ -177,11 +172,11 @@ pub const COMMON_EXPRESSION_STATEMENTS: TokenSet = TokenSet::new(&[
     SyntaxKind::ThisKeyword,
     SyntaxKind::BaseKeyword,
     SyntaxKind::RawCallKeyword,
+    SyntaxKind::FunctionKeyword,
+    SyntaxKind::ClassKeyword,
 ]);
 
-pub const STATEMENT: TokenSet = TokenSet::new(&[
-    SyntaxKind::Semicolon,
-    SyntaxKind::OpenBrace,
+pub const NON_EXPRESSION_STATEMENT: TokenSet = TokenSet::new(&[
     SyntaxKind::IfKeyword,
     SyntaxKind::WhileKeyword,
     SyntaxKind::DoKeyword,
@@ -194,15 +189,39 @@ pub const STATEMENT: TokenSet = TokenSet::new(&[
     SyntaxKind::YieldKeyword,
     SyntaxKind::ContinueKeyword,
     SyntaxKind::BreakKeyword,
-    SyntaxKind::FunctionKeyword,
-    SyntaxKind::ClassKeyword,
     SyntaxKind::EnumKeyword,
     SyntaxKind::TryKeyword,
     SyntaxKind::ThrowKeyword,
 ]);
 
-pub const STATEMENT_OR_EXPRESSION: TokenSet = EXPRESSIONS.union(STATEMENT);
-pub const COMMON_STATEMENT_OR_EXPRESSION: TokenSet = COMMON_EXPRESSION_STATEMENTS.union(STATEMENT);
+pub const STATEMENT: TokenSet = NON_EXPRESSION_STATEMENT.union(TokenSet::new(&[
+    SyntaxKind::OpenBrace,
+    SyntaxKind::FunctionKeyword,
+    SyntaxKind::ClassKeyword,
+]));
+
+pub const STATEMENT_OR_CLOSE_PARENTHESIS: TokenSet =
+    NON_EXPRESSION_STATEMENT.union(TokenSet::new(&[SyntaxKind::CloseParenthesis]));
+
+pub const STATEMENT_OR_CLOSE_BRACKET: TokenSet =
+    NON_EXPRESSION_STATEMENT.union(TokenSet::new(&[SyntaxKind::CloseBracket]));
+
+pub const STATEMENT_OR_COLON: TokenSet =
+    NON_EXPRESSION_STATEMENT.union(TokenSet::new(&[SyntaxKind::Colon]));
+
+pub const STATEMENT_OR_ATTRIBUTE: TokenSet =
+    NON_EXPRESSION_STATEMENT.union(TokenSet::new(&[SyntaxKind::LessThanSlash]));
+
+pub const STATEMENT_WITH_SEMICOLON: TokenSet =
+    STATEMENT.union(TokenSet::new(&[SyntaxKind::Semicolon]));
+
+pub const STATEMENT_OR_EXPRESSION: TokenSet = EXPRESSIONS.union(STATEMENT_WITH_SEMICOLON);
+pub const COMMON_STATEMENT_OR_EXPRESSION: TokenSet =
+    COMMON_EXPRESSION_STATEMENTS.union(STATEMENT_WITH_SEMICOLON);
+
+pub const FOREACH_RECOVERY: TokenSet = STATEMENT_OR_EXPRESSION
+    .union(SEPARATORS)
+    .union(TokenSet::new(&[SyntaxKind::CloseParenthesis]));
 
 pub const VARIABLE_RECOVERY: TokenSet = COMMON_STATEMENT_OR_EXPRESSION.union(INIT_OPERATORS);
 
@@ -272,15 +291,8 @@ pub const SWITCH_RECOVERY: TokenSet = STATEMENT_OR_EXPRESSION.union(TokenSet::ne
     SyntaxKind::DefaultKeyword,
 ]));
 
-pub const CALL_ARGUMENTS_STOP: TokenSet = STATEMENT.union(TokenSet::new(&[
+pub const CALL_ARGUMENTS_STOP: TokenSet = NON_EXPRESSION_STATEMENT.union(TokenSet::new(&[
     SyntaxKind::Eof,
     SyntaxKind::CloseParenthesis,
     SyntaxKind::CloseBrace,
 ]));
-
-pub const EXPRESSION_RECOVERY: TokenSet = TokenSet::besides(&[
-    SyntaxKind::Colon,
-    SyntaxKind::DotDotDot,
-    SyntaxKind::LessThanSlash,
-    SyntaxKind::SlashGreaterThan,
-]);
