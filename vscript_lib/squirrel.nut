@@ -1,3 +1,9 @@
+/**
+ * Squirrel Standard Library Signatures
+ * Generated from https://wiki.teamfortress.com/wiki/Team_Fortress_2/Scripting/Script_Functions
+ * @allow_unused
+ */
+
 const _charsize_ = 1;
 const _floatsize_ = 4;
 const _intsize_ = 8;
@@ -34,7 +40,7 @@ function collectgarbage();
 /**
  * Compiles a string containing a squirrel script into a function and returns it.
  * @param {string} code
- * @param {string} buffer_name
+ * @param {string|null} buffer_name
  * @returns {function}
  */
 function compilestring(code, buffer_name = null);
@@ -72,7 +78,7 @@ function getroottable();
 /**
  * Returns the stack frame information at the given stack level. 0 is the current function, 1 is the caller and so on. Returns null if the stack level doesn't exist.
  * @param {integer} level
- * @returns {table}
+ * @returns {table|null}
  */
 function getstackinfos(level);
 
@@ -103,7 +109,7 @@ function setdebughook(hook_func);
 
 /**
  * Sets the runtime error handler.
- * @param {function} error_func
+ * @param {function|null} error_func
  */
 function seterrorhandler(error_func);
 
@@ -362,7 +368,7 @@ class regexp {
      * Returns an array of tables with "begin" and "end" keys for the first match and each captured sub-expression. Returns null if no match occurs.
      * @param {string} str
      * @param {integer} start
-     * @returns {table}
+     * @returns {table|null}
      */
     function capture(str, start = 0);
 
@@ -377,7 +383,7 @@ class regexp {
      * Returns a table with "begin" and "end" keys for the first match in str, or null if no match occurs.
      * @param {string} str
      * @param {integer} start
-     * @returns {table}
+     * @returns {table|null}
      */
     function search(str, start = 0);
 

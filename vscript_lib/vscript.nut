@@ -1,5 +1,8 @@
-// TF2 VScript Signatures
-// Generated from https://wiki.teamfortress.com/wiki/Team_Fortress_2/Scripting/Script_Functions
+/**
+ * TF2 VScript Signatures
+ * Generated from https://wiki.teamfortress.com/wiki/Team_Fortress_2/Scripting/Script_Functions
+ * @allow_unused
+ */
 
 
 // ============================================================
@@ -16,8 +19,8 @@ class CBaseEntity {
      * Returns false if input is a null/empty string, or if the input wasn't handled.
      * @param {string} input
      * @param {string|null} param
-     * @param {entity|null} activator
-     * @param {entity|null} caller
+     * @param {CBaseEntity|null} activator
+     * @param {CBaseEntity|null} caller
      * @returns {bool}
      */
     function AcceptInput(input, param, activator, caller);
@@ -136,7 +139,7 @@ class CBaseEntity {
 
     /**
      * Returns the most-recent entity parented to this one.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FirstMoveChild();
 
@@ -287,7 +290,7 @@ class CBaseEntity {
 
     /**
      * If in hierarchy, retrieves the entity's parent.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetMoveParent();
 
@@ -311,7 +314,7 @@ class CBaseEntity {
     /**
      * Gets this entity's owner.
      * Note: This is a wrapper for m_hOwnerEntity netprop.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetOwner();
 
@@ -339,7 +342,7 @@ class CBaseEntity {
 
     /**
      * If in hierarchy, walks up the hierarchy to find the root parent.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetRootMoveParent();
 
@@ -388,14 +391,13 @@ class CBaseEntity {
 
     /**
      * This function tells you how much of the entity is underwater.
-     * Returns 0=not underwater, 1=feet, 2=waist, 3=head.
-     * @returns {integer}
+     * @returns {integer} 0=not underwater, 1=feet, 2=waist, 3=head.
      */
     function GetWaterLevel();
 
     /**
-     * Returns the type of water the entity is currently submerged in. 32=water, 16=slime.
-     * @returns {integer}
+     * Returns the type of water the entity is currently submerged in.
+     * @returns {integer} 32=water, 16=slime.
      */
     function GetWaterType();
 
@@ -485,7 +487,7 @@ class CBaseEntity {
 
     /**
      * Returns the next entity parented with the entity.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function NextMovePeer();
 
@@ -622,7 +624,7 @@ class CBaseEntity {
     /**
      * Sets this entity's owner.
      * Note: This is a wrapper for m_hOwnerEntity netprop.
-     * @param {entity|null} entity
+     * @param {CBaseEntity|null} entity
      */
     function SetOwner(entity);
 
@@ -683,16 +685,16 @@ class CBaseEntity {
      * Deals damage to the entity.
      * @param {float} damage
      * @param {integer} damage_type - See Constants.FDmgType
-     * @param {entity} attacker
+     * @param {CBaseEntity} attacker
      */
     function TakeDamage(damage, damage_type, attacker);
 
     /**
      * Extended version of TakeDamage.
      * Note: If damage_force is Vector(0,0,0), the game will automatically calculate it.
-     * @param {entity|null} inflictor
-     * @param {entity|null} attacker
-     * @param {entity|null} weapon
+     * @param {CBaseEntity|null} inflictor
+     * @param {CBaseEntity|null} attacker
+     * @param {CBaseEntity|null} weapon
      * @param {Vector} damage_force
      * @param {Vector} damage_position
      * @param {float} damage
@@ -702,9 +704,9 @@ class CBaseEntity {
 
     /**
      * Extended version of TakeDamageEx that can apply a custom damage type.
-     * @param {entity|null} inflictor
-     * @param {entity|null} attacker
-     * @param {entity|null} weapon
+     * @param {CBaseEntity|null} inflictor
+     * @param {CBaseEntity|null} attacker
+     * @param {CBaseEntity|null} weapon
      * @param {Vector} damage_force
      * @param {Vector} damage_position
      * @param {float} damage
@@ -1212,6 +1214,47 @@ class CBaseCombatWeapon extends CBaseAnimating {
     function VisibleInWeaponSelection();
 }
 
+/**
+ * This is just multiple inheritance of CBaseCombatWeapon and CEconEntity
+ * with no additional methods added. Here it inherits CBaseCombatWeapon
+ * and copies CEconEntity methods to achieve the same result
+ * (C++ developers when codebase is so bad they have to break the rules
+ * of "clean code" OOP they promised to adhere to just to get things
+ * actually working)
+ * @extends CBaseAnimating
+ * @extends CEconEntity
+ */
+class CTFWeaponBase extends CBaseCombatWeapon {
+    /**
+     * Add an attribute to the entity. Set duration to 0 or lower for infinite duration.
+     * Note: For players use AddCustomAttribute instead.
+     * @param {string} name
+     * @param {float} value
+     * @param {float} duration
+     */
+    function AddAttribute(name, value, duration);
+
+    /**
+     * Get an attribute float from the entity. Returns default_value if not found.
+     * @param {string} name
+     * @param {float} default_value
+     * @returns {float}
+     */
+    function GetAttribute(name, default_value);
+
+    /**
+     * Remove an attribute from the entity.
+     * Note: Static attributes cannot be removed with this method.
+     * @param {string} name
+     */
+    function RemoveAttribute(name);
+
+    /**
+     * Relinks attributes to provisioners.
+     */
+    function ReapplyProvision();
+}
+
 // ============================================================
 // CBaseFlex extends CBaseAnimating
 // ============================================================
@@ -1372,7 +1415,7 @@ class CTFPlayer extends CBasePlayer {
     /**
      * @param {integer} cond - See Constants.ETFCond
      * @param {float} duration
-     * @param {entity|null} provider
+     * @param {CBaseEntity|null} provider
      */
     function AddCondEx(cond, duration, provider);
 
@@ -1502,7 +1545,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Equips a wearable on the viewmodel.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      */
     function EquipWearableViewModel(entity);
 
@@ -1534,7 +1577,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Get the player's current weapon.
-     * @returns {CTFWeapon|null}
+     * @returns {CTFWeaponBase}
      */
     function GetActiveWeapon();
 
@@ -1622,7 +1665,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * What entity is the player grappling?
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetGrapplingHookTarget();
 
@@ -1638,7 +1681,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Who is the medic healing?
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetHealTarget();
 
@@ -1659,7 +1702,7 @@ class CTFPlayer extends CBasePlayer {
     function GetKillAssists();
 
     /**
-     * @returns {CTFWeapon|null}
+     * @returns {CTFWeaponBase|null}
      */
     function GetLastWeapon();
 
@@ -2043,7 +2086,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Set the player's target grapple entity.
-     * @param {entity|null} entity
+     * @param {CBaseEntity|null} entity
      * @param {bool} bleed
      */
     function SetGrapplingHookTarget(entity, bleed);
@@ -2130,7 +2173,7 @@ class CTFPlayer extends CBasePlayer {
      * @param {float} duration
      * @param {float} move_speed_reduction
      * @param {integer} flags - See Constants.TF_STUN
-     * @param {entity|null} attacker
+     * @param {CBaseEntity|null} attacker
      */
     function StunPlayer(duration, move_speed_reduction, flags, attacker);
 
@@ -2159,19 +2202,19 @@ class CTFPlayer extends CBasePlayer {
     function WasInCond(cond);
 
     /**
-     * @param {CTFWeapon} weapon
+     * @param {CTFWeaponBase} weapon
      * @returns {bool}
      */
     function Weapon_CanUse(weapon);
 
     /**
      * Equips a weapon in the player. Places it inside the m_hMyWeapons array.
-     * @param {CTFWeapon} weapon
+     * @param {CTFWeaponBase} weapon
      */
     function Weapon_Equip(weapon);
 
     /**
-     * @param {CTFWeapon} weapon
+     * @param {CTFWeaponBase} weapon
      */
     function Weapon_SetLast(weapon);
 
@@ -2183,7 +2226,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Attempts a switch to the given weapon, if present in the player's inventory.
-     * @param {CTFWeapon} weapon
+     * @param {CTFWeaponBase} weapon
      */
     function Weapon_Switch(weapon);
 }
@@ -2196,6 +2239,7 @@ class CTFPlayer extends CBasePlayer {
  * Script handle class for bot-controlled players (tf_bot).
  * Note: Puppet bots do NOT inherit from this class.
  * @extends CTFPlayer
+ * @extends NextBotCombatCharacter
  */
 class CTFBot extends CTFPlayer {
     /**
@@ -2244,7 +2288,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Notice the threat after a delay in seconds.
-     * @param {entity} threat
+     * @param {CBaseEntity} threat
      * @param {float} delay
      */
     function DelayedThreatNotice(threat, delay);
@@ -2269,7 +2313,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Get the given action point for this bot.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetActionPoint();
 
@@ -2305,13 +2349,13 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Get this bot's current mission target.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetMissionTarget();
 
     /**
      * Gets the nearest known sappable target.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetNearestKnownSappableTarget();
 
@@ -2379,7 +2423,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Is our attention focused on this entity.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @returns {bool}
      */
     function IsAttentionFocusedOn(entity);
@@ -2412,7 +2456,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Checks if the given weapon is restricted for use on the bot.
-     * @param {entity} weapon
+     * @param {CBaseEntity} weapon
      * @returns {bool}
      */
     function IsWeaponRestricted(weapon);
@@ -2457,13 +2501,13 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Set the given action point for this bot.
-     * @param {entity|null} entity
+     * @param {CBaseEntity|null} entity
      */
     function SetActionPoint(entity);
 
     /**
      * Sets our current attention focus to this entity.
-     * @param {entity|null} entity
+     * @param {CBaseEntity|null} entity
      */
     function SetAttentionFocus(entity);
 
@@ -2507,7 +2551,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Set this bot's mission target to the given entity.
-     * @param {entity|null} entity
+     * @param {CBaseEntity|null} entity
      */
     function SetMissionTarget(entity);
 
@@ -2550,6 +2594,95 @@ class CTFBot extends CTFPlayer {
     /**
      */
     function UpdateDelayedThreatNotices();
+
+
+    // Another multiple inheritance
+    // From NextBotCombatCharacter
+    /**
+     * Clear immobile status.
+     */
+    function ClearImmobileStatus();
+
+    /**
+     * Flag this bot for update.
+     * Tip: Use in think function to update nextbots faster than nb_update_frequency.
+     * @param {bool} toggle
+     */
+    function FlagForUpdate(toggle);
+
+    /**
+     * Get this bot's body interface.
+     * @returns {INextBotComponent}
+     */
+    function GetBodyInterface();
+
+    /**
+     * Get this bot's id.
+     * @returns {integer}
+     */
+    function GetBotId();
+
+    /**
+     * How long have we been immobile.
+     * @returns {float}
+     */
+    function GetImmobileDuration();
+
+    /**
+     * Return units/second below which this actor is considered immobile.
+     * @returns {float}
+     */
+    function GetImmobileSpeedThreshold();
+
+    /**
+     * Get this bot's intention interface.
+     * @returns {INextBotComponent}
+     */
+    function GetIntentionInterface();
+
+    /**
+     * Get this bot's locomotion interface.
+     * @returns {ILocomotion}
+     */
+    function GetLocomotionInterface();
+
+    /**
+     * Get last update tick.
+     * @returns {integer}
+     */
+    function GetTickLastUpdate();
+
+    /**
+     * Get this bot's vision interface.
+     * @returns {INextBotComponent}
+     */
+    function GetVisionInterface();
+
+    /**
+     * Return true if given entity is our enemy.
+     * @param {entity} entity
+     * @returns {bool}
+     */
+    function IsEnemy(entity);
+
+    /**
+     * Is this bot flagged for update.
+     * @returns {bool}
+     */
+    function IsFlaggedForUpdate();
+
+    /**
+     * Return true if given entity is our friend.
+     * @param {entity} entity
+     * @returns {bool}
+     */
+    function IsFriend(entity);
+
+    /**
+     * Return true if we haven't moved in awhile.
+     * @returns {bool}
+     */
+    function IsImmobile();
 }
 
 // ============================================================
@@ -2644,21 +2777,21 @@ class CEntities {
     /**
      * Creates an entity by classname. Returns null if no entity type could be inferred.
      * @param {string} classname
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function CreateByClassname(classname);
 
     /**
      * Dispatches spawn of an entity. Use this on entities created via CreateByClassname.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      */
     function DispatchSpawn(entity);
 
     /**
      * Find entities by classname. Pass null to start, or previous entity to continue.
-     * @param {entity|null} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} classname
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByClassname(previous, classname);
 
@@ -2667,33 +2800,33 @@ class CEntities {
      * @param {string} classname
      * @param {Vector} center
      * @param {float} radius
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByClassnameNearest(classname, center, radius);
 
     /**
      * Find entities by classname within a radius. Pass null to start, or previous to continue.
-     * @param {entity|null} previous
+     * @param {CBasentity|null} previous
      * @param {string} classname
      * @param {Vector} center
      * @param {float} radius
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByClassnameWithin(previous, classname, center, radius);
 
     /**
      * Find entities by model keyvalue. Pass null to start, or previous to continue.
-     * @param {entity|null} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} model_name
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByModel(previous, model_name);
 
     /**
      * Find entities by targetname keyvalue. Pass null to start, or previous to continue.
-     * @param {entity|null} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} targetname
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByName(previous, targetname);
 
@@ -2702,34 +2835,34 @@ class CEntities {
      * @param {string} targetname
      * @param {Vector} center
      * @param {float} radius
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByNameNearest(targetname, center, radius);
 
     /**
      * Find entities by targetname within a radius. Pass null to start, or previous to continue.
-     * @param {entity|null} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} targetname
      * @param {Vector} center
      * @param {float} radius
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByNameWithin(previous, targetname, center, radius);
 
     /**
      * Find entities by their target keyvalue. Pass null to start, or previous to continue.
-     * @param {entity|null} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} target
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindByTarget(previous, target);
 
     /**
      * Find entities within a radius. Pass null to start, or previous to continue.
-     * @param {entity|null} previous
+     * @param {CBaseEntity|null} previous
      * @param {Vector} center
      * @param {float} radius
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindInSphere(previous, center, radius);
 
@@ -2741,8 +2874,8 @@ class CEntities {
 
     /**
      * Returns the next entity after the given one in the list.
-     * @param {entity|null} previous
-     * @returns {entity|null}
+     * @param {CBaseEntity} previous
+     * @returns {CBaseEntity|null}
      */
     function Next(previous);
 }
@@ -3015,7 +3148,7 @@ class CTFNavArea {
 
     /**
      * Return true if this area is connected to other area in given direction.
-     * @param {entity} area
+     * @param {CBaseEntity} area
      * @param {integer} dir - See Constants.ENavDirType
      * @returns {bool}
      */
@@ -3023,7 +3156,7 @@ class CTFNavArea {
 
     /**
      * Return true if this area and given area are approximately co-planar.
-     * @param {entity} area
+     * @param {CBaseEntity} area
      * @returns {bool}
      */
     function IsCoplanar(area);
@@ -3055,7 +3188,7 @@ class CTFNavArea {
 
     /**
      * Return true if 'area' overlaps our 2D extents.
-     * @param {entity} area
+     * @param {CBaseEntity} area
      * @returns {bool}
      */
     function IsOverlapping(area);
@@ -3157,7 +3290,7 @@ class CTFNavArea {
 
     /**
      * Set place name. Pass null to clear.
-     * @param {string|null} name
+     * @param {string} name
      */
     function SetPlaceName(name);
 
@@ -3191,7 +3324,7 @@ class CNavMesh {
 
     /**
      * Fills a passed in table of all nav areas.
-     * @param {table} result
+     * @param {table} result - Resulting shape: {"area0": CTFNavArea, "area1": CTFNavArea, ...}
      */
     function GetAllAreas(result);
 
@@ -3247,7 +3380,7 @@ class CNavMesh {
 
     /**
      * Fills passed in table with areas overlapping entity's extent.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {table} result
      */
     function GetNavAreasOverlappingEntityExtent(entity, result);
@@ -3291,13 +3424,13 @@ class CNavMesh {
 
     /**
      * Registers avoidance obstacle.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      */
     function RegisterAvoidanceObstacle(entity);
 
     /**
      * Unregisters avoidance obstacle.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      */
     function UnregisterAvoidanceObstacle(entity);
 }
@@ -3312,7 +3445,7 @@ class CNavMesh {
 class CNetPropManager {
     /**
      * Returns the size of a netprop array, or -1.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {integer}
      */
@@ -3320,24 +3453,24 @@ class CNetPropManager {
 
     /**
      * Reads an EHANDLE-valued netprop. Returns null if property is not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetPropEntity(entity, property_name);
 
     /**
      * Reads an EHANDLE-valued netprop from an array. Returns null if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} array_element
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetPropEntityArray(entity, property_name, array_element);
 
     /**
      * Reads a boolean-valued netprop. Returns false if property is not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {bool}
      */
@@ -3345,7 +3478,7 @@ class CNetPropManager {
 
     /**
      * Reads a boolean-valued netprop from an array. Returns false if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} array_element
      * @returns {bool}
@@ -3354,7 +3487,7 @@ class CNetPropManager {
 
     /**
      * Reads a float-valued netprop. Returns -1.0 if property is not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {float}
      */
@@ -3362,7 +3495,7 @@ class CNetPropManager {
 
     /**
      * Reads a float-valued netprop from an array. Returns -1.0 if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} array_element
      * @returns {float}
@@ -3371,7 +3504,7 @@ class CNetPropManager {
 
     /**
      * Fills in a passed table with property info for the provided entity.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} array_element
      * @param {table} result
@@ -3381,7 +3514,7 @@ class CNetPropManager {
 
     /**
      * Reads an integer-valued netprop. Returns -1 if property is not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {integer}
      */
@@ -3389,7 +3522,7 @@ class CNetPropManager {
 
     /**
      * Reads an integer-valued netprop from an array. Returns -1 if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} array_element
      * @returns {integer}
@@ -3398,7 +3531,7 @@ class CNetPropManager {
 
     /**
      * Reads a string-valued netprop. Returns empty string if property is not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {string}
      */
@@ -3406,7 +3539,7 @@ class CNetPropManager {
 
     /**
      * Reads a string-valued netprop from an array. Returns empty string if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} array_element
      * @returns {string}
@@ -3415,7 +3548,7 @@ class CNetPropManager {
 
     /**
      * Returns the name of the netprop type as a string. Returns null if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {string|null}
      */
@@ -3423,7 +3556,7 @@ class CNetPropManager {
 
     /**
      * Reads a 3D vector-valued netprop. Returns empty vector if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {Vector}
      */
@@ -3431,7 +3564,7 @@ class CNetPropManager {
 
     /**
      * Reads a 3D vector-valued netprop from an array. Returns empty vector if not found.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} array_element
      * @returns {Vector}
@@ -3440,7 +3573,7 @@ class CNetPropManager {
 
     /**
      * Fills in a passed table with all props of a specified type (0=SendTable, 1=DataMap).
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {integer} prop_type
      * @param {table} result
      */
@@ -3448,7 +3581,7 @@ class CNetPropManager {
 
     /**
      * Checks if a netprop exists.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @returns {bool}
      */
@@ -3456,7 +3589,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop to the specified boolean.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {bool} value
      */
@@ -3464,7 +3597,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop from an array to the specified boolean.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {bool} value
      * @param {integer} array_element
@@ -3473,24 +3606,24 @@ class CNetPropManager {
 
     /**
      * Sets an EHANDLE-valued netprop to reference the specified entity.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
-     * @param {entity|null} value
+     * @param {CBaseEntity|null} value
      */
     function SetPropEntity(entity, property_name, value);
 
     /**
      * Sets an EHANDLE-valued netprop from an array to reference the specified entity.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
-     * @param {entity|null} value
+     * @param {CBaseEntity|null} value
      * @param {integer} array_element
      */
     function SetPropEntityArray(entity, property_name, value, array_element);
 
     /**
      * Sets a netprop to the specified float.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {float} value
      */
@@ -3498,7 +3631,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop from an array to the specified float.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {float} value
      * @param {integer} array_element
@@ -3508,7 +3641,7 @@ class CNetPropManager {
     /**
      * Sets a netprop to the specified integer.
      * Warning: Do not override m_iTeamNum netprops on players or Engineer buildings permanently.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} value
      */
@@ -3516,7 +3649,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop from an array to the specified integer.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {integer} value
      * @param {integer} array_element
@@ -3525,7 +3658,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop to the specified string.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {string|null} value
      */
@@ -3533,7 +3666,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop from an array to the specified string.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {string|null} value
      * @param {integer} array_element
@@ -3542,7 +3675,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop to the specified vector.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {Vector} value
      */
@@ -3550,7 +3683,7 @@ class CNetPropManager {
 
     /**
      * Sets a netprop from an array to the specified vector.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} property_name
      * @param {Vector} value
      * @param {integer} array_element
@@ -3568,7 +3701,7 @@ class CNetPropManager {
 class CScriptEntityOutputs {
     /**
      * Adds a new output to the entity.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} output_name
      * @param {string} targetname
      * @param {string} input_name
@@ -3580,7 +3713,7 @@ class CScriptEntityOutputs {
 
     /**
      * Returns the number of array elements.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} output_name
      * @returns {integer}
      */
@@ -3588,7 +3721,7 @@ class CScriptEntityOutputs {
 
     /**
      * Fills the passed table with output information.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} output_name
      * @param {table} result
      * @param {integer} array_element
@@ -3597,7 +3730,7 @@ class CScriptEntityOutputs {
 
     /**
      * Returns true if an action exists for the output.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} output_name
      * @returns {bool}
      */
@@ -3605,7 +3738,7 @@ class CScriptEntityOutputs {
 
     /**
      * Returns true if the output exists.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} output_name
      * @returns {bool}
      */
@@ -3613,7 +3746,7 @@ class CScriptEntityOutputs {
 
     /**
      * Removes an output from the entity.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {string} output_name
      * @param {string} targetname
      * @param {string} input_name
@@ -3735,7 +3868,7 @@ class CEnvEntityMaker extends CBaseEntity {
 
     /**
      * Create an entity at the location of a specified entity instance.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      */
     function SpawnEntityAtEntityOrigin(entity);
 
@@ -3795,7 +3928,7 @@ class CSceneEntity extends CBaseEntity {
     /**
      * Given an entity reference such as !target, get actual entity from scene object.
      * @param {string} reference
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function FindNamedEntity(reference);
 
@@ -3824,6 +3957,92 @@ class CSceneEntity extends CBaseEntity {
      * @param {integer} index
      */
     function RemoveBroadcastTeamTarget(index);
+}
+
+class CCallChainer {
+    /**
+     * Contains names of unprefixed functions, each with an array of functions to call.
+     * @type {table}
+     */
+    chains = null
+
+    /**
+     * Prefix that functions should have to be added into the chains table. Set by the constructor.
+     * @type {string}
+     */
+    prefix = null
+
+    /**
+     * If set, seek functions in this scope instead. Set by the constructor.
+     * @type {table|null}
+     */
+    scope = null
+
+    /**
+     * Creates a CCallChainer object that'll collect functions that have a matching prefix in the given scope.
+     * @param {string} function_prefix
+     * @param {table|null} scope
+     */
+    constructor(function_prefix, scope = null);
+
+    /**
+     * Search for all non-native functions with matching prefixes, then push them into the chains table.
+     */
+    function PostScriptExecute();
+
+    /**
+     * Find an unprefixed function name in the chains table and call it with the given arguments.
+     * @param {string} event
+     * @varargs {any}
+     * @returns {bool}
+     */
+    function Call(event, ...);
+}
+
+class CSimpleCallChainer {
+    /**
+     * All functions to be called by the Call() method.
+     * @type {array}
+     */
+    chains = null
+
+    /**
+     * If set, names of non-native functions and prefix must be an exact match. Set by the constructor.
+     * @type {bool}
+     */
+    exact_match = null
+
+    /**
+     * Prefix that functions should have to be added into the chain array. Set by the constructor.
+     * @type {string}
+     */
+    prefix = null
+
+    /**
+     * If set, seek functions in this scope instead. Set by the constructor.
+     * @type {table|null}
+     */
+    scope = null
+
+    /**
+     * Creates a CSimpleCallChainer object that'll collect functions that have a matching prefix in the given scope, unless it seek for an exact name match.
+     * @param {string} function_prefix
+     * @param {table|null} scope
+     * @param {bool} exactMatch
+     */
+    constructor(function_prefix, scope = null, exactMatch = false);
+
+    /**
+     * Begin searching for all non-native functions with matching prefixes, then push them into the chain array.
+     */
+    function PostScriptExecute();
+
+    /**
+     * Call all functions inside the chain array with the given arguments.
+     * @varargs {any}
+     * @returns {bool}
+     */
+    function Call(...);
 }
 
 // ============================================================
@@ -3897,7 +4116,7 @@ class NextBotCombatCharacter extends CBaseCombatCharacter {
 
     /**
      * Return true if given entity is our enemy.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @returns {bool}
      */
     function IsEnemy(entity);
@@ -3910,7 +4129,7 @@ class NextBotCombatCharacter extends CBaseCombatCharacter {
 
     /**
      * Return true if given entity is our friend.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @returns {bool}
      */
     function IsFriend(entity);
@@ -3975,7 +4194,7 @@ class ILocomotion extends INextBotComponent {
      * Initiate a jump to an adjacent high ledge. Returns false if climb can't start.
      * @param {Vector} goal_pos
      * @param {Vector} goal_forward
-     * @param {entity} obstacle
+     * @param {CBaseEntity} obstacle
      * @returns {bool}
      */
     function ClimbUpToLedge(goal_pos, goal_forward, obstacle);
@@ -4036,7 +4255,7 @@ class ILocomotion extends INextBotComponent {
 
     /**
      * Return the current ground entity or null if not on the ground.
-     * @returns {entity|null}
+     * @returns {CBaseEntity|null}
      */
     function GetGround();
 
@@ -4158,7 +4377,7 @@ class ILocomotion extends INextBotComponent {
 
     /**
      * Return true if given area can be used for navigation.
-     * @param {entity} area
+     * @param {CBaseEntity} area
      * @returns {bool}
      */
     function IsAreaTraversable(area);
@@ -4183,7 +4402,7 @@ class ILocomotion extends INextBotComponent {
 
     /**
      * Return true if the entity handle is traversable.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @param {bool} immediately
      * @returns {bool}
      */
@@ -4250,13 +4469,13 @@ class ILocomotion extends INextBotComponent {
 
     /**
      * Manually run the OnLandOnGround callback.
-     * @param {entity} ground
+     * @param {CBaseEntity} ground
      */
     function OnLandOnGround(ground);
 
     /**
      * Manually run the OnLeaveGround callback.
-     * @param {entity} ground
+     * @param {CBaseEntity} ground
      */
     function OnLeaveGround(ground);
 
@@ -4307,16 +4526,19 @@ class Vector {
      * @type {float}
      */
     x = null
+
     /**
      * Cartesian Y axis.
      * @type {float}
      */
     y = null
+
     /**
      * Cartesian Z axis.
      * @type {float}
      */
     z = null
+
     /**
      * Creates a new vector with the specified Cartesian coordinates.
      * @param {float} x
@@ -4324,72 +4546,85 @@ class Vector {
      * @param {float} z
      */
     constructor(x = 0.0, y = 0.0, z = 0.0);
+
     /**
      * Returns the sum of both classes's members.
-     * @param {Vector} other
+     * @param {Vector|QAngle} other
      * @returns {Vector}
      */
     function _add(other);
+
     /**
      * Returns the subtraction of both classes's members.
-     * @param {Vector} other
+     * @param {Vector|QAngle} other
      * @returns {Vector}
      */
     function _sub(other);
+
     /**
      * Returns the multiplication of a Vector against a scalar.
      * @param {float} other
      * @returns {Vector}
      */
     function _mul(other);
+
     /**
      * The vector product of two vectors. Returns a vector orthogonal to the input vectors.
      * @param {Vector} factor
      * @returns {Vector}
      */
     function Cross(factor);
+
     /**
      * The scalar product of two vectors.
      * @param {Vector} factor
      * @returns {float}
      */
     function Dot(factor);
+
     /**
      * Magnitude of the vector.
      * @returns {float}
      */
     function Length();
+
     /**
      * The magnitude of the vector squared.
      * @returns {float}
      */
     function LengthSqr();
+
     /**
      * Returns the magnitude of the vector on the x-y plane.
      * @returns {float}
      */
     function Length2D();
+
     /**
      * Returns the square of the magnitude of the vector on the x-y plane.
      * @returns {float}
      */
     function Length2DSqr();
+
     /**
      * Normalizes the vector in place and returns its length.
      * @returns {float}
      */
     function Norm();
+
     /**
      * Scales the vector magnitude.
      * @param {float} factor
      * @returns {Vector}
      */
     function Scale(factor);
+
     /**
      * Returns a string without separating commas.
      * @returns {string}
      */
     function ToKVString();
+
     /**
      * Returns a human-readable string.
      * @returns {string}
@@ -4411,16 +4646,19 @@ class QAngle {
      * @type {float}
      */
     x = null
+
     /**
      * Yaw in degrees.
      * @type {float}
      */
     y = null
+
     /**
      * Roll in degrees.
      * @type {float}
      */
     z = null
+
     /**
      * Creates a new QAngle.
      * @param {float} pitch
@@ -4428,18 +4666,21 @@ class QAngle {
      * @param {float} roll
      */
     constructor(pitch = 0.0, yaw = 0.0, roll = 0.0);
+
     /**
      * Returns the sum of both classes's members.
-     * @param {QAngle} other
+     * @param {QAngle|Vector} other
      * @returns {QAngle}
      */
     function _add(other);
+
     /**
      * Returns the subtraction of both classes's members.
-     * @param {QAngle} other
+     * @param {QAngle|Vector} other
      * @returns {QAngle}
      */
     function _sub(other);
+
     /**
      * QAngle multiplied by a number.
      * @param {float} other
@@ -4489,6 +4730,88 @@ class QAngle {
     function Yaw();
 }
 
+class Vector2D {
+    /**
+     * Creates a new 2-dimensional vector with the specified Cartesian coordiantes.
+     * @param {float} x
+     * @param {float} y
+     */
+    constructor(x = 0.0, y = 0.0);
+
+    /**
+     * The scalar product of two vectors.
+     * @param {Vector2D} factor
+     * @returns {float}
+     */
+    function Dot(factor);
+
+    /**
+     * Magnitude of the vector.
+     * @returns {float}
+     */
+    function Length();
+
+    /**
+     * The magnitude of the vector squared.
+     * @returns {float}
+     */
+    function LengthSqr();
+
+    /**
+     * Normalizes the vector in place and returns its length.
+     * @returns {float}
+     */
+    function Norm();
+
+    /**
+     * Returns a string without separating commas.
+     * @returns {string}
+     */
+    function ToKVString();
+}
+
+class Vector4D {
+    /**
+     * Creates a new 2-dimensional vector with the specified Cartesian coordiantes.
+     * @param {float} x
+     * @param {float} y
+     * @param {float} z
+     * @param {float} w
+     */
+    constructor(x = 0.0, y = 0.0, z = 0.0, w = 0.0);
+
+    /**
+     * The scalar product of two vectors.
+     * @param {Vector4D} factor
+     * @returns {float}
+     */
+    function Dot(factor);
+
+    /**
+     * Magnitude of the vector.
+     * @returns {float}
+     */
+    function Length();
+
+    /**
+     * The magnitude of the vector squared.
+     * @returns {float}
+     */
+    function LengthSqr();
+
+    /**
+     * Normalizes the vector in place and returns its length.
+     * @returns {float}
+     */
+    function Norm();
+
+    /**
+     * Returns a string without separating commas.
+     * @returns {string}
+     */
+    function ToKVString();
+}
+
 // ============================================================
 // Quaternion (Data Type)
 // ============================================================
@@ -4502,41 +4825,72 @@ class Quaternion {
      * @type {float}
      */
     x = null
+
     /**
      * Vector component along the j axis.
      * @type {float}
      */
     y = null
+
     /**
      * Vector component along the k axis.
      * @type {float}
      */
     z = null
+
     /**
      * Scalar part.
      * @type {float}
      */
     w = null
+
     /**
-     * Creates a new identity quaternion (0, 0, 0, 1).
+     * No parameters: creates a new identity quaternion (0, 0, 0, 1).
+     * Otherwise: creates a new quaternion of the form w + xi + yj + zk.
+     * @param {float} x
+     * @param {float} y
+     * @param {float} z
+     * @param {float} w
      */
-    constructor();
+    constructor(x = 0.0, y = 0.0, z = 0.0, w = 0.0);
+
+    /**
+     * @param {Quaternion} other
+     * @returns {Quaternion}
+     */
+    function _add(other);
+
+    /**
+     * @param {Quaternion} other
+     * @returns {Quaternion}
+     */
+    function _sub(other);
+
+    /**
+     * @param {float} other
+     * @returns {Quaternion}
+     */
+    function _mul(other);
+
     /**
      * The 4D scalar product of two quaternions.
      * @param {Quaternion} factor
      * @returns {float}
      */
     function Dot(factor);
+
     /**
      * Returns a quaternion with the complementary rotation.
      * @returns {Quaternion}
      */
     function Invert();
+
     /**
      * Normalizes the quaternion.
      * @returns {float}
      */
     function Norm();
+
     /**
      * Recomputes the quaternion from the supplied Euler angles.
      * @param {float} pitch
@@ -4544,11 +4898,13 @@ class Quaternion {
      * @param {float} roll
      */
     function SetPitchYawRoll(pitch, yaw, roll);
+
     /**
      * Returns a string with the values separated by one space.
      * @returns {string}
      */
     function ToKVString();
+
     /**
      * Returns the angles resulting from the rotation.
      * @returns {QAngle}
@@ -4567,7 +4923,7 @@ class Quaternion {
  * TF2 runs at 66 ticks per second, so the lowest possible interval is 0.015 seconds.
  * Return -1 to think every tick.
  * The highest interval where all clients will interpolate entities is 0.05 (20 times per second).
- * @param {entity} entity
+ * @param {CBaseEntity} entity
  * @param {string|null} function_name
  */
 function AddThinkToEnt(entity, function_name);
@@ -4618,27 +4974,35 @@ function developer();
 function DispatchParticleEffect(name, origin, direction);
 
 /**
+ * @param {any} symbol_or_table
+ * @param {any} item_if_symbol
+ * @param {string|null} description_if_symbol
+ */
+function Document(symbol_or_table, item_if_symbol = null, description_if_symbol = null)
+
+/**
  * Generate an entity I/O event.
  * @param {string} target
  * @param {string} action
  * @param {string|null} value
  * @param {float} delay
- * @param {entity|null} activator
- * @param {entity|null} caller
+ * @param {CBaseEntity|null} activator
+ * @param {CBaseEntity|null} caller
  */
 function DoEntFire(target, action, value, delay, activator, caller);
 
 /**
- * Execute a script and put all its content for the argument passed to the scope parameter.
- * The file must have the .nut extension.
+ * Used internally by IncludeScript
  * @param {string} file
  * @param {table|null} scope
  * @returns {bool}
+ * @hide
  */
 function DoIncludeScript(file, scope);
 
 /**
- * Wrapper for DoIncludeScript.
+ * Execute a script and put all its content for the argument passed to the scope parameter.
+ * The file must have the .nut extension.
  * @param {string} file
  * @param {table|null} scope
  * @returns {bool}
@@ -4651,14 +5015,14 @@ function IncludeScript(file, scope = null);
  * @param {float} volume
  * @param {integer} soundlevel
  * @param {integer} pitch
- * @param {entity} entity
+ * @param {CBaseEntity} entity
  */
 function EmitAmbientSoundOn(sound_name, volume, soundlevel, pitch, entity);
 
 /**
  * Stop named sound on an entity using configurations similar to ambient_generic.
  * @param {string} sound_name
- * @param {entity} entity
+ * @param {CBaseEntity} entity
  */
 function StopAmbientSoundOn(sound_name, entity);
 
@@ -4672,14 +5036,14 @@ function EmitSoundEx(params);
  * Play named sound on given entity. The sound must be precached first.
  * Warning: Looping sounds will not stop on the entity when it's destroyed.
  * @param {string} sound_script
- * @param {entity} entity
+ * @param {CBaseEntity} entity
  */
 function EmitSoundOn(sound_script, entity);
 
 /**
  * Stop named sound on an entity.
  * @param {string} sound_script
- * @param {entity} entity
+ * @param {CBaseEntity} entity
  */
 function StopSoundOn(sound_script, entity);
 
@@ -4687,7 +5051,7 @@ function StopSoundOn(sound_script, entity);
  * Play named sound only on the client for the specified player.
  * Note: Only supports soundscripts.
  * @param {string} sound_script
- * @param {entity} player
+ * @param {CBaseEntity} player
  */
 function EmitSoundOnClient(sound_script, player);
 
@@ -4697,26 +5061,27 @@ function EmitSoundOnClient(sound_script, player);
  * @param {string} action
  * @param {string|null} value
  * @param {float} delay
- * @param {entity|null} activator
+ * @param {CBaseEntity|null} activator
  */
 function EntFire(target, action, value = null, delay = 0.0, activator = null);
 
 /**
  * Generate an entity I/O event by handle. Negative delays are clamped to 0.
  * Note: With 0 delay, processed at end of frame. Use AcceptInput for instant/synchronous I/O.
- * @param {entity} entity
+ * @param {CBaseEntity} entity
  * @param {string} action
- * @param {string} value
+ * @param {string|null} value
  * @param {float} delay
- * @param {entity} activator
- * @param {entity} caller
+ * @param {CBaseEntity|null} activator
+ * @param {CBaseEntity|null} caller
  */
 function EntFireByHandle(entity, action, value, delay, activator, caller);
+
 
 /**
  * Turn an entity index integer to an HScript representing that entity's script instance.
  * @param {integer} entindex
- * @returns {entity|null}
+ * @returns {CBaseEntity|null}
  */
 function EntIndexToHScript(entindex);
 
@@ -4766,8 +5131,8 @@ function GetFrameCount();
 /**
  * Returns a string that describes the passed in function's signature.
  * @param {function} func
- * @param {string|null} prefix
- * @returns {string}
+ * @param {string} prefix
+ * @returns {string|null}
  */
 function GetFunctionSignature(func, prefix);
 
@@ -4928,7 +5293,7 @@ function RotatePosition(origin, rotation, input);
 
 /**
  * Start a customisable screenfade. If no player is specified, applies to all players.
- * @param {CTFPlayer|null} player
+ * @param {CTFPlayer} player
  * @param {integer} red
  * @param {integer} green
  * @param {integer} blue
@@ -5001,7 +5366,7 @@ function SetSkyboxTexture(texture);
  * Spawn entity from KeyValues in table.
  * @param {string} name - Entity classname
  * @param {table} keyvalues
- * @returns {entity|null}
+ * @returns {CBaseEntity|null}
  */
 function SpawnEntityFromTable(name, keyvalues);
 
@@ -5030,7 +5395,7 @@ function Time();
  * Trace a ray. Return fraction along line that hits world or models.
  * @param {Vector} start
  * @param {Vector} end
- * @param {entity|null} ignore
+ * @param {CBaseEntity|null} ignore
  * @returns {float}
  */
 function TraceLine(start, end, ignore);
@@ -5039,7 +5404,7 @@ function TraceLine(start, end, ignore);
  * Different version of TraceLine that also hits players and NPCs.
  * @param {Vector} start
  * @param {Vector} end
- * @param {entity|null} ignore
+ * @param {CBaseEntity|null} ignore
  * @returns {float}
  */
 function TraceLinePlayersIncluded(start, end, ignore);
@@ -5066,6 +5431,14 @@ function TraceHull(params);
  * @returns {string}
  */
 function UniqueString(suffix = "");
+
+/**
+ * Internal function called by UniqueString
+ * @param {string|null} suffix
+ * @returns {string}
+ * @hide
+ */
+function DoUniqueString(suffix);
 
 /**
  * Wrapper that registers callbacks for OnGameEvent_x and OnScriptEvent_ functions.
@@ -5503,7 +5876,7 @@ function Msg(message);
 /**
  * Prints message to console with C style formatting. Line feed not included.
  * @param {string} format
- * @param args
+ * @varargs {any}
  */
 function printf(format, ...);
 
