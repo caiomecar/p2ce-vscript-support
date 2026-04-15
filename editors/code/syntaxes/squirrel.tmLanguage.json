@@ -1626,16 +1626,7 @@
       ]
     },
     "identifiers": {
-      "patterns": [
-        {
-          "name": "variable.other.constant.squirrel",
-          "match": "(?<![_A-Za-z])[_A-Z][_A-Z0-9]*\\b"
-        },
-        {
-          "name": "variable.other.squirrel",
-          "match": "(?<![_A-Za-z])[_A-Za-z]\\w*\\b"
-        }
-      ]
+      "patterns": []
     }
   },
   "scopeName": "source.squirrel"

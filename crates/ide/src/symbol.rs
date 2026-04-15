@@ -1,12 +1,16 @@
 use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
 
-use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId};
+use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId, UnionId};
 
+/// The type itself and whether it's annotated explicitly
+/// or not. (Need to use doc comment to annotate)
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
+pub struct AnnotatedType(pub Type, pub bool);
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Symbol {
     pub name: String,
-    pub typ: Type,
+    pub typ: AnnotatedType,
     pub kind: SymbolKind,
     pub name_range: TextRange,
     pub range: TextRange,
@@ -63,44 +67,12 @@ pub enum Type {
     Generator(Option<FunctionId>),
     Thread(Option<FunctionId>),
     Weakref,
+    Union(UnionId),
 }
 
-impl Type {
-    pub fn try_substitute_with(&mut self, other: Type) {
-        match (&self, other) {
-            // We want to replace null with unknown to not error out
-            (Type::Null, Type::Unknown) => *self = other,
-            (Type::Null | Type::Unknown, _) => *self = other,
-            _ => {}
-        }
-    }
-
-    pub fn merge(&self, other: Type) -> Type {
-        match (*self, other) {
-            (Type::Any | Type::Unknown | Type::Null, _) => other,
-            (_, Type::Any | Type::Unknown | Type::Null) => *self,
-
-            (Type::Integer(_), Type::Integer(_)) => Type::Integer(None),
-            (Type::Integer(_) | Type::Float(_), Type::Integer(_) | Type::Float(_)) => {
-                Type::Float(None)
-            }
-            (Type::String(_), Type::String(_)) => Type::String(None),
-            (Type::Boolean(_), Type::Boolean(_)) => Type::Boolean(None),
-            (Type::Instance(Some(self_id)), Type::Instance(Some(other_id)))
-                if self_id == other_id =>
-            {
-                other
-            }
-            (Type::Instance(_), Type::Instance(_)) => Type::Instance(None),
-            (Type::Table(_), Type::Table(_)) => Type::Table(None),
-            (Type::Class(_), Type::Class(_)) => Type::Class(None),
-            (Type::Array(_), Type::Array(_)) => Type::Array(None),
-            (Type::Function(_), Type::Function(_)) => Type::Function(None),
-            (Type::Generator(_), Type::Generator(_)) => Type::Generator(None),
-            (Type::Thread(_), Type::Thread(_)) => Type::Thread(None),
-            (Type::Weakref, Type::Weakref) => Type::Weakref,
-            (_, _) => Type::Any,
-        }
+impl Into<AnnotatedType> for Type {
+    fn into(self) -> AnnotatedType {
+        AnnotatedType(self, false)
     }
 }
 
@@ -118,6 +90,7 @@ pub enum LocalKind {
     Variable,
     Function,
     Parameter,
+    VariedArgs,
     Exception,
 }
 
@@ -128,6 +101,7 @@ pub enum PropertyKind {
     NewSlot,
     No,
     Yes,
+    Embedded,
 }
 
 impl Default for SymbolKind {
@@ -141,6 +115,134 @@ impl SymbolKind {
         match self {
             SymbolKind::Local(_) | SymbolKind::Property(_) => true,
             _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum TypeKind {
+    Unknown = 1 << 0,
+    Any = 1 << 1,
+    Integer = 1 << 2,
+    Float = 1 << 3,
+    String = 1 << 4,
+    Boolean = 1 << 5,
+    Null = 1 << 6,
+    Instance = 1 << 7,
+    Array = 1 << 8,
+    Table = 1 << 9,
+    Class = 1 << 10,
+    Enum = 1 << 11,
+    Function = 1 << 12,
+    Generator = 1 << 13,
+    Thread = 1 << 14,
+    Weakref = 1 << 15,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TypeSet(u32);
+
+impl TypeSet {
+    pub const fn new(kinds: &[TypeKind]) -> Self {
+        let mut bitset = 0u32;
+        let mut i = 0;
+        while i < kinds.len() {
+            bitset |= kinds[i] as u32;
+            i += 1;
+        }
+        Self(bitset)
+    }
+
+    pub const fn new_with_any(kinds: &[TypeKind]) -> Self {
+        let mut bitset = TypeKind::Unknown as u32 | TypeKind::Any as u32;
+        let mut i = 0;
+        while i < kinds.len() {
+            bitset |= kinds[i] as u32;
+            i += 1;
+        }
+        Self(bitset)
+    }
+
+    pub const fn from_kind(kind: TypeKind) -> Self {
+        Self(kind as u32)
+    }
+
+    pub const fn from_kind_with_any(kind: TypeKind) -> Self {
+        Self(TypeKind::Unknown as u32 | TypeKind::Any as u32 | kind as u32)
+    }
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn intersect(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
+    pub const fn contains(self, other: TypeSet) -> bool {
+        (self.0 & other.0) != 0
+    }
+
+    pub const fn are_both_numbers(first: TypeSet, second: TypeSet) -> bool {
+        TypeSet::NUMBER.contains(first) && TypeSet::NUMBER.contains(second)
+    }
+
+    pub const EMPTY: TypeSet = TypeSet::new(&[]);
+    pub const ANY: TypeSet = TypeSet::new_with_any(&[]);
+    pub const INTEGER: TypeSet = TypeSet::from_kind(TypeKind::Integer);
+    pub const NUMBER: TypeSet = TypeSet::new_with_any(&[TypeKind::Float, TypeKind::Integer]);
+    pub const STRING: TypeSet = TypeSet::from_kind_with_any(TypeKind::String);
+    pub const NULL: TypeSet = TypeSet::from_kind(TypeKind::Null);
+    pub const TABLE: TypeSet = TypeSet::from_kind(TypeKind::Table);
+    pub const INSTANCE: TypeSet = TypeSet::from_kind(TypeKind::Instance);
+
+    pub const TABLE_OR_INSTANCE: TypeSet = TypeSet::new(&[TypeKind::Table, TypeKind::Instance]);
+
+    pub const VALID_IN_LHS: TypeSet =
+        TypeSet::new_with_any(&[TypeKind::Array, TypeKind::Table, TypeKind::Class]);
+    pub const VALID_INSTANCE_OF_LHS: TypeSet = TypeSet::new_with_any(&[TypeKind::Instance]);
+    pub const VALID_INSTANCE_OF_RHS: TypeSet = TypeSet::new_with_any(&[TypeKind::Class]);
+    pub const VALID_SWITCH_DISCRIMINANT: TypeSet = TypeSet::new_with_any(&[
+        TypeKind::Null,
+        TypeKind::Float,
+        TypeKind::Integer,
+        TypeKind::Boolean,
+        TypeKind::String,
+    ]);
+    pub const CAN_COMPARE: TypeSet = TypeSet::new_with_any(&[
+        TypeKind::Null,
+        TypeKind::Float,
+        TypeKind::Integer,
+        TypeKind::Boolean,
+        TypeKind::String,
+        TypeKind::Table,
+        TypeKind::Instance,
+    ]);
+    pub const CAN_HAVE_UNKNOWN_MEMBERS: TypeSet =
+        TypeSet::new_with_any(&[TypeKind::Table, TypeKind::Class, TypeKind::Instance]);
+}
+
+impl Into<TypeKind> for Type {
+    fn into(self) -> TypeKind {
+        match self {
+            Type::Unknown => TypeKind::Unknown,
+            Type::Any => TypeKind::Any,
+            Type::Integer(_) => TypeKind::Integer,
+            Type::Float(_) => TypeKind::Float,
+            Type::String(_) => TypeKind::String,
+            Type::Boolean(_) => TypeKind::Boolean,
+            Type::Null => TypeKind::Null,
+            Type::Instance(_) => TypeKind::Instance,
+            Type::Array(_) => TypeKind::Array,
+            Type::Table(_) => TypeKind::Table,
+            Type::Class(_) => TypeKind::Class,
+            Type::Enum(_) => TypeKind::Enum,
+            Type::Function(_) => TypeKind::Function,
+            Type::Generator(_) => TypeKind::Generator,
+            Type::Thread(_) => TypeKind::Thread,
+            Type::Weakref => TypeKind::Weakref,
+            Type::Union(_) => unreachable!(), // handled separately
         }
     }
 }

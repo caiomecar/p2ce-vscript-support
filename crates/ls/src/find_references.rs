@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ide::{Database, FinishedFile, Source, line_index, parse, token_name_range};
+use ide::{Database, FinishedFile, Source, SymbolKind, line_index, parse, token_name_range};
 use lsp_types::{Location, ReferenceParams};
 
 use crate::conversions;
@@ -48,6 +48,10 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Result<Optio
                 uri: uri.clone(),
             });
         }
+    }
+
+    if matches!(reference.kind, SymbolKind::Local(_)) {
+        return Ok(Some(all_locations));
     }
 
     for (candidate_file, candidate_path) in db.all_files() {

@@ -172,7 +172,7 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<Com
 }
 
 fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
-    match symbol.typ {
+    match symbol.typ.0 {
         Type::Enum(_) => CompletionItemKind::ENUM,
         Type::Function(_) => CompletionItemKind::FUNCTION,
         Type::Class(_) => CompletionItemKind::CLASS,
@@ -194,7 +194,7 @@ fn modify_if_function(
 ) -> Option<(InsertTextFormat, Command)> {
     // we don't use finished_file.to_function_id since
     // we don't want () autocompletion on classes and such
-    let Type::Function(id) = symbol.typ else {
+    let Type::Function(id) = symbol.typ.0 else {
         return None;
     };
 

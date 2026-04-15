@@ -44,12 +44,12 @@ pub fn handle_signature_help(
     };
 
     let finished_file = FinishedFile::new(db, file);
-    let kind = finished_file.expr_at(callee.syntax().text_range());
+    let kind = finished_file.expr_kind_at(callee.syntax().text_range());
     let (name, typ) = match kind {
         Some(ExpressionKind::Literal(typ)) => ("".to_owned(), typ),
         Some(ExpressionKind::Symbol(id)) => {
             let symbol = finished_file.get(id);
-            (symbol.name.clone(), symbol.typ)
+            (symbol.name.clone(), symbol.typ.0)
         }
         None => return Ok(None),
     };
@@ -98,8 +98,8 @@ pub fn handle_signature_help(
 
         let param = finished_file.get(*param_id);
         label.push_str(&param.name);
-        if param.typ != Type::Unknown {
-            label.push_str(format!(": {}", finished_file.type_to_string(param.typ)).as_str());
+        if param.typ.0 != Type::Unknown {
+            label.push_str(format!(": {}", finished_file.type_to_string(param.typ.0)).as_str());
         }
 
         let end = label.len();
@@ -118,8 +118,8 @@ pub fn handle_signature_help(
         let start = label.len();
         label.push_str("...vargv");
         let symbol = finished_file.get(id);
-        if symbol.typ != Type::Unknown {
-            label.push_str(format!(": {}", finished_file.type_to_string(symbol.typ)).as_str());
+        if symbol.typ.0 != Type::Unknown {
+            label.push_str(format!(": {}", finished_file.type_to_string(symbol.typ.0)).as_str());
         }
         let end = label.len();
 
@@ -139,8 +139,8 @@ pub fn handle_signature_help(
         label.push('!');
     }
 
-    if !matches!(func.ret, Type::Unknown | Type::Null) {
-        label.push_str(format!(" -> {}", finished_file.type_to_string(func.ret)).as_str());
+    if !matches!(func.ret.0, Type::Unknown | Type::Null) {
+        label.push_str(format!(" -> {}", finished_file.type_to_string(func.ret.0)).as_str());
     }
 
     Ok(Some(SignatureHelp {

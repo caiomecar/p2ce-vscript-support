@@ -1,9 +1,10 @@
 /**
  * TF2 VScript Signatures
  * Generated from https://wiki.teamfortress.com/wiki/Team_Fortress_2/Scripting/Script_Functions
- * @allow_unused
+ * Only for reference, do not modify
+ * @native
+ * @entity
  */
-
 
 // ============================================================
 // CBaseEntity
@@ -4931,6 +4932,7 @@ function AddThinkToEnt(entity, function_name);
 /**
  * Test value and if not true, throws exception, optionally with message.
  * @param {bool} value
+ * @throws {string|null}
  * @param {string|null} optional_message
  */
 function Assert(value, optional_message = null);

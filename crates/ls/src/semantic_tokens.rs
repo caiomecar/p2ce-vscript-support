@@ -36,7 +36,11 @@ pub fn handle_semantic_tokens(
     let line_idx = line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
 
-    let mut entries: Vec<_> = finished_file.range_to_symbol().iter().collect();
+    let mut entries: Vec<_> = finished_file
+        .range_to_symbol()
+        .clone()
+        .into_iter()
+        .collect();
     entries.sort_by_key(|(range, _)| range.start());
 
     let mut tokens = Vec::new();
@@ -44,10 +48,10 @@ pub fn handle_semantic_tokens(
     let mut prev_start = 0u32;
 
     for (range, id) in entries {
-        let symbol = finished_file.get(*id);
+        let symbol = finished_file.get(id);
 
         let (token_type, modifiers) = match symbol.kind {
-            SymbolKind::Local(kind) => match symbol.typ {
+            SymbolKind::Local(kind) => match symbol.typ.0 {
                 Type::Function(_) => (TokenType::Function, TokenModifier::None),
                 Type::Class(_) => (TokenType::Class, TokenModifier::None),
                 _ => {
@@ -59,12 +63,16 @@ pub fn handle_semantic_tokens(
                 }
             },
             SymbolKind::Property(kind) => {
+                if kind == PropertyKind::Embedded && range == symbol.name_range {
+                    continue;
+                }
+
                 let modifiers = if kind == PropertyKind::Yes {
                     TokenModifier::Static
                 } else {
                     TokenModifier::None
                 };
-                match symbol.typ {
+                match symbol.typ.0 {
                     Type::Function(_) => (TokenType::Function, modifiers),
                     Type::Class(_) => (TokenType::Class, modifiers),
                     _ => (TokenType::Property, modifiers),
@@ -75,7 +83,7 @@ pub fn handle_semantic_tokens(
             SymbolKind::Constant => (TokenType::Variable, TokenModifier::Readonly),
         };
 
-        let Some(lsp_range) = conversions::range(line_idx, *range) else {
+        let Some(lsp_range) = conversions::range(line_idx, range) else {
             continue;
         };
 

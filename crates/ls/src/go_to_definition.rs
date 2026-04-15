@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse, token_name_range};
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location};
+use sq_3_parser::{TextRange, TextSize};
 
 use crate::conversions;
 
@@ -37,6 +38,10 @@ pub fn handle_go_to_definition(
     let file = id.file();
     let line_idx = line_index(db, file);
     let symbol = finished_file.get(id);
+
+    if symbol.name_range == TextRange::empty(TextSize::new(0)) {
+        return Ok(None);
+    }
 
     let Some(range) = conversions::range(line_idx, symbol.name_range) else {
         eprintln!("Couldn't convert text_range at '{uri}'");

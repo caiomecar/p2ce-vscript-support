@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use ide::{Database, FinishedFile, Source, line_index, parse, token_name_range};
+use ide::{
+    Database, FinishedFile, LocalKind, Source, SymbolKind, line_index, parse, token_name_range,
+};
 use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
 
 use crate::conversions;
@@ -32,10 +34,30 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<Works
         return Ok(None);
     };
 
+    if let SymbolKind::Local(LocalKind::VariedArgs) = finished_file.get(symbol_id).kind {
+        return Ok(None);
+    }
+
     let name = file.text(db)[range.start().into()..range.end().into()].to_string();
     let new_name = params.new_name;
 
     let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+
+    if matches!(finished_file.get(symbol_id).kind, SymbolKind::Local(_)) {
+        if let Some(ranges) = finished_file.symbol_to_ranges().get(&symbol_id) {
+            for range in ranges {
+                changes.entry(uri.clone()).or_default().push(TextEdit {
+                    range: conversions::range(line_idx, *range).unwrap(),
+                    new_text: new_name.clone(),
+                });
+            }
+        }
+
+        return Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }));
+    }
 
     for (candidate_file, candidate_path) in db.all_files() {
         let text = candidate_file.text(db);

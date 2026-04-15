@@ -6,7 +6,7 @@ use line_index::{TextRange, TextSize};
 use crate::{
     File,
     db::{Db, source_symbol},
-    symbol::{Symbol, SymbolTable, Type},
+    symbol::{AnnotatedType, Symbol, SymbolTable, Type, TypeSet},
 };
 
 pub trait ArenaId {
@@ -56,6 +56,7 @@ arena_id!(EnumId => EnumData);
 arena_id!(FunctionId => FunctionData);
 arena_id!(ArrayId => ArrayData);
 arena_id!(StringId => StringData);
+arena_id!(UnionId => UnionData);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Container {
@@ -172,19 +173,21 @@ pub struct ClassData {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct EnumData {
+    pub symbol: Option<SymbolId>,
     pub members: SymbolTable,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {
     pub range: TextRange,
-    pub ret: Type,
+    pub is_ret_explicit: bool,
+    pub ret: AnnotatedType,
     pub container: Container,
     pub bindenv: Option<Container>,
     pub params: Vec<SymbolId>,
     pub params_state: ParamsState,
-    pub yields: Option<Type>,
-    pub throws: Option<Type>,
+    pub yields: Option<AnnotatedType>,
+    pub throws: Option<AnnotatedType>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -215,6 +218,12 @@ pub struct Scope {
 }
 
 pub type ScopeId = Idx<Scope>;
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UnionData {
+    pub type_set: TypeSet,
+    pub types: Vec<Type>,
+}
 
 pub trait ArenaAlloc<T> {
     fn alloc(&mut self, value: T) -> Idx<T>;
@@ -259,6 +268,7 @@ impl_source_arena! {
     functions: FunctionData,
     arrays:    ArrayData,
     strings:   StringData,
+    unions:    UnionData,
 }
 
 impl SourceArena {

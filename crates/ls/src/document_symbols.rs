@@ -1,11 +1,9 @@
 use crate::conversions;
-use ::line_index::LineIndex;
 use anyhow::Result;
-use ide::{Database, FinishedFile, Source, Symbol, SymbolKind, Type, line_index};
+use ide::{Database, FinishedFile, PropertyKind, Source, Symbol, SymbolKind, Type, line_index};
 use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
 };
-use sq_3_parser::TextRange;
 
 pub fn handle_document_symbols(
     db: &Database,
@@ -36,15 +34,20 @@ pub fn handle_document_symbols(
             .then(b.range.len().cmp(&a.range.len()))
     });
 
-    fn build_symbol(
-        finished_file: &FinishedFile<'_>,
-        symbol: &Symbol,
-        children: Vec<DocumentSymbol>,
-        line_idx: &LineIndex,
-    ) -> Option<DocumentSymbol> {
-        let range = conversions::range(line_idx, symbol.range)?;
-        let name_range = conversions::range(line_idx, symbol.name_range)?;
-        let kind = match symbol.typ {
+    let mut stack: Vec<(&Symbol, Vec<DocumentSymbol>)> = Vec::new();
+    let mut roots = Vec::new();
+    let mut build_symbol = |stack: &mut Vec<(&Symbol, Vec<DocumentSymbol>)>,
+                            symbol: &Symbol,
+                            children: Vec<DocumentSymbol>| {
+        match symbol.kind {
+            SymbolKind::Property(PropertyKind::Embedded) => return,
+            // SymbolKind::Local(_) if stack.len() != 0 => return,
+            _ => {}
+        }
+
+        let range = conversions::range(line_idx, symbol.range).unwrap();
+        let name_range = conversions::range(line_idx, symbol.name_range).unwrap();
+        let kind = match symbol.typ.0 {
             Type::Function(_) => LspSymbolKind::FUNCTION,
             Type::Class(_) => LspSymbolKind::CLASS,
             Type::Enum(_) => LspSymbolKind::ENUM,
@@ -59,13 +62,20 @@ pub fn handle_document_symbols(
         let name = if symbol.name.len() > 0 {
             symbol.name.clone()
         } else {
-            "\"\"".to_owned()
+            "<unnamed>".to_owned()
         };
 
+        if !symbol.range.contains_range(symbol.name_range) {
+            eprintln!("'name_range' is outside of 'range'");
+            dbg!(symbol);
+            dbg!(range);
+            dbg!(name_range);
+        }
+
         #[allow(deprecated)]
-        Some(DocumentSymbol {
+        let doc_symbol = DocumentSymbol {
             name,
-            detail: Some(finished_file.type_to_string(symbol.typ)),
+            detail: Some(finished_file.type_to_string(symbol.typ.0)),
             kind,
             range,
             selection_range: name_range,
@@ -76,37 +86,28 @@ pub fn handle_document_symbols(
             },
             tags: None,
             deprecated: None,
-        })
-    }
+        };
 
-    let mut stack: Vec<(TextRange, &Symbol, Vec<DocumentSymbol>)> = Vec::new();
-    let mut roots = Vec::new();
+        if let Some((_, parent_children)) = stack.last_mut() {
+            parent_children.push(doc_symbol);
+        } else {
+            roots.push(doc_symbol);
+        }
+    };
 
     for symbol in &symbols {
-        while let Some((parent_range, _, _)) = stack.last() {
-            if parent_range.contains_range(symbol.range) {
+        while let Some((parent, _)) = stack.last() {
+            if parent.range.contains_range(symbol.range) {
                 break;
             }
-            let (_, psymbol, children) = stack.pop().unwrap();
-            if let Some(doc_sym) = build_symbol(&finished_file, psymbol, children, line_idx) {
-                if let Some((_, _, parent_children)) = stack.last_mut() {
-                    parent_children.push(doc_sym);
-                } else {
-                    roots.push(doc_sym);
-                }
-            }
+            let (psymbol, children) = stack.pop().unwrap();
+            build_symbol(&mut stack, psymbol, children);
         }
-        stack.push((symbol.range, symbol, Vec::new()));
+        stack.push((symbol, Vec::new()));
     }
 
-    while let Some((_, symbol, children)) = stack.pop() {
-        if let Some(doc_sym) = build_symbol(&finished_file, symbol, children, line_idx) {
-            if let Some((_, _, parent_children)) = stack.last_mut() {
-                parent_children.push(doc_sym);
-            } else {
-                roots.push(doc_sym);
-            }
-        }
+    while let Some((symbol, children)) = stack.pop() {
+        build_symbol(&mut stack, symbol, children);
     }
 
     Ok(Some(DocumentSymbolResponse::Nested(roots)))

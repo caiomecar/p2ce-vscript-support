@@ -19,7 +19,7 @@ use crate::{
         Db, top_const_members, top_root_members, top_source_and_const_members,
         top_source_and_root_members, top_source_members,
     },
-    symbol::{FlatSymbolTable, to_flat_symbol_table},
+    symbol::{FlatSymbolTable, TypeSet, to_flat_symbol_table},
 };
 
 pub use arena::{ArenaId, FunctionData, ParamsState, SymbolId};
@@ -51,6 +51,12 @@ pub enum ExpressionKind {
 }
 
 pub type NullableExprKind = Option<ExpressionKind>;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TypeWithRange {
+    typ: Type,
+    range: TextRange,
+}
 
 macro_rules! builtin {
     ($members:ident, $symbol:ident => $ty:ident) => {
@@ -87,6 +93,8 @@ pub enum ImportMembers {
     Const,
     Root,
 }
+
+#[derive(Debug, Clone, Copy)]
 pub enum FindSymbol {
     OnlyBefore(TextSize),
     BeforeIfInExecutionRange(TextSize, ScopeId),
@@ -196,7 +204,7 @@ pub trait Source {
                     return Some(FunctionIdResolution::DefaultConstructor);
                 };
 
-                self.to_function_id(member.typ, offset)
+                self.to_function_id(member.typ.0, offset)
             }
             Type::Function(id) => Some(FunctionIdResolution::Function(id?)),
             Type::Table(id) => {
@@ -205,12 +213,12 @@ pub trait Source {
 
                 let member = self.find_member(Container::Table(delegate_idx), "_call", offset)?;
 
-                self.to_function_id(member.typ, offset)
+                self.to_function_id(member.typ.0, offset)
             }
             Type::Instance(id) => {
                 let member = self.find_member(Container::Instance(id?), "_call", offset)?;
 
-                self.to_function_id(member.typ, offset)
+                self.to_function_id(member.typ.0, offset)
             }
             _ => None,
         }
@@ -260,7 +268,8 @@ pub trait Source {
         let mut result = table.members.clone();
 
         if let Some(delegate) = table.delegate {
-            for (k, v) in self.get(delegate).members.clone() {
+            let delegate_members = self.additional_table_members(delegate);
+            for (k, v) in delegate_members {
                 result.entry(k).or_insert(v);
             }
         }
@@ -270,7 +279,16 @@ pub trait Source {
 
     fn additional_class_members(&self, class: ClassId) -> SymbolTable {
         let class = self.get(class);
-        class.members.clone()
+        let mut result = class.members.clone();
+
+        if let Some(superclass) = class.inherits {
+            let superclass_members = self.additional_class_members(superclass);
+            for (k, v) in superclass_members {
+                result.entry(k).or_insert(v);
+            }
+        }
+
+        result
     }
 
     fn import_members(&self, settings: ImportMembers) -> FlatSymbolTable {
@@ -397,7 +415,7 @@ pub trait Source {
         &self,
         typ: Type,
         settings: FindSymbol,
-        filter_by_static: bool,
+        hide_unnecessary: bool,
     ) -> FlatSymbolTable {
         match typ {
             Type::Table(id) => {
@@ -417,7 +435,7 @@ pub trait Source {
                     settings,
                     ImportMembers::Target(ImportTarget::Class(id)),
                     false,
-                    filter_by_static,
+                    hide_unnecessary,
                 )
             }
             Type::Instance(id) => {
@@ -430,9 +448,16 @@ pub trait Source {
                     settings,
                     ImportMembers::Target(ImportTarget::Class(id)),
                     true,
-                    filter_by_static,
+                    hide_unnecessary,
                 )
             }
+            Type::Union(id) => self
+                .get(id)
+                .types
+                .iter()
+                .map(|typ| self.members_of_type(*typ, settings, hide_unnecessary))
+                .flatten()
+                .collect(),
             Type::Enum(id) => self.enum_members(id),
             Type::Integer(_) => integer_members(self.db()),
             Type::Float(_) => float_members(self.db()),
@@ -614,13 +639,6 @@ pub trait Source {
         members
     }
 
-    fn clone_members(&self, superclass: ClassId) -> SymbolTable {
-        let symbol = self.get(superclass);
-        let members = symbol.members.clone();
-
-        members
-    }
-
     /// The vector is in order of symbols being added, therefore the last symbol that passes the condition
     /// must be the symbol we're looking for
     fn find_member(&self, from: Container, name: &str, offset: TextSize) -> Option<&Symbol> {
@@ -675,6 +693,18 @@ pub trait Source {
                     instance_symbol(self.db())?
                 }
             }
+            Type::Union(id) => {
+                let types = &self.get(id).types;
+                if types.len() == 2 {
+                    if types[0] == Type::Null {
+                        return self.type_to_symbol(types[1]);
+                    }
+                    if types[1] == Type::Null {
+                        return self.type_to_symbol(types[0]);
+                    }
+                }
+                return None;
+            }
             Type::Integer(_) => integer_symbol(self.db())?,
             Type::Float(_) => float_symbol(self.db())?,
             Type::String(_) => string_symbol(self.db())?,
@@ -690,15 +720,15 @@ pub trait Source {
         })
     }
 
-    fn expr_to_type(&self, expr: NullableExprKind) -> Type {
-        match expr {
+    fn expr_kind_to_type(&self, maybe_kind: NullableExprKind) -> Type {
+        match maybe_kind {
             Some(ExpressionKind::Literal(typ)) => typ,
-            Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ,
+            Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ.0,
             None => Type::Unknown,
         }
     }
 
-    fn expr_at(&self, range: TextRange) -> NullableExprKind {
+    fn expr_kind_at(&self, range: TextRange) -> NullableExprKind {
         self.range_to_expr().get(&range).cloned()
     }
 
@@ -706,8 +736,15 @@ pub trait Source {
         self.range_to_symbol().get(&range).cloned()
     }
 
+    fn to_type_set(&self, typ: Type) -> TypeSet {
+        match typ {
+            Type::Union(id) => self.get(id).type_set,
+            _ => TypeSet::from_kind(typ.into()),
+        }
+    }
+
     fn type_at(&self, text_range: TextRange) -> Type {
-        self.expr_to_type(self.expr_at(text_range))
+        self.expr_kind_to_type(self.expr_kind_at(text_range))
     }
 
     fn type_to_string(&self, typ: Type) -> String {
@@ -728,6 +765,20 @@ pub trait Source {
                     "instance".to_owned()
                 }
             }
+            Type::Union(id) => self
+                .get(id)
+                .types
+                .iter()
+                .cloned()
+                .filter_map(|typ| {
+                    if typ == Type::Unknown {
+                        None
+                    } else {
+                        Some(self.type_to_string(typ))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" | "),
             Type::Array(_) => "array".to_owned(),
             Type::Table(_) => "table".to_owned(),
             Type::Class(_) => "class".to_owned(),
@@ -752,7 +803,7 @@ pub trait Source {
             }
             SymbolKind::Enum => return format!("enum {}", s.name),
             SymbolKind::Constant | SymbolKind::EnumMember => {
-                let type_text = match s.typ {
+                let type_text = match s.typ.0 {
                     Type::Integer(Some(value)) => value.to_string(),
                     Type::Float(Some(value)) => value.to_string(),
                     Type::Boolean(Some(value)) => value.to_string(),
@@ -765,7 +816,7 @@ pub trait Source {
             }
         };
 
-        match s.typ {
+        match s.typ.0 {
             Type::Function(id) => {
                 let Some(id) = id else {
                     return format!("{}function {}()", str, s.name);
@@ -778,9 +829,10 @@ pub trait Source {
                         str.push_str(", ");
                     }
                     let param = self.get(param);
-                    if param.typ != Type::Unknown {
+                    if param.typ.0 != Type::Unknown {
                         str.push_str(
-                            format!("{}: {}", param.name, self.type_to_string(param.typ)).as_str(),
+                            format!("{}: {}", param.name, self.type_to_string(param.typ.0))
+                                .as_str(),
                         );
                     } else {
                         str.push_str(format!("{}", param.name).as_str());
@@ -793,8 +845,8 @@ pub trait Source {
                     }
                     str.push_str("...vargv");
                     let symbol = self.get(id);
-                    if symbol.typ != Type::Unknown {
-                        str.push_str(format!(": {}", self.type_to_string(symbol.typ)).as_str());
+                    if symbol.typ.0 != Type::Unknown {
+                        str.push_str(format!(": {}", self.type_to_string(symbol.typ.0)).as_str());
                     }
                 }
 
@@ -807,15 +859,15 @@ pub trait Source {
                 // Result of unknown can technically provide some value,
                 // while there's no point in saving 'null' return at all
                 // so it just pollutes the signature
-                if func.ret != Type::Null {
-                    str.push_str(format!(" -> {}", self.type_to_string(func.ret)).as_str())
+                if func.ret.0 != Type::Null {
+                    str.push_str(format!(" -> {}", self.type_to_string(func.ret.0)).as_str())
                 }
 
                 str
             }
 
             Type::Class(_) => format!("{}class {}", str, s.name),
-            _ => format!("{}{}: {}", str, s.name, self.type_to_string(s.typ)),
+            _ => format!("{}{}: {}", str, s.name, self.type_to_string(s.typ.0)),
         }
     }
 }

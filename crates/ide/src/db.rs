@@ -11,7 +11,7 @@ use sq_3_parser::Parse;
 
 use crate::{
     FinishedFile, Source, SourceSymbol, SymbolId, Type,
-    arena::{ArenaId, FunctionId},
+    arena::{ArenaId, ClassId, FunctionId},
     collector::Collector,
     symbol::{FlatSymbolTable, SymbolTable, to_flat_symbol_table},
 };
@@ -41,6 +41,7 @@ pub struct Database {
     tf2_root: Option<PathBuf>,
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
+    base_entity_class: Option<ClassId>,
     special_functions: FxHashMap<FunctionId, SpecialFunction>,
 }
 
@@ -87,6 +88,7 @@ pub trait Db: salsa::Database {
     fn get_script(&self, path: PathBuf) -> Result<File, ScriptResolutionError>;
     fn squirrel_lib(&self) -> Option<File>;
     fn vscript_lib(&self) -> Option<File>;
+    fn base_entity_class(&self) -> Option<ClassId>;
     fn check_special(&self, id: FunctionId) -> Option<SpecialFunction>;
 }
 
@@ -137,6 +139,10 @@ impl Db for Database {
 
     fn vscript_lib(&self) -> Option<File> {
         self.vscript_lib
+    }
+
+    fn base_entity_class(&self) -> Option<ClassId> {
+        self.base_entity_class
     }
 
     fn check_special(&self, id: FunctionId) -> Option<SpecialFunction> {
@@ -247,7 +253,7 @@ impl Database {
             panic!("'{name}' is not contained inside builtins members");
         };
 
-        let typ = symbol_id.get_data(self).typ;
+        let typ = symbol_id.get_data(self).typ.0;
 
         let Type::Class(Some(id)) = typ else {
             panic!("'{name}' member is not of type 'class'");
@@ -285,7 +291,38 @@ impl Database {
             self.special_functions.insert(key, value);
         }
 
+        self.find_base_entity(lib);
+
         self.vscript_lib = Some(lib);
+    }
+
+    fn find_base_entity(&mut self, file: File) {
+        let source = source_symbol(self, file);
+        let source_members = &source.arena[source.source_table].members;
+        for (name, ids) in source_members {
+            if name != "CBaseEntity" {
+                continue;
+            }
+
+            if ids.len() > 1 {
+                eprintln!("Multiple definitions for the standard library symbol '{name}'");
+            }
+
+            let id = ids.last().unwrap();
+
+            if id.file() != file {
+                eprintln!("Standard library symbol '{name}' is defined externally");
+                return;
+            }
+
+            let Type::Class(Some(class_id)) = source.arena[id.idx()].typ.0 else {
+                eprintln!("Standard library symbol '{name}' has a wrong type. (Expected 'class')",);
+                return;
+            };
+
+            self.base_entity_class = Some(class_id);
+            return;
+        }
     }
 
     fn find_special_functions(&self, file: File) -> Vec<(FunctionId, SpecialFunction)> {
@@ -317,7 +354,7 @@ impl Database {
                     return None;
                 }
 
-                let Type::Function(Some(function_id)) = source.arena[id.idx()].typ else {
+                let Type::Function(Some(function_id)) = source.arena[id.idx()].typ.0 else {
                     eprintln!(
                         "Standard library symbol '{name}' has a wrong type. (Expected 'function')",
                     );

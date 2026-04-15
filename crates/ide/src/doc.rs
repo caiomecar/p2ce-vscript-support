@@ -18,37 +18,40 @@ pub enum TagItem {
     Throw(ThrowTag),
     Yield(YieldTag),
     VarArgs(VarArgsTag),
+    Native,
+    Entity,
+    Input,
 }
 
 #[derive(Debug)]
 pub struct ReturnTag {
-    pub typ: Option<String>,
+    pub typ: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
 pub struct ParameterTag {
     pub name: String,
-    pub typ: Option<String>,
+    pub typ: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
 pub struct TypeTag {
-    pub typ: Option<String>,
+    pub typ: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
 pub struct ThrowTag {
-    pub typ: Option<String>,
+    pub typ: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
 pub struct YieldTag {
-    pub typ: Option<String>,
+    pub typ: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
 pub struct VarArgsTag {
-    pub typ: Option<String>,
+    pub typ: Option<Vec<String>>,
 }
 
 fn split_once_ws(s: &str) -> (&str, &str) {
@@ -87,7 +90,7 @@ impl Doc {
         }
     }
 
-    pub fn typ(text: &str) -> (Option<&str>, &str) {
+    pub fn typ(text: &str) -> (Option<Vec<&str>>, &str) {
         let Some(rest) = text.strip_prefix('{') else {
             return (None, text);
         };
@@ -95,9 +98,23 @@ impl Doc {
         match rest.find(|c| c == '}') {
             Some(idx) => {
                 let (typ, rest) = rest.split_at(idx);
-                (Some(typ.trim()), rest[1..].trim_start())
+                let types = typ
+                    .split('|')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                (Some(types), rest[1..].trim_start())
             }
-            None => (Some(rest.trim()), ""),
+            None => {
+                let types = rest
+                    .split('|')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                (Some(types), "")
+            }
         }
     }
 
@@ -108,7 +125,7 @@ impl Doc {
                 let (typ, rest) = Doc::typ(rest);
                 (
                     TagItem::Return(ReturnTag {
-                        typ: typ.map(str::to_owned),
+                        typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
                     }),
                     rest,
                 )
@@ -117,7 +134,7 @@ impl Doc {
                 let (typ, rest) = Doc::typ(rest);
                 (
                     TagItem::Type(TypeTag {
-                        typ: typ.map(str::to_owned),
+                        typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
                     }),
                     rest,
                 )
@@ -128,7 +145,7 @@ impl Doc {
                 (
                     TagItem::Parameter(ParameterTag {
                         name: name.to_owned(),
-                        typ: typ.map(str::to_owned),
+                        typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
                     }),
                     rest,
                 )
@@ -137,7 +154,7 @@ impl Doc {
                 let (typ, rest) = Doc::typ(rest);
                 (
                     TagItem::Throw(ThrowTag {
-                        typ: typ.map(str::to_owned),
+                        typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
                     }),
                     rest,
                 )
@@ -146,7 +163,7 @@ impl Doc {
                 let (typ, rest) = Doc::typ(rest);
                 (
                     TagItem::Yield(YieldTag {
-                        typ: typ.map(str::to_owned),
+                        typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
                     }),
                     rest,
                 )
@@ -155,11 +172,14 @@ impl Doc {
                 let (typ, rest) = Doc::typ(rest);
                 (
                     TagItem::VarArgs(VarArgsTag {
-                        typ: typ.map(str::to_owned),
+                        typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
                     }),
                     rest,
                 )
             }
+            "native" => (TagItem::Native, rest),
+            "entity" => (TagItem::Entity, rest),
+            "input" => (TagItem::Input, rest),
             _ => return None,
         };
 

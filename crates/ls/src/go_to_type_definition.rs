@@ -38,7 +38,7 @@ pub fn handle_go_to_type_definition(
     };
 
     let symbol = finished_file.get(symbol_id);
-    let Some(type_id) = finished_file.type_to_symbol(symbol.typ) else {
+    let Some(type_id) = finished_file.type_to_symbol(symbol.typ.0) else {
         return Ok(None);
     };
 

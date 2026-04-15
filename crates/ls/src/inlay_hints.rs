@@ -43,12 +43,12 @@ pub fn handle_inlay_hints(
             }
 
             // skip if type is unknown or null - nothing useful to show
-            if matches!(symbol.typ, Type::Unknown | Type::Null) {
+            if matches!(symbol.typ.0, Type::Unknown | Type::Null) {
                 return None;
             }
 
-            let label = format!(": {}", finished_file.type_to_string(symbol.typ));
-            let tooltip = if let Type::Instance(Some(id)) = symbol.typ
+            let label = format!(": {}", finished_file.type_to_string(symbol.typ.0));
+            let tooltip = if let Type::Instance(Some(id)) = symbol.typ.0
                 && let Some(class_symbol_id) = finished_file.get(id).symbol
             {
                 let content = finished_file.symbol_to_string(class_symbol_id);
