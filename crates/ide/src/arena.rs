@@ -180,8 +180,7 @@ pub struct EnumData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {
     pub range: TextRange,
-    pub is_ret_explicit: bool,
-    pub ret: AnnotatedType,
+    pub ret: Option<AnnotatedType>,
     pub container: Container,
     pub bindenv: Option<Container>,
     pub params: Vec<SymbolId>,

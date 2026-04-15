@@ -154,22 +154,8 @@ impl TypeSet {
         Self(bitset)
     }
 
-    pub const fn new_with_any(kinds: &[TypeKind]) -> Self {
-        let mut bitset = TypeKind::Unknown as u32 | TypeKind::Any as u32;
-        let mut i = 0;
-        while i < kinds.len() {
-            bitset |= kinds[i] as u32;
-            i += 1;
-        }
-        Self(bitset)
-    }
-
     pub const fn from_kind(kind: TypeKind) -> Self {
         Self(kind as u32)
-    }
-
-    pub const fn from_kind_with_any(kind: TypeKind) -> Self {
-        Self(TypeKind::Unknown as u32 | TypeKind::Any as u32 | kind as u32)
     }
 
     pub const fn union(self, other: Self) -> Self {
@@ -189,10 +175,11 @@ impl TypeSet {
     }
 
     pub const EMPTY: TypeSet = TypeSet::new(&[]);
-    pub const ANY: TypeSet = TypeSet::new_with_any(&[]);
+    pub const ANY: TypeSet = TypeSet::new(&[TypeKind::Unknown, TypeKind::Any]);
     pub const INTEGER: TypeSet = TypeSet::from_kind(TypeKind::Integer);
-    pub const NUMBER: TypeSet = TypeSet::new_with_any(&[TypeKind::Float, TypeKind::Integer]);
-    pub const STRING: TypeSet = TypeSet::from_kind_with_any(TypeKind::String);
+    pub const NUMBER: TypeSet = TypeSet::new(&[TypeKind::Float, TypeKind::Integer]);
+    pub const NUMBER_OR_ANY: TypeSet = TypeSet::NUMBER.union(TypeSet::ANY);
+    pub const STRING: TypeSet = TypeSet::from_kind(TypeKind::String);
     pub const NULL: TypeSet = TypeSet::from_kind(TypeKind::Null);
     pub const TABLE: TypeSet = TypeSet::from_kind(TypeKind::Table);
     pub const INSTANCE: TypeSet = TypeSet::from_kind(TypeKind::Instance);
@@ -200,17 +187,19 @@ impl TypeSet {
     pub const TABLE_OR_INSTANCE: TypeSet = TypeSet::new(&[TypeKind::Table, TypeKind::Instance]);
 
     pub const VALID_IN_LHS: TypeSet =
-        TypeSet::new_with_any(&[TypeKind::Array, TypeKind::Table, TypeKind::Class]);
-    pub const VALID_INSTANCE_OF_LHS: TypeSet = TypeSet::new_with_any(&[TypeKind::Instance]);
-    pub const VALID_INSTANCE_OF_RHS: TypeSet = TypeSet::new_with_any(&[TypeKind::Class]);
-    pub const VALID_SWITCH_DISCRIMINANT: TypeSet = TypeSet::new_with_any(&[
+        TypeSet::new(&[TypeKind::Array, TypeKind::Table, TypeKind::Class]).union(TypeSet::ANY);
+    pub const VALID_INSTANCE_OF_LHS: TypeSet =
+        TypeSet::new(&[TypeKind::Instance]).union(TypeSet::ANY);
+    pub const VALID_INSTANCE_OF_RHS: TypeSet = TypeSet::new(&[TypeKind::Class]).union(TypeSet::ANY);
+    pub const VALID_SWITCH_DISCRIMINANT: TypeSet = TypeSet::new(&[
         TypeKind::Null,
         TypeKind::Float,
         TypeKind::Integer,
         TypeKind::Boolean,
         TypeKind::String,
-    ]);
-    pub const CAN_COMPARE: TypeSet = TypeSet::new_with_any(&[
+    ])
+    .union(TypeSet::ANY);
+    pub const CAN_COMPARE: TypeSet = TypeSet::new(&[
         TypeKind::Null,
         TypeKind::Float,
         TypeKind::Integer,
@@ -218,9 +207,10 @@ impl TypeSet {
         TypeKind::String,
         TypeKind::Table,
         TypeKind::Instance,
-    ]);
+    ])
+    .union(TypeSet::ANY);
     pub const CAN_HAVE_UNKNOWN_MEMBERS: TypeSet =
-        TypeSet::new_with_any(&[TypeKind::Table, TypeKind::Class, TypeKind::Instance]);
+        TypeSet::new(&[TypeKind::Table, TypeKind::Class, TypeKind::Instance]).union(TypeSet::ANY);
 }
 
 impl Into<TypeKind> for Type {

@@ -139,8 +139,10 @@ pub fn handle_signature_help(
         label.push('!');
     }
 
-    if !matches!(func.ret.0, Type::Unknown | Type::Null) {
-        label.push_str(format!(" -> {}", finished_file.type_to_string(func.ret.0)).as_str());
+    if let Some(ret) = func.ret
+        && !matches!(ret.0, Type::Unknown | Type::Null)
+    {
+        label.push_str(format!(" -> {}", finished_file.type_to_string(ret.0)).as_str());
     }
 
     Ok(Some(SignatureHelp {

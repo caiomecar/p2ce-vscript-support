@@ -123,8 +123,13 @@ impl TryFrom<AssignmentLeftHandSide> for Container {
 
 enum MetamethodErrors {
     No,
-    Yes { keyword: &'static str },
-    YesBinary { keyword: &'static str, right: Type },
+    Yes {
+        keyword: &'static str,
+    },
+    YesBinary {
+        keyword: &'static str,
+        right: TypeWithRange,
+    },
 }
 
 struct DeferredFunctionTrace {
@@ -863,20 +868,29 @@ impl<'db> Collector<'db> {
 
     fn check_or_update_type(
         &mut self,
-        current: AnnotatedType,
+        current: Option<AnnotatedType>,
         new: TypeWithRange,
         source: CheckTypeSource,
     ) -> Option<Type> {
         // If type is not explicitly stated, just unionate the types,
         // if the first type was null, then completely replace it
         // since that's usually not the intend of the user
+        let Some(current) = current else {
+            return Some(new.typ);
+        };
+
         if !current.1 {
-            if current.0 == Type::Null {
+            // If the initial type was null
+            if matches!(
+                source,
+                CheckTypeSource::Variable | CheckTypeSource::Parameter
+            ) && current.0 == Type::Null
+            {
                 return Some(new.typ);
-            } else {
-                let new_type = self.merge_or_union(current.0, new.typ);
-                return Some(new_type);
             }
+
+            let new_type = self.merge_or_union(current.0, new.typ);
+            return Some(new_type);
         }
 
         if !self.is_type_suitable(current.0, new.typ) {
@@ -1138,15 +1152,15 @@ impl<'db> Collector<'db> {
                         });
                     }
                     MetamethodErrors::YesBinary { keyword, right } => {
-                        if !matches!(right, Type::Unknown | Type::Any) {
+                        if !matches!(right.typ, Type::Unknown | Type::Any) {
                             self.diagnostics.push(Diagnostic {
                                 message: format!(
                                     "'{}' does not support {} with '{}'",
                                     self.type_to_string(callable.typ),
                                     keyword,
-                                    self.type_to_string(right)
+                                    self.type_to_string(right.typ)
                                 ),
-                                range: callable.range,
+                                range: right.range,
                                 ..Default::default()
                             });
                         }
@@ -1372,7 +1386,7 @@ impl<'db> Collector<'db> {
             if should_error {
                 MetamethodErrors::YesBinary {
                     keyword,
-                    right: with.typ,
+                    right: with,
                 }
             } else {
                 MetamethodErrors::No
@@ -1398,9 +1412,11 @@ impl<'db> Collector<'db> {
                     return Some(result);
                 }
             }
+            dbg!(operand.typ);
+            dbg!(with.typ);
             self.diagnostics.push(Diagnostic {
                 message: format!(
-                    "'{}' does not support iterating",
+                    "'{}' does not support arithmetic operations",
                     self.type_to_string(operand.typ)
                 ),
                 range: operand.range,
@@ -1514,7 +1530,7 @@ impl<'db> Collector<'db> {
                     };
 
                     if let Some(new) = self.check_or_update_type(
-                        self.get(param).typ,
+                        Some(self.get(param).typ),
                         argument,
                         CheckTypeSource::Parameter,
                     ) && let Some(param) = self.get_mut(param)
@@ -1578,7 +1594,7 @@ impl<'db> Collector<'db> {
                 Some(if self.get(id).yields.is_some() {
                     Type::Generator(Some(id))
                 } else {
-                    self.clone_type(self.get(id).ret.0)
+                    self.clone_type(self.get(id).ret.map_or(Type::Unknown, |r| r.0))
                 })
             }
             Type::Class(id) => {
@@ -1698,8 +1714,7 @@ impl<'db> Collector<'db> {
                 bindenv,
                 params: Vec::new(),
                 params_state: ParamsState::NoDefault,
-                ret: Type::Null.into(),
-                is_ret_explicit: false,
+                ret: None,
                 throws: None,
                 yields: None,
             }),
@@ -1738,7 +1753,7 @@ impl<'db> Collector<'db> {
                     };
 
                     if let Some(doc_type) = self.resolve_doc_types(&types, offset) {
-                        self.arena[entry.idx].ret = AnnotatedType(doc_type, true);
+                        self.arena[entry.idx].ret = Some(AnnotatedType(doc_type, true));
                     }
                 }
                 TagItem::Parameter(item) => {
@@ -1842,6 +1857,10 @@ impl<'db> Collector<'db> {
             }
             FunctionBody::Stmt(stmt) => self.collect_stmt(&stmt),
         };
+
+        if self.arena[entry.idx].ret.is_none() {
+            self.arena[entry.idx].ret = Some(Type::Null.into());
+        }
 
         self.container = save_container;
         self.scope = save_scope;
@@ -2627,7 +2646,7 @@ impl<'db> Collector<'db> {
         if let Some(new) =
             self.check_or_update_type(self.arena[function].ret, value, CheckTypeSource::Return)
         {
-            self.arena[function].ret.0 = new;
+            self.arena[function].ret = Some(new.into());
         };
     }
 
@@ -2650,13 +2669,10 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let Some(mut yields) = self.arena[function].yields else {
-            self.arena[function].yields = Some(value.typ.into());
-            return;
-        };
-
-        if let Some(new) = self.check_or_update_type(yields, value, CheckTypeSource::Yield) {
-            yields.0 = new;
+        if let Some(new) =
+            self.check_or_update_type(self.arena[function].yields, value, CheckTypeSource::Yield)
+        {
+            self.arena[function].yields = Some(new.into());
         };
     }
 
@@ -2732,20 +2748,15 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let Some(mut throws) = self.arena[function].throws else {
-            self.arena[function].throws = Some(typ.into());
-            return;
-        };
-
         if let Some(new) = self.check_or_update_type(
-            throws,
+            self.arena[function].throws,
             TypeWithRange {
                 typ,
                 range: stmt.syntax().text_range(),
             },
             CheckTypeSource::Throw,
         ) {
-            throws.0 = new;
+            self.arena[function].throws = Some(new.into());
         };
     }
 
@@ -2910,19 +2921,20 @@ impl<'db> Collector<'db> {
     }
 
     fn array_literal_expression(&mut self, expr: &ArrayLiteralExpression) -> ExpressionKind {
-        let mut types = expr.elements().map(|element| self.expr_to_type(&element));
+        let mut types: Vec<_> = expr
+            .elements()
+            .map(|element| self.expr_to_type(&element))
+            .collect();
 
-        let Some(typ) = types.next() else {
+        let Some(mut typ) = types.pop() else {
             return ExpressionKind::Literal(Type::Array(None));
         };
 
-        ExpressionKind::Literal(
-            if types.all(|t| std::mem::discriminant(&t) == std::mem::discriminant(&typ)) {
-                Type::Array(Some(self.array(ArrayData { typ })))
-            } else {
-                Type::Array(None)
-            },
-        )
+        for next_type in types {
+            typ = self.merge_or_union(typ, next_type);
+        }
+
+        ExpressionKind::Literal(Type::Array(Some(self.array(ArrayData { typ }))))
     }
 
     fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
@@ -3673,7 +3685,7 @@ impl<'db> Collector<'db> {
                 }
 
                 if let Some(new) = self.check_or_update_type(
-                    self.get(symbol).typ,
+                    Some(self.get(symbol).typ),
                     right,
                     CheckTypeSource::Variable,
                 ) && let Some(symbol) = self.get_mut(symbol)
@@ -3983,7 +3995,7 @@ impl<'db> Collector<'db> {
                 }
 
                 if let Some(new) = self.check_or_update_type(
-                    self.get(symbol).typ,
+                    Some(self.get(symbol).typ),
                     type_with_range,
                     CheckTypeSource::Variable,
                 ) && let Some(symbol) = self.get_mut(symbol)

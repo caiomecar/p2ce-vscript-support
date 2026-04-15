@@ -859,8 +859,10 @@ pub trait Source {
                 // Result of unknown can technically provide some value,
                 // while there's no point in saving 'null' return at all
                 // so it just pollutes the signature
-                if func.ret.0 != Type::Null {
-                    str.push_str(format!(" -> {}", self.type_to_string(func.ret.0)).as_str())
+                if let Some(ret) = func.ret
+                    && ret.0 != Type::Null
+                {
+                    str.push_str(format!(" -> {}", self.type_to_string(ret.0)).as_str())
                 }
 
                 str
