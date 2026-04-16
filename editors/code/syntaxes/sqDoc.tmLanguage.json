@@ -143,7 +143,7 @@
       "match": "(?<![_A-Za-z])global\\b"
     },
     {
-      "match": "(\\w+)\\s*:\\s*(\\w+)(?:\\s*\\|\\s*(\\w+))*",
+      "match": "(\\w+)\\s*\\??:\\s*(\\w+)(?:\\s*\\|\\s*(\\w+))*",
       "captures": {
         "1": {
           "name": "variable.other.squirrel"

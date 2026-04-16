@@ -70,13 +70,6 @@
         "path": "./syntaxes/squirrel.tmLanguage.json"
       },
       {
-        "scopeName": "documentation.injection.squirrel",
-        "path": "./syntaxes/sqDoc.injection.tmLanguage.json",
-        "injectTo": [
-          "source.squirrel"
-        ]
-      },
-      {
         "language": "sqDoc",
         "scopeName": "source.sqDoc",
         "path": "./syntaxes/sqDoc.tmLanguage.json"
