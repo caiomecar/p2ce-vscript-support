@@ -1,4 +1,3 @@
-use anyhow::Result;
 use ide::{
     Database, FindSymbol, FinishedFile, ImportMembers, Source, Symbol, SymbolKind, Type,
     line_index, parse,
@@ -11,167 +10,156 @@ use sq_3_parser::{AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize
 
 use crate::conversions;
 
-pub fn handle_completions(db: &Database, params: CompletionParams) -> Result<CompletionResponse> {
+pub fn handle_completions(db: &Database, params: CompletionParams) -> CompletionResponse {
     let uri = params.text_document_position.text_document.uri;
 
     let Ok(path) = uri.to_file_path() else {
-        return Ok(CompletionResponse::Array(Vec::new()));
+        return CompletionResponse::Array(Vec::new());
     };
 
     let Some(file) = db.get_file(&path) else {
-        return Ok(CompletionResponse::Array(Vec::new()));
+        return CompletionResponse::Array(Vec::new());
     };
 
     let line_idx = line_index(db, file);
 
-    let offset = conversions::test_size(line_idx, params.text_document_position.position).unwrap();
+    let offset = conversions::test_size(line_idx, params.text_document_position.position);
     let syntax = parse(db, file).syntax();
 
     let finished_file = FinishedFile::new(db, file);
 
     let scope = finished_file.scope(offset);
 
-    Ok(CompletionResponse::Array(
-        match context_completions(syntax, offset, &finished_file) {
-            Some(ContextCompletions::Flat) => finished_file
-                .symbols_at(offset, true)
-                .into_iter()
-                .map(|(mut label, id)| {
-                    let symbol = finished_file.get(id);
-                    let kind = Some(to_completion_kind(symbol));
+    CompletionResponse::Array(match context_completions(&syntax, offset, &finished_file) {
+        Some(ContextCompletions::Flat) => finished_file
+            .symbols_at(offset, true)
+            .into_iter()
+            .map(|(mut label, id)| {
+                let symbol = finished_file.get(id);
+                let kind = Some(to_completion_kind(symbol));
+                let mut insert_text = None;
+                let (insert_text_format, command) =
+                    modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                        .map_or((None, None), |(a, b)| (Some(a), Some(b)));
+
+                CompletionItem {
+                    label,
+                    kind,
+                    insert_text,
+                    command,
+                    insert_text_format,
+                    ..Default::default()
+                }
+            })
+            .collect(),
+        Some(ContextCompletions::FromObject { typ, prefix_range }) => finished_file
+            .members_of_type(
+                typ,
+                FindSymbol::BeforeIfInExecutionRange(offset, scope),
+                true,
+            )
+            .into_iter()
+            .map(|(mut label, id)| {
+                let symbol = finished_file.get(id);
+                let kind = Some(to_completion_kind(symbol));
+                if can_use_identifier(&label) {
                     let mut insert_text = None;
                     let (insert_text_format, command) =
                         modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
-                            .map(|(a, b)| (Some(a), Some(b)))
-                            .unwrap_or((None, None));
+                            .map_or((None, None), |(a, b)| (Some(a), Some(b)));
 
-                    CompletionItem {
+                    return CompletionItem {
                         label,
                         kind,
                         insert_text,
                         command,
                         insert_text_format,
                         ..Default::default()
-                    }
-                })
-                .collect(),
-            Some(ContextCompletions::FromObject { typ, prefix_range }) => finished_file
-                .members_of_type(
-                    typ,
-                    FindSymbol::BeforeIfInExecutionRange(offset, scope),
-                    true,
-                )
-                .into_iter()
-                .map(|(mut label, id)| {
-                    let symbol = finished_file.get(id);
-                    let kind = Some(to_completion_kind(symbol));
-                    if can_use_identifier(&label) {
-                        let mut insert_text = None;
-                        let (insert_text_format, command) = modify_if_function(
-                            &finished_file,
-                            symbol,
-                            &mut label,
-                            &mut insert_text,
-                        )
-                        .map(|(a, b)| (Some(a), Some(b)))
-                        .unwrap_or((None, None));
+                    };
+                }
 
-                        return CompletionItem {
-                            label,
-                            kind,
-                            insert_text,
-                            command,
-                            insert_text_format,
-                            ..Default::default()
-                        };
-                    }
+                let mut insert_text = Some(format!("[\"{label}\"]"));
+                let additional_text_edits = Some(vec![TextEdit {
+                    range: conversions::range(line_idx, prefix_range),
+                    new_text: String::new(),
+                }]);
 
-                    let mut insert_text = Some(format!("[\"{label}\"]"));
-                    let additional_text_edits = Some(vec![TextEdit {
-                        range: conversions::range(line_idx, prefix_range).unwrap(),
-                        new_text: "".to_owned(),
-                    }]);
+                let (insert_text_format, command) =
+                    modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                        .map_or((None, None), |(a, b)| (Some(a), Some(b)));
 
-                    let (insert_text_format, command) =
-                        modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
-                            .map(|(a, b)| (Some(a), Some(b)))
-                            .unwrap_or((None, None));
+                CompletionItem {
+                    label,
+                    kind,
+                    insert_text,
+                    command,
+                    insert_text_format,
+                    additional_text_edits,
+                    ..Default::default()
+                }
+            })
+            .collect(),
+        Some(ContextCompletions::FromObjectAsString { typ, replace_range }) => finished_file
+            .members_of_type(
+                typ,
+                FindSymbol::BeforeIfInExecutionRange(offset, scope),
+                true,
+            )
+            .into_iter()
+            .map(|(mut label, id)| {
+                let symbol = finished_file.get(id);
+                let kind = Some(to_completion_kind(symbol));
 
-                    CompletionItem {
-                        label,
-                        kind,
-                        insert_text,
-                        command,
-                        insert_text_format,
-                        additional_text_edits,
-                        ..Default::default()
-                    }
-                })
-                .collect(),
-            Some(ContextCompletions::FromObjectAsString { typ, replace_range }) => finished_file
-                .members_of_type(
-                    typ,
-                    FindSymbol::BeforeIfInExecutionRange(offset, scope),
-                    true,
-                )
-                .into_iter()
-                .map(|(mut label, id)| {
-                    let symbol = finished_file.get(id);
-                    let kind = Some(to_completion_kind(symbol));
+                let mut insert_text = Some(format!("{label}\"]"));
+                let (insert_text_format, command) =
+                    modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                        .map_or((None, None), |(a, b)| (Some(a), Some(b)));
 
-                    let mut insert_text = Some(format!("{label}\"]"));
-                    let (insert_text_format, command) =
-                        modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
-                            .map(|(a, b)| (Some(a), Some(b)))
-                            .unwrap_or((None, None));
+                let text_edit = Some(CompletionTextEdit::Edit(TextEdit {
+                    range: conversions::range(line_idx, replace_range),
+                    new_text: insert_text.expect("modify_if_function cannot convert Some to None"),
+                }));
 
-                    let text_edit = Some(CompletionTextEdit::Edit(TextEdit {
-                        range: conversions::range(line_idx, replace_range).unwrap(),
-                        new_text: insert_text.unwrap(),
-                    }));
+                CompletionItem {
+                    label,
+                    kind,
+                    text_edit,
+                    command,
+                    insert_text_format,
+                    ..Default::default()
+                }
+            })
+            .collect(),
+        Some(ContextCompletions::Root) => finished_file
+            .members_of_table(
+                finished_file.root_table(),
+                FindSymbol::BeforeIfInExecutionRange(offset, scope),
+                ImportMembers::Root,
+            )
+            .into_iter()
+            .map(|(mut label, id)| {
+                let symbol = finished_file.get(id);
+                let kind = Some(to_completion_kind(symbol));
+                let mut insert_text = None;
+                let (insert_text_format, command) =
+                    modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
+                        .map_or((None, None), |(a, b)| (Some(a), Some(b)));
 
-                    CompletionItem {
-                        label,
-                        kind,
-                        text_edit,
-                        command,
-                        insert_text_format,
-                        ..Default::default()
-                    }
-                })
-                .collect(),
-            Some(ContextCompletions::Root) => finished_file
-                .members_of_table(
-                    finished_file.root_table(),
-                    FindSymbol::BeforeIfInExecutionRange(offset, scope),
-                    ImportMembers::Root,
-                )
-                .into_iter()
-                .map(|(mut label, id)| {
-                    let symbol = finished_file.get(id);
-                    let kind = Some(to_completion_kind(symbol));
-                    let mut insert_text = None;
-                    let (insert_text_format, command) =
-                        modify_if_function(&finished_file, symbol, &mut label, &mut insert_text)
-                            .map(|(a, b)| (Some(a), Some(b)))
-                            .unwrap_or((None, None));
-
-                    CompletionItem {
-                        label,
-                        kind,
-                        insert_text,
-                        command,
-                        insert_text_format,
-                        ..Default::default()
-                    }
-                })
-                .collect(),
-            None => Vec::new(),
-        },
-    ))
+                CompletionItem {
+                    label,
+                    kind,
+                    insert_text,
+                    command,
+                    insert_text_format,
+                    ..Default::default()
+                }
+            })
+            .collect(),
+        None => Vec::new(),
+    })
 }
 
-fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
+const fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
     match symbol.typ.0 {
         Type::Enum(_) => CompletionItemKind::ENUM,
         Type::Function(_) => CompletionItemKind::FUNCTION,
@@ -198,11 +186,9 @@ fn modify_if_function(
         return None;
     };
 
-    let text = if let Some(text) = insert_text {
-        text.as_str()
-    } else {
-        label.as_str()
-    };
+    let text = insert_text
+        .as_mut()
+        .map_or(label.as_str(), |text| text.as_str());
 
     if let Some(id) = id {
         let func = finished_file.get(id);
@@ -246,7 +232,7 @@ pub fn can_use_identifier(name: &str) -> bool {
         }
     }
 
-    return true;
+    true
 }
 
 pub enum ContextCompletions {
@@ -257,7 +243,7 @@ pub enum ContextCompletions {
 }
 
 pub fn context_completions(
-    syntax: SyntaxNode,
+    syntax: &SyntaxNode,
     offset: TextSize,
     finished_file: &FinishedFile,
 ) -> Option<ContextCompletions> {
@@ -315,28 +301,6 @@ pub fn context_completions(
                 None
             }
         }
-        // SyntaxKind::OpenBracket => {
-        //     let Some(index) = token.parent() else {
-        //         return Some(ContextCompletions::Flat);
-        //     };
-
-        //     let Some(parent) = index.parent() else {
-        //         return Some(ContextCompletions::Flat);
-        //     };
-
-        //     Some(
-        //         if let Some(node) = ast::ElementAccessExpression::cast(parent) {
-        //             let typ = finished_file.type_at(node.object()?.syntax().text_range());
-        //             ContextCompletions::FromObjectAsString {
-        //                 typ,
-        //                 replace_range: index.text_range(),
-        //                 text_range: None,
-        //             }
-        //         } else {
-        //             ContextCompletions::Flat
-        //         },
-        //     )
-        // }
         SyntaxKind::Dot => {
             let Some(parent) = token.parent() else {
                 return Some(ContextCompletions::Flat);
@@ -412,14 +376,13 @@ pub fn context_completions(
             };
 
             Some(
-                if let Some(node) = ast::MemberAccessExpression::cast(member_access.clone()) {
+                if let Some(node) = ast::MemberAccessExpression::cast(member_access) {
                     let object_range = node.object()?.syntax().text_range();
                     let typ = finished_file.type_at(object_range);
-                    let prefix_range = if let Some(dot) = node.dot_token() {
-                        TextRange::new(dot.text_range().start(), parent.text_range().start())
-                    } else {
-                        TextRange::new(object_range.end(), parent.text_range().start())
-                    };
+                    let prefix_range = node.dot_token().map_or_else(
+                        || TextRange::new(object_range.end(), parent.text_range().start()),
+                        |dot| TextRange::new(dot.text_range().start(), parent.text_range().start()),
+                    );
                     ContextCompletions::FromObject { typ, prefix_range }
                 // } else if let Some(node) = ast::ElementAccessExpression::cast(member_access) {
                 //     let typ = finished_file.type_at(node.object()?.syntax().text_range());

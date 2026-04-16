@@ -66,7 +66,7 @@ macro_rules! ast_token_enum {
         }
 
         impl $name {
-            pub fn from_kind(kind: SyntaxKind) -> Option<Self> {
+            pub const fn from_kind(kind: SyntaxKind) -> Option<Self> {
                 match kind {
                     $(SyntaxKind::$kind => Some(Self::$variant),)*
                     _ => None,
@@ -163,10 +163,12 @@ pub trait IsClassMember: AstNode<Language = SquirrelLanguage> {
 
 ast_node!(Name, Name);
 impl Name {
+    #[must_use]
     pub fn identifier(&self) -> Option<SyntaxToken> {
         support::token(&self.0, SyntaxKind::Identifier)
     }
 
+    #[must_use]
     pub fn text(&self) -> Option<String> {
         self.identifier().map(|t| t.text().to_owned())
     }
@@ -174,6 +176,7 @@ impl Name {
 
 ast_node!(QualifiedName, QualifiedName);
 impl QualifiedName {
+    #[must_use]
     pub fn names(&self) -> AstChildren<Name> {
         support::children(&self.0)
     }
@@ -194,6 +197,7 @@ ast_token_enum!(LiteralExpressionKind {
 
 ast_node!(LiteralExpression, LiteralExpression);
 impl LiteralExpression {
+    #[must_use]
     pub fn token(&self) -> Option<(LiteralExpressionKind, SyntaxToken)> {
         LiteralExpressionKind::token(&self.0)
     }
@@ -242,10 +246,12 @@ ast_node!(BinaryExpression, BinaryExpression);
 impl HasDoc for BinaryExpression {}
 
 impl BinaryExpression {
+    #[must_use]
     pub fn lhs(&self) -> Option<Expr> {
         support::children(&self.0).next()
     }
 
+    #[must_use]
     pub fn operator(&self) -> Option<(BinaryOperator, SyntaxToken)> {
         BinaryOperator::token(&self.0)
     }
@@ -253,6 +259,7 @@ impl BinaryExpression {
     // algorithm therefore expression wrapper is not needed so
     // .nth works this may need to change in the future if
     // recovery of `local a = * 2` is actually present
+    #[must_use]
     pub fn rhs(&self) -> Option<Expr> {
         support::children(&self.0).nth(1)
     }
@@ -266,14 +273,17 @@ impl ExpressionWrapper for ElseBranch {}
 
 ast_node!(ConditionalExpression, ConditionalExpression);
 impl ConditionalExpression {
+    #[must_use]
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn then_branch(&self) -> Option<ThenBranch> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn else_branch(&self) -> Option<ElseBranch> {
         support::child(&self.0)
     }
@@ -287,6 +297,7 @@ ast_token_enum!(PrefixUnaryOperator {
 ast_node!(PrefixUnaryExpression, PrefixUnaryExpression);
 impl HasOperand for PrefixUnaryExpression {}
 impl PrefixUnaryExpression {
+    #[must_use]
     pub fn operator(&self) -> Option<(PrefixUnaryOperator, SyntaxToken)> {
         PrefixUnaryOperator::token(&self.0)
     }
@@ -299,6 +310,7 @@ ast_token_enum!(PrefixUpdateOperator {
 ast_node!(PrefixUpdateExpression, PrefixUpdateExpression);
 impl HasOperand for PrefixUpdateExpression {}
 impl PrefixUpdateExpression {
+    #[must_use]
     pub fn operator(&self) -> Option<(PrefixUpdateOperator, SyntaxToken)> {
         PrefixUpdateOperator::token(&self.0)
     }
@@ -311,6 +323,7 @@ ast_token_enum!(PostfixUpdateOperator {
 ast_node!(PostfixUpdateExpression, PostfixUpdateExpression);
 impl HasOperand for PostfixUpdateExpression {}
 impl PostfixUpdateExpression {
+    #[must_use]
     pub fn operator(&self) -> Option<(PostfixUpdateOperator, SyntaxToken)> {
         PostfixUpdateOperator::token(&self.0)
     }
@@ -330,6 +343,7 @@ impl HasOperand for ResumeExpression {}
 
 ast_node!(RawCallExpression, RawCallExpression);
 impl RawCallExpression {
+    #[must_use]
     pub fn arguments(&self) -> AstChildren<Expr> {
         support::children(&self.0)
     }
@@ -341,14 +355,17 @@ impl HasName for MemberPart {}
 ast_node!(MemberAccessExpression, MemberAccessExpression);
 
 impl MemberAccessExpression {
+    #[must_use]
     pub fn object(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn dot_token(&self) -> Option<SyntaxToken> {
         support::token(&self.0, SyntaxKind::Dot)
     }
 
+    #[must_use]
     pub fn member_part(&self) -> Option<MemberPart> {
         support::child(&self.0)
     }
@@ -359,10 +376,12 @@ impl ExpressionWrapper for Index {}
 
 ast_node!(ElementAccessExpression, ElementAccessExpression);
 impl ElementAccessExpression {
+    #[must_use]
     pub fn object(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn index(&self) -> Option<Index> {
         support::child(&self.0)
     }
@@ -373,6 +392,7 @@ impl ExpressionWrapper for Callee {}
 ast_node!(CallExpression, CallExpression);
 
 impl CallExpression {
+    #[must_use]
     pub fn callee(&self) -> Option<Callee> {
         support::child(&self.0)
     }
@@ -381,6 +401,7 @@ impl CallExpression {
         support::children(&self.0)
     }
 
+    #[must_use]
     pub fn post_call_initialiser(&self) -> Option<PostCallInitialiser> {
         support::child(&self.0)
     }
@@ -397,6 +418,7 @@ ast_node!(LineExpression, LineExpression);
 ast_node!(ParenthesisedExpression, ParenthesisedExpression);
 
 impl ParenthesisedExpression {
+    #[must_use]
     pub fn inner(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -405,6 +427,7 @@ impl ParenthesisedExpression {
 ast_node!(ArrayLiteralExpression, ArrayLiteralExpression);
 
 impl ArrayLiteralExpression {
+    #[must_use]
     pub fn elements(&self) -> AstChildren<Expr> {
         support::children(&self.0)
     }
@@ -413,6 +436,7 @@ impl ArrayLiteralExpression {
 ast_node!(TableLiteralExpression, TableLiteralExpression);
 
 impl TableLiteralExpression {
+    #[must_use]
     pub fn members(&self) -> AstChildren<Member> {
         support::children(&self.0)
     }
@@ -466,6 +490,7 @@ ast_node!(SourceFile, SourceFile);
 impl HasDoc for SourceFile {}
 
 impl SourceFile {
+    #[must_use]
     pub fn statements(&self) -> AstChildren<Stmt> {
         support::children(&self.0)
     }
@@ -476,6 +501,7 @@ ast_node!(EmptyStatement, EmptyStatement);
 ast_node!(BlockStatement, BlockStatement);
 
 impl BlockStatement {
+    #[must_use]
     pub fn statements(&self) -> AstChildren<Stmt> {
         support::children(&self.0)
     }
@@ -485,20 +511,24 @@ ast_node!(IfStatement, IfStatement);
 ast_node!(IfElseBranch, IfElseBranch);
 
 impl IfStatement {
+    #[must_use]
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn statement(&self) -> Option<Stmt> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn else_branch(&self) -> Option<IfElseBranch> {
         support::child(&self.0)
     }
 }
 
 impl IfElseBranch {
+    #[must_use]
     pub fn statement(&self) -> Option<Stmt> {
         support::child(&self.0)
     }
@@ -508,6 +538,7 @@ ast_node!(WhileStatement, WhileStatement);
 impl HasBody for WhileStatement {}
 
 impl WhileStatement {
+    #[must_use]
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -517,6 +548,7 @@ ast_node!(DoWhileStatement, DoWhileStatement);
 impl HasBody for DoWhileStatement {}
 
 impl DoWhileStatement {
+    #[must_use]
     pub fn condition(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -529,6 +561,7 @@ pub enum ForInitialiserKind {
     Expression(Expr),
 }
 impl ForInitialiser {
+    #[must_use]
     pub fn kind(&self) -> Option<ForInitialiserKind> {
         self.syntax().children().find_map(|node| match node.kind() {
             SyntaxKind::LocalVariableDeclaration => Some(
@@ -555,14 +588,17 @@ ast_node!(ForStatement, ForStatement);
 impl HasBody for ForStatement {}
 
 impl ForStatement {
+    #[must_use]
     pub fn initialiser(&self) -> Option<ForInitialiser> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn condition(&self) -> Option<ForCondition> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn increment(&self) -> Option<ForIncrement> {
         support::child(&self.0)
     }
@@ -578,14 +614,17 @@ ast_node!(ForEachStatement, ForEachStatement);
 impl HasBody for ForEachStatement {}
 
 impl ForEachStatement {
+    #[must_use]
     pub fn key(&self) -> Option<ForEachKey> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn value(&self) -> Option<ForEachValue> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn iterable(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -594,10 +633,12 @@ impl ForEachStatement {
 ast_node!(CaseClause, CaseClause);
 
 impl CaseClause {
+    #[must_use]
     pub fn test(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn body(&self) -> AstChildren<Stmt> {
         support::children(&self.0)
     }
@@ -606,6 +647,7 @@ impl CaseClause {
 ast_node!(DefaultClause, DefaultClause);
 
 impl DefaultClause {
+    #[must_use]
     pub fn body(&self) -> AstChildren<Stmt> {
         support::children(&self.0)
     }
@@ -619,10 +661,12 @@ ast_enum!(SwitchClause {
 ast_node!(SwitchStatement, SwitchStatement);
 
 impl SwitchStatement {
+    #[must_use]
     pub fn discriminant(&self) -> Option<Expr> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn clauses(&self) -> AstChildren<SwitchClause> {
         support::children(&self.0)
     }
@@ -633,6 +677,7 @@ impl HasDoc for ConstStatement {}
 impl HasName for ConstStatement {}
 
 impl ConstStatement {
+    #[must_use]
     pub fn value(&self) -> Option<Initialiser> {
         support::child(&self.0)
     }
@@ -642,6 +687,7 @@ ast_node!(LocalVariableDeclaration, LocalVariableDeclaration);
 impl HasDoc for LocalVariableDeclaration {}
 
 impl LocalVariableDeclaration {
+    #[must_use]
     pub fn declarations(&self) -> AstChildren<VariableDeclaration> {
         support::children(&self.0)
     }
@@ -655,6 +701,7 @@ impl IsFunction for LocalFunctionDeclaration {}
 ast_node!(ReturnStatement, ReturnStatement);
 
 impl ReturnStatement {
+    #[must_use]
     pub fn value(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -663,6 +710,7 @@ impl ReturnStatement {
 ast_node!(YieldStatement, YieldStatement);
 
 impl YieldStatement {
+    #[must_use]
     pub fn value(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -676,6 +724,7 @@ impl HasDoc for FunctionStatement {}
 impl IsFunction for FunctionStatement {}
 
 impl FunctionStatement {
+    #[must_use]
     pub fn name(&self) -> Option<QualifiedName> {
         support::child(&self.0)
     }
@@ -686,6 +735,7 @@ impl HasDoc for ClassStatement {}
 impl IsClass for ClassStatement {}
 
 impl ClassStatement {
+    #[must_use]
     pub fn name(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -696,6 +746,7 @@ impl HasDoc for EnumStatement {}
 impl HasName for EnumStatement {}
 
 impl EnumStatement {
+    #[must_use]
     pub fn members(&self) -> AstChildren<Property> {
         support::children(&self.0)
     }
@@ -705,6 +756,7 @@ ast_node!(TryStatement, TryStatement);
 impl HasBody for TryStatement {}
 
 impl TryStatement {
+    #[must_use]
     pub fn catch_clause(&self) -> Option<CatchClause> {
         support::child(&self.0)
     }
@@ -714,6 +766,7 @@ ast_node!(CatchClause, CatchClause);
 impl HasBody for CatchClause {}
 
 impl CatchClause {
+    #[must_use]
     pub fn binding(&self) -> Option<VariableDeclaration> {
         support::child(&self.0)
     }
@@ -722,6 +775,7 @@ impl CatchClause {
 ast_node!(ThrowStatement, ThrowStatement);
 
 impl ThrowStatement {
+    #[must_use]
     pub fn value(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -762,6 +816,7 @@ impl HasDoc for VariableDeclaration {}
 impl HasName for VariableDeclaration {}
 
 impl VariableDeclaration {
+    #[must_use]
     pub fn initialiser(&self) -> Option<Initialiser> {
         support::child(&self.0)
     }
@@ -775,6 +830,7 @@ ast_enum!(Parameter {
 ast_node!(ParameterList, ParameterList);
 
 impl ParameterList {
+    #[must_use]
     pub fn parameters(&self) -> AstChildren<Parameter> {
         support::children(&self.0)
     }
@@ -791,6 +847,7 @@ impl ExpressionWrapper for Extends {}
 ast_node!(Attributes, Attributes);
 
 impl Attributes {
+    #[must_use]
     pub fn members(&self) -> AstChildren<Property> {
         support::children(&self.0)
     }
@@ -799,6 +856,7 @@ impl Attributes {
 ast_node!(PostCallInitialiser, PostCallInitialiser);
 
 impl PostCallInitialiser {
+    #[must_use]
     pub fn members(&self) -> AstChildren<Property> {
         support::children(&self.0)
     }
@@ -809,10 +867,12 @@ impl HasDoc for Property {}
 impl IsClassMember for Property {}
 
 impl Property {
+    #[must_use]
     pub fn name(&self) -> Option<MemberName> {
         support::child(&self.0)
     }
 
+    #[must_use]
     pub fn value(&self) -> Option<Expr> {
         support::child(&self.0)
     }
@@ -820,6 +880,7 @@ impl Property {
 
 ast_node!(SimpleName, SimpleName);
 impl SimpleName {
+    #[must_use]
     pub fn name(&self) -> Option<Name> {
         support::child(&self.0)
     }
@@ -832,6 +893,7 @@ ast_token_enum!(StringNameKind {
 
 ast_node!(StringName, StringName);
 impl StringName {
+    #[must_use]
     pub fn token(&self) -> Option<(StringNameKind, SyntaxToken)> {
         StringNameKind::token(&self.0)
     }
@@ -851,6 +913,7 @@ impl HasDoc for Constructor {}
 impl IsFunction for Constructor {}
 impl IsClassMember for Constructor {}
 impl Constructor {
+    #[must_use]
     pub fn constructor_keyword(&self) -> Option<SyntaxToken> {
         support::token(&self.0, SyntaxKind::ConstructorKeyword)
     }

@@ -46,7 +46,7 @@ pub static KEYWORDS: phf::Map<&'static str, SyntaxKind> = phf_map! {
 };
 
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct Token {
+pub struct Token {
     pub kind: SyntaxKind,
     pub range: TextRange,
 }
@@ -58,7 +58,7 @@ struct Lexer<'a> {
     errors: Vec<SyntaxError>,
 }
 
-pub(crate) fn tokenise(text: &str) -> (Vec<Token>, Vec<SyntaxError>) {
+pub fn tokenise(text: &str) -> (Vec<Token>, Vec<SyntaxError>) {
     let mut lexer = Lexer::new(text);
     let mut tokens = Vec::new();
     loop {
@@ -73,7 +73,7 @@ pub(crate) fn tokenise(text: &str) -> (Vec<Token>, Vec<SyntaxError>) {
 }
 
 impl<'a> Lexer<'a> {
-    fn new(text: &'a str) -> Self {
+    const fn new(text: &'a str) -> Self {
         Self {
             text,
             pos: TextSize::new(0),
@@ -88,7 +88,7 @@ impl<'a> Lexer<'a> {
 
     fn next(&mut self) -> Option<char> {
         let ch = self.peek()?;
-        self.pos += TextSize::new(ch.len_utf8() as u32);
+        self.pos += TextSize::new(u32::try_from(ch.len_utf8()).unwrap_or(u32::MAX));
         Some(ch)
     }
 
@@ -102,11 +102,11 @@ impl<'a> Lexer<'a> {
         kind
     }
 
-    fn start_token(&mut self) {
+    const fn start_token(&mut self) {
         self.token_start = self.pos;
     }
 
-    fn token_range(&self) -> TextRange {
+    const fn token_range(&self) -> TextRange {
         TextRange::new(self.token_start, self.pos)
     }
 
@@ -115,15 +115,14 @@ impl<'a> Lexer<'a> {
     // starting from the position of this range and ending when end of the line is
     // reached. This means that it's not ideal to use 0 width diagnostics for cases
     // other than the ones described above
-    fn cursor_range(&self) -> TextRange {
+    const fn cursor_range(&self) -> TextRange {
         TextRange::empty(self.pos)
     }
 
     fn next_char_range(&self) -> TextRange {
-        let next_pos = match self.peek() {
-            Some(ch) => self.pos + TextSize::new(ch.len_utf8() as u32),
-            None => self.pos,
-        };
+        let next_pos = self.peek().map_or(self.pos, |ch| {
+            self.pos + TextSize::new(u32::try_from(ch.len_utf8()).unwrap_or(u32::MAX))
+        });
 
         TextRange::new(self.pos, next_pos)
     }
@@ -136,9 +135,10 @@ impl<'a> Lexer<'a> {
         self.error(SyntaxError {
             range: self.token_range(),
             message,
-        })
+        });
     }
 
+    #[allow(clippy::too_many_lines)]
     fn next_token(&mut self) -> Token {
         let Some(chr) = self.peek() else {
             return Token {
@@ -259,7 +259,7 @@ impl<'a> Lexer<'a> {
             '?' => match self.next_and_peek() {
                 // JavaScript '??' error recovery
                 Some('?') => {
-                    if let Some('=') = self.next_and_peek() {
+                    if self.next_and_peek() == Some('=') {
                         self.next();
                         self.error_at_token("'??=' is not a valid assignment operator".to_owned());
 
@@ -456,15 +456,16 @@ impl<'a> Lexer<'a> {
     // /* ... */
     fn block_comment(&mut self) -> SyntaxKind {
         self.next();
-        let mut is_doc = false;
-        if let Some('*') = self.peek() {
-            if let Some('/') = self.next_and_peek() {
+        let is_doc = if self.peek() == Some('*') {
+            if self.next_and_peek() == Some('/') {
                 // let value = self.current_token_value();
                 // return SyntaxKind::BlockComment(value);
                 return self.next_and_return(SyntaxKind::BlockComment);
             }
-            is_doc = true;
-        }
+            true
+        } else {
+            false
+        };
 
         loop {
             match self.peek() {
@@ -476,7 +477,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 Some('*') => {
-                    if let Some('/') = self.next_and_peek() {
+                    if self.next_and_peek() == Some('/') {
                         self.next();
                         break;
                     }
@@ -582,7 +583,9 @@ impl<'a> Lexer<'a> {
 
     // "..." `...`
     fn string(&mut self) -> SyntaxKind {
-        let quote = self.next().unwrap();
+        let quote = self
+            .next()
+            .expect("This function is called after seeing the quote but not consuming it");
         assert!(matches!(quote, '"' | '`'));
 
         loop {
@@ -597,7 +600,7 @@ impl<'a> Lexer<'a> {
                     range: self.cursor_range(),
                 });
                 break;
-            };
+            }
         }
 
         SyntaxKind::String
@@ -607,24 +610,23 @@ impl<'a> Lexer<'a> {
     fn character(&mut self) -> SyntaxKind {
         assert_eq!(self.next(), Some('\''));
 
-        let mut len: u32 = 0;
+        let mut len = 0;
 
         loop {
-            if let Some('\'') = self.peek() {
+            if self.peek() == Some('\'') {
                 self.next();
                 break;
             }
 
-            len += match self.literal_character() {
-                Some(chr) => chr.len_utf8(),
-                None => {
-                    self.error(SyntaxError {
-                        message: "Unterminated character literal".to_owned(),
-                        range: self.cursor_range(),
-                    });
-                    break;
-                }
-            } as u32;
+            let Some(chr) = self.literal_character() else {
+                self.error(SyntaxError {
+                    message: "Unterminated character literal".to_owned(),
+                    range: self.cursor_range(),
+                });
+                break;
+            };
+
+            len += chr.len_utf8();
         }
 
         if len == 0 {
@@ -645,7 +647,7 @@ impl<'a> Lexer<'a> {
         loop {
             match self.peek() {
                 Some('"') => {
-                    if let Some('"') = self.next_and_peek() {
+                    if self.next_and_peek() == Some('"') {
                         self.next();
                         '"'
                     } else {
@@ -698,8 +700,7 @@ impl<'a> Lexer<'a> {
                 _ => break,
             };
 
-            value = (value << 4) | digit as u32;
-            eprintln!("{:?}", value);
+            value = (value << 4) | u32::from(digit);
 
             self.next();
         }
@@ -739,8 +740,10 @@ impl<'a> Lexer<'a> {
 
     // 1233, 1e-21, 1.21, 1231.213e-2
     fn number(&mut self) -> SyntaxKind {
-        let initial = self.next().unwrap();
-        assert!(matches!(initial, '0'..='9'));
+        let initial = self
+            .next()
+            .expect("We call this function after seeing a number but not consuming it");
+        assert!(initial.is_ascii_digit());
 
         if initial == '0' {
             match self.peek() {

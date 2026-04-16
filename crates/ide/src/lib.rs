@@ -4,11 +4,11 @@ mod db;
 mod doc;
 mod symbol;
 
-use std::collections::hash_map::Entry;
+use std::{collections::hash_map::Entry, fmt::Write as _};
 
 use la_arena::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
-use sq_3_parser::{SyntaxKind, SyntaxToken, TextRange, TextSize};
+use sq_3_parser::{SyntaxKind, SyntaxNode, SyntaxToken, TextRange, TextSize};
 
 use crate::{
     arena::{
@@ -24,7 +24,7 @@ use crate::{
 
 pub use arena::{ArenaId, FunctionData, ParamsState, SymbolId};
 pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
-pub use symbol::{LocalKind, PropertyKind, Symbol, SymbolKind, SymbolTable, Type};
+pub use symbol::{LocalKind, PropertyKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -56,6 +56,21 @@ pub type NullableExprKind = Option<ExpressionKind>;
 pub struct TypeWithRange {
     typ: Type,
     range: TextRange,
+}
+
+impl TypeWithRange {
+    fn at_node(node: &SyntaxNode) -> Self {
+        Self {
+            typ: Type::Unknown,
+            range: node.text_range(),
+        }
+    }
+    fn at_node_end(node: &SyntaxNode) -> Self {
+        Self {
+            typ: Type::Unknown,
+            range: TextRange::empty(node.text_range().end()),
+        }
+    }
 }
 
 macro_rules! builtin {
@@ -170,9 +185,10 @@ fn import_members_inner(
     result
 }
 
-/// This trait exists to share behaviour between Collector and SourceFile
+/// Shared `Collector` and `SourceFile` behaviour
+///
 /// Which might (or might not) use the same functions. Note that
-/// SourceSymbol is immutable once constructed so there's no mutable methods
+/// `SourceSymbol` is immutable once constructed so there's no mutable methods
 pub trait Source {
     fn file(&self) -> File;
     fn db(&self) -> &dyn Db;
@@ -241,7 +257,7 @@ pub trait Source {
                     let symbol = self.get(id);
                     if symbol.range.end() >= offset {
                         break;
-                    };
+                    }
 
                     last = Some(id);
                 }
@@ -365,12 +381,13 @@ pub trait Source {
     }
 
     fn get_scope_container(&self, scope: ScopeId) -> Container {
-        if let Some(idx) = self.arena()[scope].function {
-            let function = &self.arena()[idx];
-            function.bindenv.unwrap_or(function.container)
-        } else {
-            Container::Table(self.source_table())
-        }
+        self.arena()[scope].function.map_or_else(
+            || Container::Table(self.source_table()),
+            |idx| {
+                let function = &self.arena()[idx];
+                function.bindenv.unwrap_or(function.container)
+            },
+        )
     }
 
     fn symbols_at(&self, offset: TextSize, filter_by_static: bool) -> FlatSymbolTable {
@@ -455,8 +472,7 @@ pub trait Source {
                 .get(id)
                 .types
                 .iter()
-                .map(|typ| self.members_of_type(*typ, settings, hide_unnecessary))
-                .flatten()
+                .flat_map(|typ| self.members_of_type(*typ, settings, hide_unnecessary))
                 .collect(),
             Type::Enum(id) => self.enum_members(id),
             Type::Integer(_) => integer_members(self.db()),
@@ -468,9 +484,7 @@ pub trait Source {
             Type::Generator(_) => generator_members(self.db()),
             Type::Thread(_) => thread_members(self.db()),
             Type::Weakref => weakref_members(self.db()),
-            Type::Unknown => FlatSymbolTable::default(),
-            Type::Null => FlatSymbolTable::default(),
-            Type::Any => FlatSymbolTable::default(),
+            Type::Unknown | Type::Null | Type::Any => FlatSymbolTable::default(),
         }
     }
 
@@ -515,7 +529,7 @@ pub trait Source {
                                 break;
                             }
 
-                            last = Some(id)
+                            last = Some(id);
                         }
 
                         Some((name, last?))
@@ -532,7 +546,7 @@ pub trait Source {
                                 break;
                             }
 
-                            last = Some(id)
+                            last = Some(id);
                         }
                         Some((name, last?))
                     })
@@ -655,7 +669,7 @@ pub trait Source {
             return to_flat_symbol_table(members)
                 .get(name)
                 .map(|id| self.get(*id));
-        };
+        }
 
         let symbols = members.get(name)?;
         let mut last = None;
@@ -666,7 +680,7 @@ pub trait Source {
                     break;
                 }
 
-                last = Some(symbol)
+                last = Some(symbol);
             }
         } else {
             for id in symbols {
@@ -675,7 +689,7 @@ pub trait Source {
                     break;
                 }
 
-                last = Some(symbol)
+                last = Some(symbol);
             }
         }
         last
@@ -683,7 +697,6 @@ pub trait Source {
 
     fn type_to_symbol(&self, typ: Type) -> Option<SymbolId> {
         Some(match typ {
-            Type::Unknown | Type::Null | Type::Any => return None,
             Type::Instance(id) => {
                 if let Some(id) = id
                     && let Some(class_id) = self.get(id).symbol
@@ -712,11 +725,11 @@ pub trait Source {
             Type::Array(_) => array_symbol(self.db())?,
             Type::Table(_) => table_symbol(self.db())?,
             Type::Class(_) => class_symbol(self.db())?,
-            Type::Enum(_) => return None,
             Type::Function(_) => function_symbol(self.db())?,
             Type::Generator(_) => generator_symbol(self.db())?,
             Type::Thread(_) => thread_symbol(self.db())?,
             Type::Weakref => weakref_symbol(self.db())?,
+            Type::Unknown | Type::Null | Type::Any | Type::Enum(_) => return None,
         })
     }
 
@@ -729,11 +742,11 @@ pub trait Source {
     }
 
     fn expr_kind_at(&self, range: TextRange) -> NullableExprKind {
-        self.range_to_expr().get(&range).cloned()
+        self.range_to_expr().get(&range).copied()
     }
 
     fn symbol_at(&self, range: TextRange) -> Option<SymbolId> {
-        self.range_to_symbol().get(&range).cloned()
+        self.range_to_symbol().get(&range).copied()
     }
 
     fn to_type_set(&self, typ: Type) -> TypeSet {
@@ -769,7 +782,7 @@ pub trait Source {
                 .get(id)
                 .types
                 .iter()
-                .cloned()
+                .copied()
                 .filter_map(|typ| {
                     if typ == Type::Unknown {
                         None
@@ -790,18 +803,22 @@ pub trait Source {
         }
     }
 
-    fn symbol_to_string(&self, id: SymbolId) -> String {
+    fn symbol_markdown(&self, id: SymbolId) -> String {
         let s = self.get(id);
-        let mut str = match s.kind {
-            SymbolKind::Local(_) => "local ".to_owned(),
+        let mut str = s.description.clone().unwrap_or_default();
+        str.push_str("\n```sqDoc\n");
+        match s.kind {
+            SymbolKind::Local(_) => str.push_str("local "),
             SymbolKind::Property(statik) => {
                 if statik == PropertyKind::Yes {
-                    "static ".to_owned()
-                } else {
-                    String::new()
+                    str.push_str("static ");
                 }
             }
-            SymbolKind::Enum => return format!("enum {}", s.name),
+            SymbolKind::Enum => {
+                let _ = write!(&mut str, "enum {}", s.name);
+                str.push_str("\n```");
+                return str;
+            }
             SymbolKind::Constant | SymbolKind::EnumMember => {
                 let type_text = match s.typ.0 {
                     Type::Integer(Some(value)) => value.to_string(),
@@ -810,77 +827,116 @@ pub trait Source {
                     Type::String(Some(id)) => {
                         format!("\"{}\"", self.get(id).text)
                     }
-                    _ => return format!("const {}", s.name),
+                    _ => {
+                        let _ = write!(&mut str, "const {}", s.name);
+                        str.push_str("\n```");
+                        return str;
+                    }
                 };
-                return format!("const {}: {}", s.name, type_text);
+
+                let _ = write!(&mut str, "const {}: {}", s.name, type_text);
+                str.push_str("\n```");
+                return str;
             }
-        };
+        }
 
         match s.typ.0 {
-            Type::Function(id) => {
-                let Some(id) = id else {
-                    return format!("{}function {}()", str, s.name);
-                };
-
-                let func = self.get(id);
-                str.push_str(format!("function {}(", s.name).as_str());
-                for (i, &param) in func.params.iter().enumerate() {
-                    if i > 0 {
-                        str.push_str(", ");
-                    }
-                    let param = self.get(param);
-                    if param.typ.0 != Type::Unknown {
-                        str.push_str(
-                            format!("{}: {}", param.name, self.type_to_string(param.typ.0))
-                                .as_str(),
-                        );
-                    } else {
-                        str.push_str(format!("{}", param.name).as_str());
-                    }
-                }
-
-                if let ParamsState::VarArgs(_, id) = func.params_state {
-                    if !func.params.is_empty() {
-                        str.push_str(", ");
-                    }
-                    str.push_str("...vargv");
-                    let symbol = self.get(id);
-                    if symbol.typ.0 != Type::Unknown {
-                        str.push_str(format!(": {}", self.type_to_string(symbol.typ.0)).as_str());
-                    }
-                }
-
-                if func.throws.is_some() {
-                    str.push_str(")!");
-                } else {
-                    str.push_str(")");
-                }
-
-                // Result of unknown can technically provide some value,
-                // while there's no point in saving 'null' return at all
-                // so it just pollutes the signature
-                if let Some(ret) = func.ret
-                    && ret.0 != Type::Null
-                {
-                    str.push_str(format!(" -> {}", self.type_to_string(ret.0)).as_str())
-                }
-
-                str
+            Type::Function(Some(id)) => {
+                let (signature, _) = self.function_markdown(&s.name, id);
+                str.push_str(&signature);
+            }
+            Type::Function(None) => {
+                let _ = write!(&mut str, "function {}()", s.name);
             }
 
-            Type::Class(_) => format!("{}class {}", str, s.name),
-            _ => format!("{}{}: {}", str, s.name, self.type_to_string(s.typ.0)),
+            Type::Class(_) => {
+                let _ = write!(&mut str, "class {}", s.name);
+            }
+            _ => {
+                let _ = write!(&mut str, "{}: {}", s.name, self.type_to_string(s.typ.0));
+            }
         }
+
+        str.push_str("\n```");
+        str
+    }
+
+    fn function_markdown(&self, name: &str, id: FunctionId) -> (String, Vec<[u32; 2]>) {
+        let func = self.get(id);
+        let mut label = format!("{name}(");
+        let mut param_ranges = Vec::new();
+        let default_after = if let ParamsState::Default(after) = func.params_state {
+            Some(after)
+        } else {
+            None
+        };
+
+        for (i, &param_id) in func.params.iter().enumerate() {
+            if i > 0 {
+                label.push_str(", ");
+            }
+            let start = label.len();
+            let param = self.get(param_id);
+            label.push_str(&param.name);
+            if let Some(default_after) = default_after
+                && i >= default_after
+            {
+                label.push('?');
+            }
+            if param.typ.0 != Type::Unknown {
+                let _ = write!(&mut label, ": {}", self.type_to_string(param.typ.0));
+            }
+            let end = label.len();
+            param_ranges.push([
+                u32::try_from(start).unwrap_or(u32::MAX),
+                u32::try_from(end).unwrap_or(u32::MAX),
+            ]);
+        }
+
+        if let ParamsState::VarArgs(_, id) = func.params_state {
+            if !func.params.is_empty() {
+                label.push_str(", ");
+            }
+            let start = label.len();
+            label.push_str("...vargv");
+            let symbol = self.get(id);
+            if let Type::Array(Some(id)) = symbol.typ.0 {
+                let array = self.get(id);
+                if array.typ != Type::Unknown {
+                    let _ = write!(&mut label, ": {}", self.type_to_string(array.typ));
+                }
+            }
+            let end = label.len();
+            param_ranges.push([
+                u32::try_from(start).unwrap_or(u32::MAX),
+                u32::try_from(end).unwrap_or(u32::MAX),
+            ]);
+        }
+
+        label.push(')');
+
+        if func.throws.is_some() {
+            label.push('!');
+        }
+
+        if let Some(ret) = func.ret
+            && !matches!(ret.0, Type::Unknown | Type::Null)
+        {
+            let _ = write!(&mut label, " -> {}", self.type_to_string(ret.0));
+        }
+
+        (label, param_ranges)
     }
 }
 
+#[must_use]
 pub fn token_name_range(token: &SyntaxToken) -> TextRange {
     let token_range = token.text_range();
     match token.kind() {
         SyntaxKind::String => {
             let text = token.text();
-            let left = if text.starts_with('"') { 1 } else { 0 };
-            let right = if text.ends_with('"') { 1 } else { 0 };
+            let left = u32::from(text.starts_with('"'));
+            let right = u32::from(text.ends_with('"'));
 
             TextRange::new(
                 token_range.start() + TextSize::new(left),
@@ -890,7 +946,7 @@ pub fn token_name_range(token: &SyntaxToken) -> TextRange {
         SyntaxKind::VerbatimString => {
             let text = token.text();
             let left = if text.starts_with("@\"") { 2 } else { 0 };
-            let right = if text.ends_with('"') { 1 } else { 0 };
+            let right = u32::from(text.ends_with('"'));
 
             TextRange::new(
                 token_range.start() + TextSize::new(left),
@@ -904,7 +960,7 @@ pub fn token_name_range(token: &SyntaxToken) -> TextRange {
 pub struct FinishedFile<'db>(&'db dyn Db, File);
 
 impl<'db> FinishedFile<'db> {
-    pub fn new(db: &'db dyn Db, file: File) -> FinishedFile<'db> {
+    pub fn new(db: &'db dyn Db, file: File) -> Self {
         Self(db, file)
     }
 
@@ -913,7 +969,7 @@ impl<'db> FinishedFile<'db> {
     }
 }
 
-impl<'db> Source for FinishedFile<'db> {
+impl Source for FinishedFile<'_> {
     fn arena(&self) -> &SourceArena {
         &self.source().arena
     }

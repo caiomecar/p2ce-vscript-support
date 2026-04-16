@@ -9,7 +9,7 @@ use crate::{
     symbol::{AnnotatedType, Symbol, SymbolTable, Type, TypeSet},
 };
 
-pub trait ArenaId {
+pub trait ArenaId: Clone + Copy + PartialEq + Eq {
     type Data;
     fn file(&self) -> File;
     fn idx(&self) -> Idx<Self::Data>;
@@ -25,7 +25,7 @@ macro_rules! arena_id {
         }
 
         impl $name {
-            pub fn new(file: File, idx: Idx<$data>) -> $name {
+            pub const fn new(file: File, idx: Idx<$data>) -> $name {
                 Self { file, idx }
             }
         }
@@ -89,10 +89,10 @@ pub enum TypeConversionError {
 impl From<Container> for Type {
     fn from(value: Container) -> Self {
         match value {
-            Container::Table(idx) => Type::Table(Some(idx)),
-            Container::Class(idx) => Type::Class(Some(idx)),
-            Container::Instance(idx) => Type::Instance(Some(idx)),
-            Container::Enum(idx) => Type::Enum(idx),
+            Container::Table(idx) => Self::Table(Some(idx)),
+            Container::Class(idx) => Self::Class(Some(idx)),
+            Container::Instance(idx) => Self::Instance(Some(idx)),
+            Container::Enum(idx) => Self::Enum(idx),
         }
     }
 }
@@ -105,21 +105,15 @@ impl TryFrom<Type> for Container {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
-                Container::Table(id)
+                Self::Table(id)
             }
-            Type::Class(id) => {
+            Type::Class(id) | Type::Instance(id) => {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
-                Container::Class(id)
+                Self::Class(id)
             }
-            Type::Instance(id) => {
-                let Some(id) = id else {
-                    return Err(TypeConversionError::NotSpecific);
-                };
-                Container::Class(id)
-            }
-            Type::Enum(id) => Container::Enum(id),
+            Type::Enum(id) => Self::Enum(id),
             _ => return Err(TypeConversionError::WrongType),
         })
     }
@@ -129,9 +123,8 @@ impl TryFrom<Container> for ImportTarget {
     type Error = ();
     fn try_from(value: Container) -> Result<Self, Self::Error> {
         Ok(match value {
-            Container::Table(id) => ImportTarget::Table(id),
-            Container::Class(id) => ImportTarget::Class(id),
-            Container::Instance(id) => ImportTarget::Class(id),
+            Container::Table(id) => Self::Table(id),
+            Container::Class(id) | Container::Instance(id) => Self::Class(id),
             Container::Enum(_) => return Err(()),
         })
     }
@@ -145,33 +138,33 @@ impl TryFrom<Type> for ImportTarget {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
-                ImportTarget::Table(id)
+                Self::Table(id)
             }
             Type::Instance(id) | Type::Class(id) => {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
-                ImportTarget::Class(id)
+                Self::Class(id)
             }
             _ => return Err(TypeConversionError::WrongType),
         })
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct TableData {
     pub delegate: Option<TableId>,
     pub members: SymbolTable,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ClassData {
     pub symbol: Option<SymbolId>,
     pub inherits: Option<ClassId>,
     pub members: SymbolTable,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EnumData {
     pub symbol: Option<SymbolId>,
     pub members: SymbolTable,
@@ -179,6 +172,7 @@ pub struct EnumData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {
+    pub symbol: Option<SymbolId>,
     pub range: TextRange,
     pub ret: Option<AnnotatedType>,
     pub container: Container,
@@ -189,12 +183,12 @@ pub struct FunctionData {
     pub throws: Option<AnnotatedType>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum ParamsState {
     #[default]
     NoDefault,
-    Default(u32),
-    VarArgs(u32, SymbolId),
+    Default(usize),
+    VarArgs(usize, SymbolId),
 }
 
 #[derive(Debug, PartialEq)]
@@ -202,13 +196,13 @@ pub struct ArrayData {
     pub typ: Type,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StringData {
     pub text: Box<str>,
     pub unquoted_range: TextRange,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Scope {
     pub range: TextRange,
     pub locals: SymbolTable,
@@ -280,11 +274,11 @@ impl SourceArena {
             // is guaranteed to be deeper
             .min_by_key(|(i, s)| (s.range.len(), Reverse(*i)))
             .map(|(i, _)| i)
-            .unwrap()
+            .expect("Source scope should always contain any offset (unless it's out of bounds)")
         //.unwrap_or_default(Idx::from_raw(RawIdx::from(0 as u32)))
     }
 
     pub fn all_symbols(&self) -> impl Iterator<Item = (Idx<Symbol>, &Symbol)> {
-        self.symbols.iter().map(|entry| entry)
+        self.symbols.iter()
     }
 }

@@ -21,11 +21,13 @@ pub struct SyntaxError {
 }
 
 impl SyntaxError {
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
 
-    pub fn range(&self) -> TextRange {
+    #[must_use]
+    pub const fn range(&self) -> TextRange {
         self.range
     }
 }
@@ -37,7 +39,9 @@ pub struct Parse {
 }
 
 impl Parse {
-    pub fn new(text: &str) -> Parse {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn new(text: &str) -> Self {
         // let now = std::time::Instant::now();
         let (tokens, mut lex_errors) = lexer::tokenise(text);
         // eprintln!("Lexing took {:?}", now.elapsed());
@@ -53,7 +57,7 @@ impl Parse {
         // let now = std::time::Instant::now();
 
         let mut builder = GreenNodeBuilder::new();
-        for event in events.into_iter() {
+        for event in events {
             match event {
                 Event::Start { kind } => builder.start_node(kind.into()),
                 Event::Finish => builder.finish_node(),
@@ -66,37 +70,36 @@ impl Parse {
 
         // eprintln!("Building a tree took {:?}", now.elapsed());
 
-        Parse {
+        Self {
             green_node: builder.finish(),
             errors: lex_errors,
         }
     }
 
+    #[must_use]
     pub fn errors(&self) -> &[SyntaxError] {
         &self.errors
     }
 
+    #[must_use]
     pub fn syntax(&self) -> SyntaxNode {
         SyntaxNode::new_root(self.green_node.clone())
     }
 
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn source_file(&self) -> SourceFile {
-        SourceFile::cast(self.syntax()).unwrap()
+        SourceFile::cast(self.syntax())
+            .expect("Parse syntax node is guaranteed to be a source file node")
     }
 
+    #[must_use]
     pub fn into_syntax(self) -> SyntaxNode {
         SyntaxNode::new_root(self.green_node)
     }
 
+    #[must_use]
     pub fn finish(self) -> (SourceFile, Vec<SyntaxError>) {
         (self.source_file(), self.errors)
     }
-}
-
-pub fn node_at_offset(node: SyntaxNode, offset: TextSize) -> SyntaxNode {
-    assert!(node.text_range().contains(offset));
-    node.children()
-        .find(|it| it.text_range().contains(offset))
-        .map(|it| node_at_offset(it, offset))
-        .unwrap_or(node)
 }

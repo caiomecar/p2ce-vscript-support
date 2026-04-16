@@ -1,5 +1,4 @@
 use crate::conversions;
-use anyhow::Result;
 use ide::{Database, FinishedFile, PropertyKind, Source, Symbol, SymbolKind, Type, line_index};
 use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
@@ -8,16 +7,11 @@ use lsp_types::{
 pub fn handle_document_symbols(
     db: &Database,
     params: DocumentSymbolParams,
-) -> Result<Option<DocumentSymbolResponse>> {
+) -> Option<DocumentSymbolResponse> {
     let uri = params.text_document.uri;
 
-    let Ok(path) = uri.to_file_path() else {
-        return Ok(None);
-    };
-
-    let Some(file) = db.get_file(&path) else {
-        return Ok(None);
-    };
+    let path = uri.to_file_path().ok()?;
+    let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
@@ -39,14 +33,12 @@ pub fn handle_document_symbols(
     let mut build_symbol = |stack: &mut Vec<(&Symbol, Vec<DocumentSymbol>)>,
                             symbol: &Symbol,
                             children: Vec<DocumentSymbol>| {
-        match symbol.kind {
-            SymbolKind::Property(PropertyKind::Embedded) => return,
-            // SymbolKind::Local(_) if stack.len() != 0 => return,
-            _ => {}
+        if symbol.kind == SymbolKind::Property(PropertyKind::Embedded) {
+            return;
         }
 
-        let range = conversions::range(line_idx, symbol.range).unwrap();
-        let name_range = conversions::range(line_idx, symbol.name_range).unwrap();
+        let range = conversions::range(line_idx, symbol.range);
+        let name_range = conversions::range(line_idx, symbol.name_range);
         let kind = match symbol.typ.0 {
             Type::Function(_) => LspSymbolKind::FUNCTION,
             Type::Class(_) => LspSymbolKind::CLASS,
@@ -59,10 +51,10 @@ pub fn handle_document_symbols(
             },
         };
 
-        let name = if symbol.name.len() > 0 {
-            symbol.name.clone()
-        } else {
+        let name = if symbol.name.is_empty() {
             "<unnamed>".to_owned()
+        } else {
+            symbol.name.clone()
         };
 
         if !symbol.range.contains_range(symbol.name_range) {
@@ -100,7 +92,9 @@ pub fn handle_document_symbols(
             if parent.range.contains_range(symbol.range) {
                 break;
             }
-            let (psymbol, children) = stack.pop().unwrap();
+            let (psymbol, children) = stack
+                .pop()
+                .expect("We can enter this point only after .last is Some");
             build_symbol(&mut stack, psymbol, children);
         }
         stack.push((symbol, Vec::new()));
@@ -110,5 +104,5 @@ pub fn handle_document_symbols(
         build_symbol(&mut stack, symbol, children);
     }
 
-    Ok(Some(DocumentSymbolResponse::Nested(roots)))
+    Some(DocumentSymbolResponse::Nested(roots))
 }

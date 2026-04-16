@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use sq_3_parser::ast::*;
     use sq_3_parser::*;
@@ -98,7 +99,7 @@ mod tests {
         assert!(i.condition().is_some());
         assert!(i.statement().is_some());
         assert!(i.else_branch().is_some());
-        assert!(i.else_branch().unwrap().statement().is_some())
+        assert!(i.else_branch().unwrap().statement().is_some());
     }
 
     #[test]
@@ -285,9 +286,8 @@ mod tests {
     fn switch_case_bodies() {
         let stmt = first_stmt("switch (x) { case 1: a(); b(); break; }", 0);
         let Stmt::Switch(s) = stmt else { panic!() };
-        let case = match s.clauses().next() {
-            Some(SwitchClause::Case(case)) => case,
-            _ => panic!(),
+        let Some(SwitchClause::Case(case)) = s.clauses().next() else {
+            panic!()
         };
         assert!(case.test().is_some());
         assert_eq!(case.body().count(), 3); // a(); b(); break;
@@ -1060,7 +1060,7 @@ mod tests {
         ];
         for src in snippets {
             let errors = Parse::new(src).errors().to_vec();
-            assert!(errors.is_empty(), "errors in {:?}: {:?}", src, errors);
+            assert!(errors.is_empty(), "errors in {src:?}: {errors:?}");
         }
     }
 }

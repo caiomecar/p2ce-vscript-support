@@ -14,8 +14,34 @@ pub struct Symbol {
     pub kind: SymbolKind,
     pub name_range: TextRange,
     pub range: TextRange,
+    pub description: Option<String>,
+    pub flags: SymbolFlags,
 }
 
+bitflags::bitflags! {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub struct SymbolFlags: u8 {
+        const CONST = 1 << 0;
+        const HIDE = 1 << 1;
+        const DEPRECATED = 1 << 2;
+        const PRIVATE = 1 << 3;
+    }
+}
+
+impl Symbol {
+    #[must_use]
+    pub const fn is_modifiable(&self) -> bool {
+        match self.kind {
+            SymbolKind::Local(_) | SymbolKind::Property(_) => {
+                !self.flags.contains(SymbolFlags::CONST)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Maps name to multiple symbols
+///
 /// To represent multiple symbols with the same name
 /// we use a vector instead of 1 to 1 mapping
 /// this complicated API quite a bit since we need to
@@ -24,7 +50,9 @@ pub struct Symbol {
 /// what is actually happening in the source file
 pub type SymbolTable = FxHashMap<String, Vec<SymbolId>>;
 
-// This is used in "members_of_type" where it's possible to flatten the table
+/// Maps name to a single symbol
+///
+/// This is used in `members_of_type` where it's possible to flatten the table
 pub type FlatSymbolTable = FxHashMap<String, SymbolId>;
 
 pub fn insert_symbol(table: &mut SymbolTable, name: String, value: SymbolId) {
@@ -37,10 +65,19 @@ pub fn insert_symbol(table: &mut SymbolTable, name: String, value: SymbolId) {
 pub fn to_flat_symbol_table(table: SymbolTable) -> FlatSymbolTable {
     table
         .into_iter()
-        .map(|(name, ids)| (name, *ids.last().unwrap()))
+        .map(|(name, ids)| {
+            (
+                name,
+                *ids.last().expect(
+                    "Symbol table vector is guaranteed to contain at least a single symbol",
+                ),
+            )
+        })
         .collect()
 }
 
+/// Symbol's type
+///
 /// options here basically mean: we know it would be this type
 /// but we don't really know what is the exact data behind it
 /// for instances tables with different keys, or
@@ -70,9 +107,9 @@ pub enum Type {
     Union(UnionId),
 }
 
-impl Into<AnnotatedType> for Type {
-    fn into(self) -> AnnotatedType {
-        AnnotatedType(self, false)
+impl From<Type> for AnnotatedType {
+    fn from(val: Type) -> Self {
+        Self(val, false)
     }
 }
 
@@ -107,15 +144,6 @@ pub enum PropertyKind {
 impl Default for SymbolKind {
     fn default() -> Self {
         Self::Property(PropertyKind::default())
-    }
-}
-
-impl SymbolKind {
-    pub fn is_modifiable(self) -> bool {
-        match self {
-            SymbolKind::Local(_) | SymbolKind::Property(_) => true,
-            _ => false,
-        }
     }
 }
 
@@ -166,40 +194,39 @@ impl TypeSet {
         Self(self.0 & other.0)
     }
 
-    pub const fn contains(self, other: TypeSet) -> bool {
+    pub const fn contains(self, other: Self) -> bool {
         (self.0 & other.0) != 0
     }
 
-    pub const fn are_both_numbers(first: TypeSet, second: TypeSet) -> bool {
-        TypeSet::NUMBER.contains(first) && TypeSet::NUMBER.contains(second)
+    pub const fn are_both_numbers(first: Self, second: Self) -> bool {
+        Self::NUMBER.contains(first) && Self::NUMBER.contains(second)
     }
 
-    pub const EMPTY: TypeSet = TypeSet::new(&[]);
-    pub const ANY: TypeSet = TypeSet::new(&[TypeKind::Unknown, TypeKind::Any]);
-    pub const INTEGER: TypeSet = TypeSet::from_kind(TypeKind::Integer);
-    pub const NUMBER: TypeSet = TypeSet::new(&[TypeKind::Float, TypeKind::Integer]);
-    pub const NUMBER_OR_ANY: TypeSet = TypeSet::NUMBER.union(TypeSet::ANY);
-    pub const STRING: TypeSet = TypeSet::from_kind(TypeKind::String);
-    pub const NULL: TypeSet = TypeSet::from_kind(TypeKind::Null);
-    pub const TABLE: TypeSet = TypeSet::from_kind(TypeKind::Table);
-    pub const INSTANCE: TypeSet = TypeSet::from_kind(TypeKind::Instance);
+    pub const EMPTY: Self = Self::new(&[]);
+    pub const ANY: Self = Self::new(&[TypeKind::Unknown, TypeKind::Any]);
+    pub const INTEGER: Self = Self::from_kind(TypeKind::Integer);
+    pub const NUMBER: Self = Self::new(&[TypeKind::Float, TypeKind::Integer]);
+    pub const NUMBER_OR_ANY: Self = Self::NUMBER.union(Self::ANY);
+    pub const STRING: Self = Self::from_kind(TypeKind::String);
+    pub const NULL: Self = Self::from_kind(TypeKind::Null);
+    pub const TABLE: Self = Self::from_kind(TypeKind::Table);
+    pub const INSTANCE: Self = Self::from_kind(TypeKind::Instance);
 
-    pub const TABLE_OR_INSTANCE: TypeSet = TypeSet::new(&[TypeKind::Table, TypeKind::Instance]);
+    pub const TABLE_OR_INSTANCE: Self = Self::new(&[TypeKind::Table, TypeKind::Instance]);
 
-    pub const VALID_IN_LHS: TypeSet =
-        TypeSet::new(&[TypeKind::Array, TypeKind::Table, TypeKind::Class]).union(TypeSet::ANY);
-    pub const VALID_INSTANCE_OF_LHS: TypeSet =
-        TypeSet::new(&[TypeKind::Instance]).union(TypeSet::ANY);
-    pub const VALID_INSTANCE_OF_RHS: TypeSet = TypeSet::new(&[TypeKind::Class]).union(TypeSet::ANY);
-    pub const VALID_SWITCH_DISCRIMINANT: TypeSet = TypeSet::new(&[
+    pub const VALID_IN_LHS: Self =
+        Self::new(&[TypeKind::Array, TypeKind::Table, TypeKind::Class]).union(Self::ANY);
+    pub const VALID_INSTANCE_OF_LHS: Self = Self::new(&[TypeKind::Instance]).union(Self::ANY);
+    pub const VALID_INSTANCE_OF_RHS: Self = Self::new(&[TypeKind::Class]).union(Self::ANY);
+    pub const VALID_SWITCH_DISCRIMINANT: Self = Self::new(&[
         TypeKind::Null,
         TypeKind::Float,
         TypeKind::Integer,
         TypeKind::Boolean,
         TypeKind::String,
     ])
-    .union(TypeSet::ANY);
-    pub const CAN_COMPARE: TypeSet = TypeSet::new(&[
+    .union(Self::ANY);
+    pub const CAN_COMPARE: Self = Self::new(&[
         TypeKind::Null,
         TypeKind::Float,
         TypeKind::Integer,
@@ -208,30 +235,30 @@ impl TypeSet {
         TypeKind::Table,
         TypeKind::Instance,
     ])
-    .union(TypeSet::ANY);
-    pub const CAN_HAVE_UNKNOWN_MEMBERS: TypeSet =
-        TypeSet::new(&[TypeKind::Table, TypeKind::Class, TypeKind::Instance]).union(TypeSet::ANY);
+    .union(Self::ANY);
+    pub const CAN_HAVE_UNKNOWN_MEMBERS: Self =
+        Self::new(&[TypeKind::Table, TypeKind::Class, TypeKind::Instance]).union(Self::ANY);
 }
 
-impl Into<TypeKind> for Type {
-    fn into(self) -> TypeKind {
-        match self {
-            Type::Unknown => TypeKind::Unknown,
-            Type::Any => TypeKind::Any,
-            Type::Integer(_) => TypeKind::Integer,
-            Type::Float(_) => TypeKind::Float,
-            Type::String(_) => TypeKind::String,
-            Type::Boolean(_) => TypeKind::Boolean,
-            Type::Null => TypeKind::Null,
-            Type::Instance(_) => TypeKind::Instance,
-            Type::Array(_) => TypeKind::Array,
-            Type::Table(_) => TypeKind::Table,
-            Type::Class(_) => TypeKind::Class,
-            Type::Enum(_) => TypeKind::Enum,
-            Type::Function(_) => TypeKind::Function,
-            Type::Generator(_) => TypeKind::Generator,
-            Type::Thread(_) => TypeKind::Thread,
-            Type::Weakref => TypeKind::Weakref,
+impl From<Type> for TypeKind {
+    fn from(val: Type) -> Self {
+        match val {
+            Type::Unknown => Self::Unknown,
+            Type::Any => Self::Any,
+            Type::Integer(_) => Self::Integer,
+            Type::Float(_) => Self::Float,
+            Type::String(_) => Self::String,
+            Type::Boolean(_) => Self::Boolean,
+            Type::Null => Self::Null,
+            Type::Instance(_) => Self::Instance,
+            Type::Array(_) => Self::Array,
+            Type::Table(_) => Self::Table,
+            Type::Class(_) => Self::Class,
+            Type::Enum(_) => Self::Enum,
+            Type::Function(_) => Self::Function,
+            Type::Generator(_) => Self::Generator,
+            Type::Thread(_) => Self::Thread,
+            Type::Weakref => Self::Weakref,
             Type::Union(_) => unreachable!(), // handled separately
         }
     }

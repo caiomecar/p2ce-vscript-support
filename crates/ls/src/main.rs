@@ -27,7 +27,7 @@ use lsp_types::{
     CompletionOptions, DiagnosticSeverity, DiagnosticTag, HoverProviderCapability, OneOf,
     RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
     SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
-    SignatureHelpOptions, TypeDefinitionProviderCapability,
+    SignatureHelpOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions,
 };
 // for METHOD consts
 use lsp_types::{
@@ -96,7 +96,7 @@ fn main() -> Result<()> {
         references_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Right(RenameOptions {
             prepare_provider: Some(true),
-            work_done_progress_options: Default::default(),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
         })),
         signature_help_provider: Some(SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
@@ -110,19 +110,19 @@ fn main() -> Result<()> {
     let init_value = serde_json::to_value(server_capabilities)?;
     let init_params = connection.initialize(init_value)?;
 
-    main_loop(connection, init_params)?;
+    main_loop(&connection, init_params)?;
     io_threads.join()?;
     eprintln!("shutting down server");
     Ok(())
 }
 
-fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
+fn main_loop(connection: &Connection, params: serde_json::Value) -> Result<()> {
     let init: InitializeParams = serde_json::from_value(params)?;
 
     let config = match init.initialization_options {
         Some(serde_json::Value::Object(map)) => {
             let tf2_root_path = map.get("tf2Root").and_then(|v| v.as_str()).and_then(|v| {
-                if v.len() == 0 {
+                if v.is_empty() {
                     None
                 } else {
                     Some(PathBuf::from(v))
@@ -164,7 +164,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
                 }
                 let now = Instant::now();
                 let method = req.method.clone();
-                if let Err(err) = handle_request(&db, &connection, req) {
+                if let Err(err) = handle_request(&db, connection, req) {
                     eprintln!("[lsp] request {method} failed: {err}");
                 }
                 eprintln!("[lsp] request {method} took {:?}", now.elapsed());
@@ -172,7 +172,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
             Message::Notification(note) => {
                 let now = Instant::now();
                 let method = note.method.clone();
-                if let Err(err) = handle_notification(&mut db, &connection, note) {
+                if let Err(err) = handle_notification(&mut db, connection, note) {
                     eprintln!("[lsp] notification {method} failed: {err}");
                 }
                 eprintln!("[lsp] notification {method} took {:?}", now.elapsed());
@@ -195,7 +195,7 @@ fn handle_notification(
                 return Ok(()); // ignore untitled files
             };
             let file = db.open_file_with_text(path, p.text_document.text);
-            publish_diagnostics(&db, conn, file)?;
+            publish_diagnostics(db, conn, file)?;
         }
         DidChangeTextDocument::METHOD => {
             let p: DidChangeTextDocumentParams = serde_json::from_value(note.params)?;
@@ -207,11 +207,11 @@ fn handle_notification(
                 return Ok(());
             };
 
-            let mut text = file.text(db).to_string();
+            let mut text = file.text(db).clone();
             let line_index = line_index(db, file);
             for change in p.content_changes {
                 let range = change.range.expect("Incremental changes always have range");
-                let text_range = conversions::text_range(line_index, range).unwrap();
+                let text_range = conversions::text_range(line_index, range);
                 text.replace_range(std::ops::Range::<usize>::from(text_range), &change.text);
             }
             file.set_text(db).to(text);
@@ -227,57 +227,57 @@ fn handle_request(db: &Database, conn: &Connection, req: ServerRequest) -> Resul
     match req.method.as_str() {
         Completion::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_completions(db, params)?;
+            let result = handle_completions(db, params);
             send_ok(conn, req.id, &result)?;
         }
         GotoDefinition::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_go_to_definition(db, params)?;
+            let result = handle_go_to_definition(db, params);
             send_ok(conn, req.id, &result)?;
         }
         HoverRequest::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_hover(db, params)?;
+            let result = handle_hover(db, params);
             send_ok(conn, req.id, &result)?;
         }
         SemanticTokensFullRequest::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_semantic_tokens(db, params)?;
+            let result = handle_semantic_tokens(db, params);
             send_ok(conn, req.id, &result)?;
         }
         DocumentSymbolRequest::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_document_symbols(db, params)?;
+            let result = handle_document_symbols(db, params);
             send_ok(conn, req.id, &result)?;
         }
         References::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_references(db, params)?;
+            let result = handle_references(db, params);
             send_ok(conn, req.id, &result)?;
         }
         Rename::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_rename(db, params)?;
+            let result = handle_rename(db, params);
             send_ok(conn, req.id, &result)?;
         }
         PrepareRenameRequest::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_prepare_rename(db, params)?;
+            let result = handle_prepare_rename(db, params);
             send_ok(conn, req.id, &result)?;
         }
         SignatureHelpRequest::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_signature_help(db, params)?;
+            let result = handle_signature_help(db, params);
             send_ok(conn, req.id, &result)?;
         }
         InlayHintRequest::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_inlay_hints(db, params)?;
+            let result = handle_inlay_hints(db, params);
             send_ok(conn, req.id, &result)?;
         }
         GotoTypeDefinition::METHOD => {
             let params = serde_json::from_value(req.params)?;
-            let result = handle_go_to_type_definition(db, params)?;
+            let result = handle_go_to_type_definition(db, params);
             send_ok(conn, req.id, &result)?;
         }
         _ => send_err(
@@ -291,7 +291,7 @@ fn handle_request(db: &Database, conn: &Connection, req: ServerRequest) -> Resul
 }
 
 fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<()> {
-    let line_index = line_index(db, file);
+    let line_idx = line_index(db, file);
     let parse = parse(db, file);
     let finished_file = FinishedFile::new(db, file);
 
@@ -300,7 +300,7 @@ fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<(
         .iter()
         .map(|error| Diagnostic {
             message: error.message().to_owned(),
-            range: conversions::range(&line_index, error.range()).unwrap(),
+            range: conversions::range(line_idx, error.range()),
             ..Default::default()
         })
         .chain(finished_file.diagnostics().iter().map(|diagnostic| {
@@ -314,8 +314,8 @@ fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<(
                 ),
             };
             Diagnostic {
-                message: diagnostic.message.to_owned(),
-                range: conversions::range(&line_index, diagnostic.range).unwrap(),
+                message: diagnostic.message.clone(),
+                range: conversions::range(line_idx, diagnostic.range),
                 severity: Some(severity),
                 tags,
                 ..Default::default()

@@ -121,12 +121,13 @@ impl Db for Database {
             return Err(ScriptResolutionError::DoesntExist);
         }
 
-        if let Some(file) = self.get_file(&full_path) {
-            Ok(file)
-        } else {
-            self.open_file(full_path)
-                .ok_or(ScriptResolutionError::DoesntExist)
-        }
+        self.get_file(&full_path).map_or_else(
+            || {
+                self.open_file(full_path)
+                    .ok_or(ScriptResolutionError::DoesntExist)
+            },
+            Ok,
+        )
     }
 
     fn builtins(&self) -> Option<&Builtins> {
@@ -146,11 +147,12 @@ impl Db for Database {
     }
 
     fn check_special(&self, id: FunctionId) -> Option<SpecialFunction> {
-        self.special_functions.get(&id).cloned()
+        self.special_functions.get(&id).copied()
     }
 }
 
 impl Database {
+    #[must_use]
     pub fn new(config: DbConfig) -> Self {
         let mut this = Self::default();
         if let Some(builtins_path) = config.builtins_path {
@@ -189,7 +191,7 @@ impl Database {
     }
 
     pub fn get_file(&self, path: &Path) -> Option<File> {
-        self.path_to_file.borrow().get(path).cloned()
+        self.path_to_file.borrow().get(path).copied()
     }
 
     // Can't return a reference because of the ref cell
@@ -203,7 +205,7 @@ impl Database {
 
         for entry in walkdir::WalkDir::new(scripts)
             .into_iter()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().and_then(|e| e.to_str()) == Some("nut"))
         {
             self.open_file(entry.into_path());
@@ -245,7 +247,7 @@ impl Database {
             }
 
             if ids.len() > 1 {
-                eprintln!("Multiple definitions for the symbol '{name}'")
+                eprintln!("Multiple definitions for the symbol '{name}'");
             }
 
             Some(ids[0])
@@ -308,7 +310,9 @@ impl Database {
                 eprintln!("Multiple definitions for the standard library symbol '{name}'");
             }
 
-            let id = ids.last().unwrap();
+            let id = ids
+                .last()
+                .expect("SymbolTable vector contains at least 1 symbol");
 
             if id.file() != file {
                 eprintln!("Standard library symbol '{name}' is defined externally");
@@ -329,7 +333,7 @@ impl Database {
         let source = source_symbol(self, file);
         let source_members = &source.arena[source.source_table].members;
         source_members
-            .into_iter()
+            .iter()
             .filter_map(|(name, ids)| {
                 // Both squirrel and vscript files use the same match, this works fine since
                 // there's no name clashing for special functions but it might not be the best
@@ -347,7 +351,9 @@ impl Database {
                     eprintln!("Multiple definitions for the standard library symbol '{name}'");
                 }
 
-                let id = ids.last().unwrap();
+                let id = ids
+                    .last()
+                    .expect("SymbolTable vector contains at least 1 symbol");
 
                 if id.file() != file {
                     eprintln!("Standard library symbol '{name}' is defined externally");
@@ -384,7 +390,7 @@ pub fn parse(db: &dyn Db, file: File) -> Parse {
 pub fn source_symbol(db: &dyn Db, file: File) -> SourceSymbol {
     let now = Instant::now();
     let parse = parse(db, file);
-    let source = Collector::symbol_from_source_file(db, file, parse.source_file());
+    let source = Collector::symbol_from_source_file(db, file, &parse.source_file());
     eprintln!("Source symbol took {:?}", now.elapsed());
     source
 }

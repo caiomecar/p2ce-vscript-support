@@ -1,3 +1,8 @@
+use sq_3_parser::{
+    AstNode, SyntaxNode, SyntaxToken,
+    ast::{BinaryExpression, HasDoc, Property, VariableDeclaration},
+};
+
 #[derive(Debug)]
 pub struct Doc {
     pub description: String,
@@ -21,6 +26,9 @@ pub enum TagItem {
     Native,
     Entity,
     Input,
+    Const,
+    Deprecated,
+    Hide,
 }
 
 #[derive(Debug)]
@@ -55,17 +63,14 @@ pub struct VarArgsTag {
 }
 
 fn split_once_ws(s: &str) -> (&str, &str) {
-    match s.find(char::is_whitespace) {
-        Some(idx) => {
-            let (first, rest) = s.split_at(idx);
-            (first, rest.trim_start())
-        }
-        None => (s, ""),
-    }
+    s.find(char::is_whitespace).map_or((s, ""), |idx| {
+        let (first, rest) = s.split_at(idx);
+        (first, rest.trim_start())
+    })
 }
 
 impl Doc {
-    pub fn new(text: &str) -> Doc {
+    pub fn new(text: &str) -> Self {
         let mut doc_description = Vec::new();
         let mut tags: Vec<Tag> = Vec::new();
         for line in text.lines() {
@@ -75,11 +80,11 @@ impl Doc {
                     tag.description.push_str(line);
                 } else {
                     doc_description.push(line);
-                };
+                }
                 continue;
             };
 
-            if let Some(tag) = Doc::tag(rest) {
+            if let Some(tag) = Self::tag(rest) {
                 tags.push(tag);
             }
         }
@@ -95,8 +100,17 @@ impl Doc {
             return (None, text);
         };
 
-        match rest.find(|c| c == '}') {
-            Some(idx) => {
+        rest.find('}').map_or_else(
+            || {
+                let types = rest
+                    .split('|')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                (Some(types), "")
+            },
+            |idx| {
                 let (typ, rest) = rest.split_at(idx);
                 let types = typ
                     .split('|')
@@ -105,24 +119,15 @@ impl Doc {
                     .collect();
 
                 (Some(types), rest[1..].trim_start())
-            }
-            None => {
-                let types = rest
-                    .split('|')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .collect();
-
-                (Some(types), "")
-            }
-        }
+            },
+        )
     }
 
     pub fn tag(text: &str) -> Option<Tag> {
         let (tag, rest) = split_once_ws(text);
         let (item, rest) = match tag {
             "return" | "returns" => {
-                let (typ, rest) = Doc::typ(rest);
+                let (typ, rest) = Self::typ(rest);
                 (
                     TagItem::Return(ReturnTag {
                         typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
@@ -131,7 +136,7 @@ impl Doc {
                 )
             }
             "type" => {
-                let (typ, rest) = Doc::typ(rest);
+                let (typ, rest) = Self::typ(rest);
                 (
                     TagItem::Type(TypeTag {
                         typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
@@ -140,7 +145,7 @@ impl Doc {
                 )
             }
             "param" => {
-                let (typ, rest) = Doc::typ(rest);
+                let (typ, rest) = Self::typ(rest);
                 let (name, rest) = split_once_ws(rest);
                 (
                     TagItem::Parameter(ParameterTag {
@@ -151,7 +156,7 @@ impl Doc {
                 )
             }
             "throw" | "throws" => {
-                let (typ, rest) = Doc::typ(rest);
+                let (typ, rest) = Self::typ(rest);
                 (
                     TagItem::Throw(ThrowTag {
                         typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
@@ -160,7 +165,7 @@ impl Doc {
                 )
             }
             "yield" | "yields" => {
-                let (typ, rest) = Doc::typ(rest);
+                let (typ, rest) = Self::typ(rest);
                 (
                     TagItem::Yield(YieldTag {
                         typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
@@ -169,7 +174,7 @@ impl Doc {
                 )
             }
             "varargs" | "vargv" => {
-                let (typ, rest) = Doc::typ(rest);
+                let (typ, rest) = Self::typ(rest);
                 (
                     TagItem::VarArgs(VarArgsTag {
                         typ: typ.map(|v| v.into_iter().map(str::to_owned).collect()),
@@ -180,6 +185,9 @@ impl Doc {
             "native" => (TagItem::Native, rest),
             "entity" => (TagItem::Entity, rest),
             "input" => (TagItem::Input, rest),
+            "const" => (TagItem::Const, rest),
+            "hide" => (TagItem::Hide, rest),
+            "deprecated" => (TagItem::Deprecated, rest),
             _ => return None,
         };
 
@@ -188,4 +196,33 @@ impl Doc {
             description: rest.strip_suffix("*/").unwrap_or(rest).to_owned(),
         })
     }
+}
+
+pub fn parent_doc(node: &SyntaxNode) -> Option<SyntaxToken> {
+    let parent = node.parent()?;
+    // /** ... */
+    // new <- function() {}
+    if let Some(bin) = BinaryExpression::cast(parent.clone()) {
+        return bin.doc();
+    }
+
+    // class a = {
+    //    /** ... */
+    //    prop = function() {}
+    // }
+    if let Some(prop) = Property::cast(parent.clone()) {
+        return prop.doc();
+    }
+
+    // Initially wrapped in 'Initialiser' node
+    let parent = parent.parent()?;
+    let init = VariableDeclaration::cast(parent.clone())?;
+
+    // local
+    // /** ... */
+    // a = function() {}
+    init.doc().or_else(||
+                    // /** ... */
+                    // local a = function() {}
+                    VariableDeclaration::cast(parent.parent()?)?.doc())
 }

@@ -1,4 +1,3 @@
-use anyhow::Result;
 use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse, token_name_range};
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location};
 use sq_3_parser::{TextRange, TextSize};
@@ -8,53 +7,40 @@ use crate::conversions;
 pub fn handle_go_to_definition(
     db: &Database,
     params: GotoDefinitionParams,
-) -> Result<Option<GotoDefinitionResponse>> {
+) -> Option<GotoDefinitionResponse> {
     let uri = params.text_document_position_params.text_document.uri;
 
-    let Ok(path) = uri.to_file_path() else {
-        return Ok(None);
-    };
-
-    let Some(file) = db.get_file(&path) else {
-        return Ok(None);
-    };
+    let path = uri.to_file_path().ok()?;
+    let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset =
-        conversions::test_size(line_idx, params.text_document_position_params.position).unwrap();
+    let offset = conversions::test_size(line_idx, params.text_document_position_params.position);
 
     let syntax = parse(db, file).syntax();
-    let Some(token) = syntax.token_at_offset(offset).right_biased() else {
-        return Ok(None);
-    };
+    let token = syntax.token_at_offset(offset).right_biased()?;
 
     let range = token_name_range(&token);
 
     let finished_file = FinishedFile::new(db, file);
-    let Some(id) = finished_file.symbol_at(range) else {
-        return Ok(None);
-    };
+    let id = finished_file.symbol_at(range)?;
 
     let file = id.file();
     let line_idx = line_index(db, file);
     let symbol = finished_file.get(id);
 
     if symbol.name_range == TextRange::empty(TextSize::new(0)) {
-        return Ok(None);
+        return None;
     }
 
-    let Some(range) = conversions::range(line_idx, symbol.name_range) else {
-        eprintln!("Couldn't convert text_range at '{uri}'");
-        return Ok(None);
-    };
+    let range = conversions::range(line_idx, symbol.name_range);
 
     let Some(path) = db.get_path(id.file()) else {
         eprintln!("Couldn't get uri when processing '{uri}'");
-        return Ok(None);
+        return None;
     };
 
-    Ok(Some(GotoDefinitionResponse::Scalar(Location {
+    Some(GotoDefinitionResponse::Scalar(Location {
         range,
         uri: conversions::to_uri(&path),
-    })))
+    }))
 }

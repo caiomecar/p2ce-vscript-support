@@ -9,3 +9,8 @@ license.workspace = true
 [dependencies]
 rowan = "0.16.1"
 phf = { version = "0.13.1", features = ["macros"] }
+num-traits = "0.2"
+num-derive = "0.4"
+
+[lints]
+workspace = true

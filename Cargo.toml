@@ -6,14 +6,23 @@ resolver = "2"
 authors = ["ocet247"]
 license = "GPLv3"
 
-
 [workspace.dependencies]
 salsa = "0.26.0"
 rustc-hash = "2.1.1"
 line-index = "0.1.2"
+bitflags = "2"
 
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
 strip = true
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+enum_glob_use = "deny"
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"

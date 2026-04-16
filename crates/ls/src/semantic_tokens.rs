@@ -1,5 +1,7 @@
-use anyhow::Result;
-use ide::{Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, Type, line_index};
+use ide::{
+    Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolFlags, SymbolKind, Type,
+    line_index,
+};
 use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 
 use crate::conversions;
@@ -13,25 +15,22 @@ enum TokenType {
     Enum = 5,
     EnumMember = 6,
 }
-enum TokenModifier {
-    None = 0,
-    Readonly = 1 << 0,
-    Static = 1 << 1,
+
+bitflags::bitflags! {
+    pub struct TokenModifier: u8 {
+        const READONLY = 1 << 0;
+        const STATIC = 1 << 1;
+    }
 }
 
 pub fn handle_semantic_tokens(
     db: &Database,
     params: SemanticTokensParams,
-) -> Result<Option<SemanticTokensResult>> {
+) -> Option<SemanticTokensResult> {
     let uri = params.text_document.uri;
 
-    let Ok(path) = uri.to_file_path() else {
-        return Ok(None);
-    };
-
-    let Some(file) = db.get_file(&path) else {
-        return Ok(None);
-    };
+    let path = uri.to_file_path().ok()?;
+    let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
@@ -49,16 +48,21 @@ pub fn handle_semantic_tokens(
 
     for (range, id) in entries {
         let symbol = finished_file.get(id);
+        let mut modifiers = TokenModifier::empty();
 
-        let (token_type, modifiers) = match symbol.kind {
+        if symbol.flags.contains(SymbolFlags::CONST) {
+            modifiers |= TokenModifier::READONLY;
+        }
+
+        let token_type = match symbol.kind {
             SymbolKind::Local(kind) => match symbol.typ.0 {
-                Type::Function(_) => (TokenType::Function, TokenModifier::None),
-                Type::Class(_) => (TokenType::Class, TokenModifier::None),
+                Type::Function(_) => TokenType::Function,
+                Type::Class(_) => TokenType::Class,
                 _ => {
                     if kind == LocalKind::Parameter {
-                        (TokenType::Parameter, TokenModifier::None)
+                        TokenType::Parameter
                     } else {
-                        (TokenType::Variable, TokenModifier::None)
+                        TokenType::Variable
                     }
                 }
             },
@@ -67,25 +71,31 @@ pub fn handle_semantic_tokens(
                     continue;
                 }
 
-                let modifiers = if kind == PropertyKind::Yes {
-                    TokenModifier::Static
-                } else {
-                    TokenModifier::None
-                };
+                if kind == PropertyKind::Yes {
+                    modifiers |= TokenModifier::STATIC;
+                }
+
                 match symbol.typ.0 {
-                    Type::Function(_) => (TokenType::Function, modifiers),
-                    Type::Class(_) => (TokenType::Class, modifiers),
-                    _ => (TokenType::Property, modifiers),
+                    Type::Function(_) => TokenType::Function,
+                    Type::Class(_) => TokenType::Class,
+                    _ => TokenType::Property,
                 }
             }
-            SymbolKind::Enum => (TokenType::Enum, TokenModifier::Readonly),
-            SymbolKind::EnumMember => (TokenType::EnumMember, TokenModifier::Readonly),
-            SymbolKind::Constant => (TokenType::Variable, TokenModifier::Readonly),
+            SymbolKind::Enum => {
+                modifiers |= TokenModifier::READONLY;
+                TokenType::Enum
+            }
+            SymbolKind::EnumMember => {
+                modifiers |= TokenModifier::READONLY;
+                TokenType::EnumMember
+            }
+            SymbolKind::Constant => {
+                modifiers |= TokenModifier::READONLY;
+                TokenType::Variable
+            }
         };
 
-        let Some(lsp_range) = conversions::range(line_idx, range) else {
-            continue;
-        };
+        let lsp_range = conversions::range(line_idx, range);
 
         let line = lsp_range.start.line;
         let start = lsp_range.start.character;
@@ -103,15 +113,15 @@ pub fn handle_semantic_tokens(
             delta_start,
             length: length.into(),
             token_type: token_type as u32,
-            token_modifiers_bitset: modifiers as u32,
+            token_modifiers_bitset: u32::from(modifiers.bits()),
         });
 
         prev_line = line;
         prev_start = start;
     }
 
-    Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+    Some(SemanticTokensResult::Tokens(SemanticTokens {
         result_id: None,
         data: tokens,
-    })))
+    }))
 }

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
 use ide::{
     Database, FinishedFile, LocalKind, Source, SymbolKind, line_index, parse, token_name_range,
 };
@@ -8,34 +7,25 @@ use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
 
 use crate::conversions;
 
-pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+pub fn handle_rename(db: &Database, params: RenameParams) -> Option<WorkspaceEdit> {
     let uri = params.text_document_position.text_document.uri;
 
-    let Ok(path) = uri.to_file_path() else {
-        return Ok(None);
-    };
-
-    let Some(file) = db.get_file(&path) else {
-        return Ok(None);
-    };
+    let path = uri.to_file_path().ok()?;
+    let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position.position).unwrap();
+    let offset = conversions::test_size(line_idx, params.text_document_position.position);
 
     let syntax = parse(db, file).syntax();
-    let Some(token) = syntax.token_at_offset(offset).right_biased() else {
-        return Ok(None);
-    };
+    let token = syntax.token_at_offset(offset).right_biased()?;
 
     let range = token_name_range(&token);
 
     let finished_file = FinishedFile::new(db, file);
-    let Some(symbol_id) = finished_file.symbol_at(range) else {
-        return Ok(None);
-    };
+    let symbol_id = finished_file.symbol_at(range)?;
 
-    if let SymbolKind::Local(LocalKind::VariedArgs) = finished_file.get(symbol_id).kind {
-        return Ok(None);
+    if finished_file.get(symbol_id).kind == SymbolKind::Local(LocalKind::VariedArgs) {
+        return None;
     }
 
     let name = file.text(db)[range.start().into()..range.end().into()].to_string();
@@ -47,16 +37,16 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<Works
         if let Some(ranges) = finished_file.symbol_to_ranges().get(&symbol_id) {
             for range in ranges {
                 changes.entry(uri.clone()).or_default().push(TextEdit {
-                    range: conversions::range(line_idx, *range).unwrap(),
+                    range: conversions::range(line_idx, *range),
                     new_text: new_name.clone(),
                 });
             }
         }
 
-        return Ok(Some(WorkspaceEdit {
+        return Some(WorkspaceEdit {
             changes: Some(changes),
             ..Default::default()
-        }));
+        });
     }
 
     for (candidate_file, candidate_path) in db.all_files() {
@@ -76,14 +66,14 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Result<Option<Works
 
         for range in ranges {
             changes.entry(uri.clone()).or_default().push(TextEdit {
-                range: conversions::range(candidate_line_idx, *range).unwrap(),
+                range: conversions::range(candidate_line_idx, *range),
                 new_text: new_name.clone(),
             });
         }
     }
 
-    Ok(Some(WorkspaceEdit {
+    Some(WorkspaceEdit {
         changes: Some(changes),
         ..Default::default()
-    }))
+    })
 }
