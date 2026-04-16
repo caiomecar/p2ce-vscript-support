@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 authors = ["ocet247"]
-license = "GPLv3"
+license = "GPL-3.0-only"
 
 [workspace.dependencies]
 salsa = "0.26.0"
@@ -23,6 +23,6 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 enum_glob_use = "deny"
-pedantic = { level = "deny", priority = -1 }
-nursery = { level = "deny", priority = -1 }
+pedantic = "deny"
+nursery = "deny"
 unwrap_used = "deny"
