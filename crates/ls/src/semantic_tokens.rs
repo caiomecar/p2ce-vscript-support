@@ -20,6 +20,7 @@ bitflags::bitflags! {
     pub struct TokenModifier: u8 {
         const READONLY = 1 << 0;
         const STATIC = 1 << 1;
+        const DEPRECATED = 1 << 2;
     }
 }
 
@@ -52,6 +53,10 @@ pub fn handle_semantic_tokens(
 
         if symbol.flags.contains(SymbolFlags::CONST) {
             modifiers |= TokenModifier::READONLY;
+        }
+
+        if symbol.flags.contains(SymbolFlags::DEPRECATED) {
+            modifiers |= TokenModifier::DEPRECATED;
         }
 
         let token_type = match symbol.kind {

@@ -1,6 +1,6 @@
 use sq_3_parser::{
     AstNode, SyntaxNode, SyntaxToken,
-    ast::{BinaryExpression, HasDoc, Property, VariableDeclaration},
+    ast::{BinaryExpression, HasDoc, LocalVariableDeclaration, Property, VariableDeclaration},
 };
 
 #[derive(Debug)]
@@ -224,5 +224,5 @@ pub fn parent_doc(node: &SyntaxNode) -> Option<SyntaxToken> {
     init.doc().or_else(||
                     // /** ... */
                     // local a = function() {}
-                    VariableDeclaration::cast(parent.parent()?)?.doc())
+                    LocalVariableDeclaration::cast(parent.parent()?)?.doc())
 }

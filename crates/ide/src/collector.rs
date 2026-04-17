@@ -696,6 +696,7 @@ impl<'db> Collector<'db> {
 
         Some(match (left, right) {
             (Type::Any, _) | (_, Type::Any) => Type::Any,
+            (Type::Unknown, other) | (other, Type::Unknown) => other,
             (Type::Integer(_), Type::Integer(_)) => Type::Integer(None),
             (Type::Float(_), Type::Float(_)) => Type::Float(None),
             (Type::Boolean(_), Type::Boolean(_)) => Type::Boolean(None),
@@ -836,7 +837,9 @@ impl<'db> Collector<'db> {
 
     fn is_type_suitable(&self, left: Type, right: Type) -> bool {
         match (left, right) {
-            (Type::Any | Type::Unknown, _) | (_, Type::Any | Type::Unknown) => true,
+            (Type::Float(_), Type::Integer(_))
+            | (Type::Any | Type::Unknown, _)
+            | (_, Type::Any | Type::Unknown) => true,
 
             (Type::Instance(Some(left_id)), Type::Instance(Some(right_id))) => {
                 if left_id == right_id {
@@ -1967,21 +1970,40 @@ impl<'db> Collector<'db> {
         self.scope = entry.trace.scope;
         let save_function = self.function;
         self.function = Some(entry.idx);
+        let save_dead_code = self.dead_code;
+        self.dead_code = false;
+        let save_break = self.can_break;
+        self.can_break = false;
+        let save_continue = self.can_continue;
+        self.can_continue = false;
 
         match body {
             FunctionBody::Expr(expr) => {
-                self.collect_expr(&expr);
-            }
-            FunctionBody::Stmt(stmt) => self.collect_stmt(&stmt),
-        }
+                let new_ret = self.expr_to_type_with_range(&expr);
 
-        if self.arena[entry.idx].ret.is_none() {
-            self.arena[entry.idx].ret = Some(Type::Null.into());
+                if let Some(new) = self.check_or_update_type(
+                    self.arena[entry.idx].ret,
+                    new_ret,
+                    CheckTypeSource::Return,
+                ) {
+                    self.arena[entry.idx].ret = Some(new.into());
+                }
+            }
+            FunctionBody::Stmt(stmt) => {
+                self.collect_stmt(&stmt);
+
+                if self.arena[entry.idx].ret.is_none() {
+                    self.arena[entry.idx].ret = Some(Type::Null.into());
+                }
+            }
         }
 
         self.container = save_container;
         self.scope = save_scope;
         self.function = save_function;
+        self.dead_code = save_dead_code;
+        self.can_break = save_break;
+        self.can_continue = save_continue;
     }
 
     fn deferred_entry(&mut self, id: FunctionId) -> Option<DeferredFunctionEntry> {

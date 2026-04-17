@@ -1,7 +1,10 @@
 use crate::conversions;
-use ide::{Database, FinishedFile, PropertyKind, Source, Symbol, SymbolKind, Type, line_index};
+use ide::{
+    Database, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind, Type, line_index,
+};
 use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
+    SymbolTag,
 };
 
 pub fn handle_document_symbols(
@@ -76,7 +79,10 @@ pub fn handle_document_symbols(
             } else {
                 Some(children)
             },
-            tags: None,
+            tags: symbol
+                .flags
+                .contains(SymbolFlags::DEPRECATED)
+                .then(|| vec![SymbolTag::DEPRECATED]),
             deprecated: None,
         };
 

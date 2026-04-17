@@ -19,7 +19,7 @@ class CBaseEntity {
      * @param {string} key
      * @param {float} value
      * @returns {bool}
-     * @deprecated - Behaves the same as `KeyValueFromFloat`, use that instead.
+     * @deprecated Behaves the same as `KeyValueFromFloat`, use that instead.
      */
     function __KeyValueFromFloat(key, value);
 
@@ -27,7 +27,7 @@ class CBaseEntity {
      * @param {string} key
      * @param {integer} value
      * @returns {bool}
-     * @deprecated - Behaves the same as `KeyValueFromInt`, use that instead.
+     * @deprecated Behaves the same as `KeyValueFromInt`, use that instead.
      */
     function __KeyValueFromInt(key, value);
 
@@ -35,7 +35,7 @@ class CBaseEntity {
      * @param {string} key
      * @param {string} value
      * @returns {bool}
-     * @deprecated - Behaves the same as `KeyValueFromString`, use that instead.
+     * @deprecated Behaves the same as `KeyValueFromString`, use that instead.
      */
     function __KeyValueFromString(key, value);
 
@@ -43,37 +43,37 @@ class CBaseEntity {
      * @param {string} key
      * @param {Vector} value
      * @returns {bool}
-     * @deprecated - Behaves the same as `KeyValueFromVector`, use that instead.
+     * @deprecated Behaves the same as `KeyValueFromVector`, use that instead.
      */
     function __KeyValueFromVector(key, value);
 
     /**
-     * Generate a synchronous I/O event. Unlike EntFireByHandle, this is processed immediately.
-     * Returns false if input is a null/empty string, or if the input wasn't handled.
+     * Generate a synchronous I/O event. Unlike `EntFireByHandle`, this is processed immediately.
      * @param {string} input
      * @param {string|null} param
      * @param {CBaseEntity|null} activator
      * @param {CBaseEntity|null} caller
-     * @returns {bool}
+     * @returns {bool} `false` if input is a null/empty string, or if the input wasn't handled.
      */
     function AcceptInput(input, param, activator, caller);
 
     /**
-     * Adds the supplied flags to the Entity Flags in the entity. (m_iEFlags datamap)
-     * Note: Adding EFL_KILLME will make the entity unkillable, even on round resets, until the flag is removed.
-     * @param {integer} flags - See Constants.FEntityEFlags
+     * Adds the supplied flags to the Entity Flags in the entity. (`m_iEFlags` datamap)
+     *
+     * Note: Adding `EFL_KILLME` will make the entity unkillable, even on round resets, until the flag is removed.
+     * @param {integer} flags See [Constants.FEntityEFlags](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FEntityEFlags)
      */
     function AddEFlags(flags);
 
     /**
-     * Adds the supplied flags to another separate player-related entity flags system in the entity. (m_fFlags datamap)
-     * @param {integer} flags - See Constants.FPlayer
+     * Adds the supplied flags to another separate player-related entity flags system in the entity. (`m_fFlags` datamap)
+     * @param {integer} flags See [Constants.FPlayer](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FPlayer)
      */
     function AddFlag(flags);
 
     /**
-     * Adds the supplied flags to the Solid Flags in the entity. (m_Collision.m_usSolidFlags datamap)
-     * @param {integer} flags - See Constants.FSolid
+     * Adds the supplied flags to the Solid Flags in the entity. (`m_Collision.m_usSolidFlags` datamap)
+     * @param {integer} flags See [Constants.FSolid](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FSolid)
      */
     function AddSolidFlags(flags);
 
@@ -92,9 +92,10 @@ class CBaseEntity {
     function ApplyLocalAngularVelocityImpulse(impulse);
 
     /**
-     * Acts like the BecomeRagdoll input, with the required impulse value applied as a force on the ragdoll.
+     * Acts like the `BecomeRagdoll` input, with the required impulse value applied as a force on the ragdoll.
      * Does NOT spawn a prop_ragdoll or any other entity.
-     * Warning: These are a special group of ragdolls that never disappear by default.
+     *
+     * . **Warning**: These are a special group of ragdolls that never disappear by default.
      * @param {Vector} impulse
      * @returns {bool}
      */
@@ -4766,42 +4767,56 @@ class QAngle {
      * @returns {QAngle}
      */
     function _mul(other);
+
+    /**
+     * @param {string|null} start
+     * @returns {float}
+     */
+    function _nexti(start);
+
     /**
      * Returns the Forward Vector of the angles.
      * @returns {Vector}
      */
     function Forward();
+
     /**
      * Returns the right Vector of the angles.
      * Note: Despite being named "Left", this actually returns the right vector.
      * @returns {Vector}
      */
     function Left();
+
     /**
      * Returns the pitch angle in degrees.
      * @returns {float}
      */
     function Pitch();
+
     /**
      * Returns the roll angle in degrees.
      * @returns {float}
      */
     function Roll();
+
     /**
      * Returns a string with the values separated by one space.
      * @returns {string}
      */
     function ToKVString();
+
     /**
      * Returns a quaternion representation of the orientation.
      * @returns {Quaternion}
      */
     function ToQuat();
+
     /**
      * Returns the Up Vector of the angles.
      * @returns {Vector}
      */
     function Up();
+
     /**
      * Returns the yaw angle in degrees.
      * @returns {float}
@@ -5114,6 +5129,7 @@ function EmitSoundEx(params);
 
 /**
  * Play named sound on given entity. The sound must be precached first.
+ *
  * Warning: Looping sounds will not stop on the entity when it's destroyed.
  * @param {string} sound_script
  * @param {CBaseEntity} entity
@@ -5147,6 +5163,7 @@ function EntFire(target, action, value = null, delay = 0.0, activator = null);
 
 /**
  * Generate an entity I/O event by handle. Negative delays are clamped to 0.
+ *
  * Note: With 0 delay, processed at end of frame. Use AcceptInput for instant/synchronous I/O.
  * @param {CBaseEntity} entity
  * @param {string} action
@@ -6008,36 +6025,42 @@ function ShowMessage(message);
 /**
  * Provides an interface to read and change the values of console variables.
  * @type {Convars}
+ * @const
  */
 Convars <- Convars()
 
 /**
  * Provides access to currently spawned entities.
  * @type {CEntities}
+ * @const
  */
 Entities <- CEntities()
 
 /**
  * Allows manipulation of entity output data.
  * @type {CScriptEntityOutputs}
+ * @const
  */
 EntityOutputs <- CScriptEntityOutputs()
 
 /**
  * Provides access to the maps NavMesh and NavAreas.
  * @type {CNavMesh}
+ * @const
  */
 NavMesh <- CNavMesh()
 
 /**
  * Allows reading and updating the network properties of an entity.
  * @type {CNetPropManager}
+ * @const
  */
 NetProps <- CNetPropManager()
 
 /**
  * Tracks if any player is using voice and for how long.
  * @type {CPlayerVoiceListener}
+ * @const
  */
 PlayerVoiceListener <- CPlayerVoiceListener()
 

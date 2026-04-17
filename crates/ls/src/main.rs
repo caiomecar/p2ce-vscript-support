@@ -86,6 +86,7 @@ fn main() -> Result<()> {
                     token_modifiers: vec![
                         SemanticTokenModifier::READONLY,
                         SemanticTokenModifier::STATIC,
+                        SemanticTokenModifier::DEPRECATED,
                     ],
                 },
                 full: Some(SemanticTokensFullOptions::Bool(true)),
