@@ -7,11 +7,11 @@ license.workspace = true
 
 [dependencies]
 sq-3-parser = { path = "../parser" }
-line-index = { workspace = true }
 la-arena = "0.3.1"
-salsa = { workspace = true }
-rustc-hash = { workspace = true }
 walkdir = "2"
+rustc-hash = { workspace = true }
+salsa = { workspace = true }
+line-index = { workspace = true }
 bitflags = { workspace = true }
 
 [lints]

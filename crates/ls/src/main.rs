@@ -312,6 +312,10 @@ fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<(
                     DiagnosticSeverity::WARNING,
                     Some(vec![DiagnosticTag::UNNECESSARY]),
                 ),
+                ide::DiagnosticSeverity::Deprecated => (
+                    DiagnosticSeverity::HINT,
+                    Some(vec![DiagnosticTag::DEPRECATED]),
+                ),
             };
             Diagnostic {
                 message: diagnostic.message.clone(),

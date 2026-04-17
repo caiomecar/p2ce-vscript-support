@@ -16,6 +16,38 @@
  */
 class CBaseEntity {
     /**
+     * @param {string} key
+     * @param {float} value
+     * @returns {bool}
+     * @deprecated - Behaves the same as `KeyValueFromFloat`, use that instead.
+     */
+    function __KeyValueFromFloat(key, value);
+
+    /**
+     * @param {string} key
+     * @param {integer} value
+     * @returns {bool}
+     * @deprecated - Behaves the same as `KeyValueFromInt`, use that instead.
+     */
+    function __KeyValueFromInt(key, value);
+
+    /**
+     * @param {string} key
+     * @param {string} value
+     * @returns {bool}
+     * @deprecated - Behaves the same as `KeyValueFromString`, use that instead.
+     */
+    function __KeyValueFromString(key, value);
+
+    /**
+     * @param {string} key
+     * @param {Vector} value
+     * @returns {bool}
+     * @deprecated - Behaves the same as `KeyValueFromVector`, use that instead.
+     */
+    function __KeyValueFromVector(key, value);
+
+    /**
      * Generate a synchronous I/O event. Unlike EntFireByHandle, this is processed immediately.
      * Returns false if input is a null/empty string, or if the input wasn't handled.
      * @param {string} input
@@ -157,6 +189,13 @@ class CBaseEntity {
     function GetAbsVelocity();
 
     /**
+     * Get the entity's pitch, yaw, and roll as Vector.
+     * @returns {Vector}
+     * @deprecated - Use GetAbsAngles that returns a QAngle instead
+     */
+    function GetAngles();
+
+    /**
      * Get the local angular velocity - returns a Vector of pitch, yaw, and roll.
      * @returns {Vector}
      */
@@ -235,7 +274,7 @@ class CBaseEntity {
 
     /**
      * Get the forward vector of the entity.
-     * Note: If you intend to get a player's eye forward vector, use EyeAngles().Forward() instead.
+     * Note: If you intend to get a player's eye forward vector, use `EyeAngles().Forward()` instead.
      * @returns {Vector}
      */
     function GetForwardVector();
@@ -255,6 +294,13 @@ class CBaseEntity {
      * @returns {integer}
      */
     function GetHealth();
+
+    /**
+     * Get the right vector of the entity.
+     * @returns {Vector}
+     * @deprecated - This is purely for compatibility, use `GetLeftVector` instead
+     */
+    function GetLeftVector();
 
     /**
      * @returns {QAngle}
@@ -389,6 +435,12 @@ class CBaseEntity {
      * @returns {Vector}
      */
     function GetUpVector();
+
+    /**
+     * @returns {Vector}
+     * @deprecated - Use `GetAbsVelocity` instead
+     */
+    function GetVelocity();
 
     /**
      * This function tells you how much of the entity is underwater.
@@ -545,6 +597,15 @@ class CBaseEntity {
     function SetAbsOrigin(origin);
 
     /**
+     * Sets entity angles.
+     * @param {float} pitch
+     * @param {float} yaw
+     * @param {float} roll
+     * @deprecated - Use SetAbsAngles instead
+     */
+    function SetAngles(pitch, yaw, roll);
+
+    /**
      * Set the local angular velocity.
      * @param {float} pitch
      * @param {float} yaw
@@ -604,6 +665,7 @@ class CBaseEntity {
 
     /**
      * Sets the maximum health this entity can have. Does not update the current health.
+     *
      * Note: Does nothing on players.
      * @param {integer} health
      */
@@ -611,6 +673,7 @@ class CBaseEntity {
 
     /**
      * Set a model for this entity.
+     *
      * Warning: Make sure the model was already precached before using this function or the game will crash!
      * @param {string} model_name
      */
@@ -623,8 +686,15 @@ class CBaseEntity {
     function SetMoveType(movetype, movecollide);
 
     /**
+     * @param {Vector} origin
+     * @deprecated - Use `SetAbsOrigin` instead
+     */
+    function SetOrigin(origin);
+
+    /**
      * Sets this entity's owner.
-     * Note: This is a wrapper for m_hOwnerEntity netprop.
+     *
+     * Note: This is a wrapper for `m_hOwnerEntity` netprop.
      * @param {CBaseEntity|null} entity
      */
     function SetOwner(entity);
@@ -641,6 +711,7 @@ class CBaseEntity {
 
     /**
      * Sets the bounding box's scale for this entity.
+     *
      * Warning: If any component of mins/maxs is backwards, the engine will exit with a fatal error.
      * @param {Vector} mins
      * @param {Vector} maxs
@@ -659,10 +730,17 @@ class CBaseEntity {
 
     /**
      * Sets entity team.
+     *
      * Note: Use ForceChangeTeam on players instead.
      * @param {integer} team - See Constants.ETFTeam
      */
     function SetTeam(team);
+
+    /**
+     * @param {Vector} velocity
+     * @deprecated - Use SetAbsVelocity instead
+     */
+    function SetVelocity(velocity);
 
     /**
      * Sets how much of the entity is underwater. 0=not underwater, 1=feet, 2=waist, 3=head.
@@ -5156,6 +5234,20 @@ function GetMapName();
  * @returns {integer}
  */
 function GetModelIndex(model_name);
+
+/**
+ * Returns the angular velocity of the entity
+ * @param {CBaseEntity} entity
+ * @deprecated - Use the `GetPhysAngularVelocity` method on the entity instead.
+ */
+function GetPhysAngularVelocity(entity);
+
+/**
+ * Returns the velocity of the entity
+ * @param {CBaseEntity} entity
+ * @deprecated - Use the `GetPhysVelocity` method on the entity instead.
+ */
+function GetPhysVelocity(entity);
 
 /**
  * Given a user id, return the entity, or null.

@@ -370,6 +370,8 @@ impl<'db> Collector<'db> {
             collector.unused_variables_diagnostics();
         }
 
+        collector.deprecated_diagnostics();
+
         SourceSymbol {
             imports: collector.imports,
             arena: collector.arena,
@@ -999,6 +1001,8 @@ impl<'db> Collector<'db> {
                             ..Default::default()
                         });
 
+                        self.resolve_variable_doc(symbol, &var);
+
                         insert_symbol(&mut self.current_scope().locals, text, symbol);
                         self.arena[idx].params.push(symbol);
                         continue;
@@ -1015,8 +1019,11 @@ impl<'db> Collector<'db> {
                         ..Default::default()
                     });
 
+                    self.resolve_variable_doc(symbol, &var);
+
                     insert_symbol(&mut self.current_scope().locals, text, symbol);
                     self.arena[idx].params.push(symbol);
+
                     match params_state {
                         ParamsState::NoDefault => {
                             params_state = ParamsState::Default(count);
@@ -1773,9 +1780,16 @@ impl<'db> Collector<'db> {
         id
     }
 
-    fn resolve_variable_doc(&mut self, symbol: SymbolId, doc_token: &SyntaxToken) {
+    fn resolve_variable_doc<T>(&mut self, symbol: SymbolId, node: &T) -> bool
+    where
+        T: HasDoc,
+    {
+        let Some(doc_token) = node.doc() else {
+            return false;
+        };
+
         let doc = Doc::new(doc_token.text());
-        let offset = doc_token.text_range().end();
+        let offset = node.syntax().text_range().end();
         for tag in doc.tags {
             match tag.item {
                 TagItem::Type(type_tag) => {
@@ -1810,9 +1824,20 @@ impl<'db> Collector<'db> {
                         symbol.flags |= SymbolFlags::CONST;
                     }
                 }
+                TagItem::Hide => {
+                    if let Some(symbol) = self.get_mut(symbol) {
+                        symbol.flags |= SymbolFlags::HIDE;
+                    }
+                }
+                TagItem::Deprecated => {
+                    if let Some(symbol) = self.get_mut(symbol) {
+                        symbol.flags |= SymbolFlags::DEPRECATED;
+                    }
+                }
                 _ => {}
             }
         }
+        true
     }
 
     fn resolve_function_doc(&mut self, entry: &DeferredFunctionEntry, offset: TextSize) {
@@ -2016,6 +2041,8 @@ impl<'db> Collector<'db> {
                     function.symbol = Some(symbol);
                 }
 
+                self.resolve_variable_doc(symbol, method);
+
                 self.add_current_container_member(text, symbol);
             }
             Member::Constructor(constructor) => {
@@ -2036,6 +2063,8 @@ impl<'db> Collector<'db> {
                 if let Some(function) = self.get_mut(id) {
                     function.symbol = Some(symbol);
                 }
+
+                self.resolve_variable_doc(symbol, constructor);
 
                 self.add_current_container_member("constructor".to_owned(), symbol);
             }
@@ -2066,6 +2095,8 @@ impl<'db> Collector<'db> {
                     function.symbol = Some(symbol);
                 }
 
+                self.resolve_variable_doc(symbol, method);
+
                 self.add_current_container_member(text, symbol);
             }
             Member::Constructor(constructor) => {
@@ -2088,6 +2119,8 @@ impl<'db> Collector<'db> {
                 if let Some(function) = self.get_mut(id) {
                     function.symbol = Some(symbol);
                 }
+
+                self.resolve_variable_doc(symbol, constructor);
 
                 self.add_current_container_member("constructor".to_owned(), symbol);
             }
@@ -2115,9 +2148,7 @@ impl<'db> Collector<'db> {
             ..Default::default()
         });
 
-        if let Some(doc_token) = property.doc() {
-            self.resolve_variable_doc(symbol, &doc_token);
-        }
+        self.resolve_variable_doc(symbol, property);
 
         self.add_current_container_member(text, symbol);
     }
@@ -2152,9 +2183,7 @@ impl<'db> Collector<'db> {
             ..Default::default()
         });
 
-        if let Some(doc_token) = property.doc() {
-            self.resolve_variable_doc(symbol, &doc_token);
-        }
+        self.resolve_variable_doc(symbol, property);
 
         self.add_current_container_member(text, symbol);
     }
@@ -2187,9 +2216,7 @@ impl<'db> Collector<'db> {
             ..Default::default()
         });
 
-        if let Some(doc_token) = property.doc() {
-            self.resolve_variable_doc(symbol, &doc_token);
-        }
+        self.resolve_variable_doc(symbol, property);
 
         self.add_current_container_member(text, symbol);
         has_value
@@ -2230,7 +2257,6 @@ impl<'db> Collector<'db> {
     }
 
     fn local_variable(&mut self, decl: &LocalVariableDeclaration) {
-        let decl_doc = decl.doc();
         for var in decl.declarations() {
             let Some((name, text)) = get_name(&var) else {
                 let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
@@ -2251,8 +2277,8 @@ impl<'db> Collector<'db> {
                     ..Default::default()
                 });
 
-                if let Some(doc_token) = var.doc().or_else(|| decl_doc.clone()) {
-                    self.resolve_variable_doc(id, &doc_token);
+                if !self.resolve_variable_doc(id, &var) {
+                    self.resolve_variable_doc(id, decl);
                 }
 
                 insert_symbol(&mut self.current_scope().locals, text, id);
@@ -2269,8 +2295,8 @@ impl<'db> Collector<'db> {
                 ..Default::default()
             });
 
-            if let Some(doc_token) = var.doc().or_else(|| decl_doc.clone()) {
-                self.resolve_variable_doc(id, &doc_token);
+            if !self.resolve_variable_doc(id, &var) {
+                self.resolve_variable_doc(id, decl);
             }
 
             insert_symbol(&mut self.current_scope().locals, text, id);
@@ -2295,6 +2321,8 @@ impl<'db> Collector<'db> {
         if let Some(function) = self.get_mut(id) {
             function.symbol = Some(symbol);
         }
+
+        self.resolve_variable_doc(symbol, decl);
 
         insert_symbol(&mut self.current_scope().locals, text, symbol);
     }
@@ -2330,9 +2358,7 @@ impl<'db> Collector<'db> {
             ..Default::default()
         });
 
-        if let Some(doc_token) = stmt.doc() {
-            self.resolve_variable_doc(symbol, &doc_token);
-        }
+        self.resolve_variable_doc(symbol, stmt);
 
         insert_symbol(&mut self.arena[self.const_table].members, text, symbol);
     }
@@ -2422,7 +2448,7 @@ impl<'db> Collector<'db> {
         let class = self.class(stmt);
 
         let name = stmt.name().and_then(|n| self.assignment_lhs(&n));
-        self.do_new_slot(
+        if let Some(symbol) = self.do_new_slot(
             None,
             name,
             TypeWithRange {
@@ -2430,7 +2456,9 @@ impl<'db> Collector<'db> {
                 range: stmt.syntax().text_range(),
             },
             PropertyKind::NoSupport,
-        );
+        ) {
+            self.resolve_variable_doc(symbol, stmt);
+        }
 
         let save_symbol = self.container;
         self.container = Container::Class(class);
@@ -2470,6 +2498,8 @@ impl<'db> Collector<'db> {
             if let Some(function) = self.get_mut(id) {
                 function.symbol = Some(symbol);
             }
+
+            self.resolve_variable_doc(symbol, stmt);
 
             self.add_current_container_member(final_text, symbol);
             return;
@@ -2591,6 +2621,8 @@ impl<'db> Collector<'db> {
             function.symbol = Some(symbol);
         }
 
+        self.resolve_variable_doc(symbol, stmt);
+
         self.add_container_member(container, final_text, symbol);
 
         if let Some(function) = self.get_mut(id) {
@@ -2611,9 +2643,7 @@ impl<'db> Collector<'db> {
                 ..Default::default()
             });
 
-            if let Some(doc_token) = stmt.doc() {
-                self.resolve_variable_doc(symbol, &doc_token);
-            }
+            self.resolve_variable_doc(symbol, stmt);
 
             self.arena[enum_.idx()].symbol = Some(symbol);
 
@@ -2851,9 +2881,7 @@ impl<'db> Collector<'db> {
                 ..Default::default()
             });
 
-            if let Some(doc_token) = binding.doc() {
-                self.resolve_variable_doc(symbol, &doc_token);
-            }
+            self.resolve_variable_doc(symbol, &binding);
 
             insert_symbol(&mut self.current_scope().locals, text, symbol);
         }
@@ -3751,9 +3779,8 @@ impl<'db> Collector<'db> {
             left,
             right,
             PropertyKind::NewSlot,
-        ) && let Some(doc_token) = expr.doc()
-        {
-            self.resolve_variable_doc(symbol, &doc_token);
+        ) {
+            self.resolve_variable_doc(symbol, expr);
         }
 
         right_kind
@@ -4456,22 +4483,54 @@ impl<'db> Collector<'db> {
             }
 
             let symbol = self.get(*id);
-            if !matches!(
-                symbol.kind,
-                SymbolKind::Local(LocalKind::Function | LocalKind::Parameter | LocalKind::Variable)
-            ) {
-                continue;
-            }
-
             if symbol.name.starts_with('_') {
                 continue;
             }
 
             self.diagnostics.push(Diagnostic {
-                message: format!("Unused local variable '{}'", symbol.name),
+                message: match symbol.kind {
+                    SymbolKind::Local(LocalKind::Function | LocalKind::Variable) => {
+                        format!("Unused local variable '{}'", symbol.name)
+                    }
+                    SymbolKind::Local(LocalKind::Parameter) => {
+                        format!(
+                            "Unused parameter '{}'. Prepend the name with '_' if it cannot be removed",
+                            symbol.name
+                        )
+                    }
+                    // SymbolKind::Local(LocalKind::VariedArgs) => {
+                    //     "Unused variable arguments".to_owned()
+                    // }
+                    _ => continue
+                },
                 range: symbol.name_range,
                 severity: DiagnosticSeverity::Unnecessary,
             });
+        }
+    }
+
+    fn deprecated_diagnostics(&mut self) {
+        for (id, references) in &self.symbol_to_ranges {
+            let symbol = self.get(*id);
+            if !symbol.flags.contains(SymbolFlags::DEPRECATED) {
+                continue;
+            }
+
+            let message = format!("'{}' is deprecated", symbol.name);
+
+            let mut references = references.iter().copied();
+            // Skip the definition
+            if id.file() == self.file() {
+                references.next();
+            }
+
+            for reference in references {
+                self.diagnostics.push(Diagnostic {
+                    message: message.clone(),
+                    range: reference,
+                    severity: DiagnosticSeverity::Deprecated,
+                });
+            }
         }
     }
 }

@@ -40,6 +40,7 @@ pub enum DiagnosticSeverity {
     Warning,
     Information,
     Unnecessary,
+    Deprecated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -842,6 +843,7 @@ pub trait Source {
 
         match s.typ.0 {
             Type::Function(Some(id)) => {
+                str.push_str("function ");
                 let (signature, _) = self.function_markdown(&s.name, id);
                 str.push_str(&signature);
             }

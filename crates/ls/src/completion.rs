@@ -1,10 +1,10 @@
 use ide::{
-    Database, FindSymbol, FinishedFile, ImportMembers, Source, Symbol, SymbolKind, Type,
-    line_index, parse,
+    Database, FindSymbol, FinishedFile, ImportMembers, Source, Symbol, SymbolFlags, SymbolKind,
+    Type, line_index, parse,
 };
 use lsp_types::{
-    Command, CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse,
-    CompletionTextEdit, InsertTextFormat, TextEdit,
+    Command, CompletionItem, CompletionItemKind, CompletionItemTag, CompletionParams,
+    CompletionResponse, CompletionTextEdit, InsertTextFormat, TextEdit,
 };
 use sq_3_parser::{AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize, ast};
 
@@ -48,6 +48,10 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
                     insert_text,
                     command,
                     insert_text_format,
+                    tags: symbol
+                        .flags
+                        .contains(SymbolFlags::DEPRECATED)
+                        .then(|| vec![CompletionItemTag::DEPRECATED]),
                     ..Default::default()
                 }
             })
@@ -74,6 +78,10 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
                         insert_text,
                         command,
                         insert_text_format,
+                        tags: symbol
+                            .flags
+                            .contains(SymbolFlags::DEPRECATED)
+                            .then(|| vec![CompletionItemTag::DEPRECATED]),
                         ..Default::default()
                     };
                 }
@@ -95,6 +103,10 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
                     command,
                     insert_text_format,
                     additional_text_edits,
+                    tags: symbol
+                        .flags
+                        .contains(SymbolFlags::DEPRECATED)
+                        .then(|| vec![CompletionItemTag::DEPRECATED]),
                     ..Default::default()
                 }
             })
@@ -126,6 +138,10 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
                     text_edit,
                     command,
                     insert_text_format,
+                    tags: symbol
+                        .flags
+                        .contains(SymbolFlags::DEPRECATED)
+                        .then(|| vec![CompletionItemTag::DEPRECATED]),
                     ..Default::default()
                 }
             })
@@ -151,6 +167,10 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
                     insert_text,
                     command,
                     insert_text_format,
+                    tags: symbol
+                        .flags
+                        .contains(SymbolFlags::DEPRECATED)
+                        .then(|| vec![CompletionItemTag::DEPRECATED]),
                     ..Default::default()
                 }
             })
