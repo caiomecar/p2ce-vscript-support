@@ -1,10 +1,11 @@
 pub mod ast;
 mod cst;
+mod doc_comment;
 mod lexer;
 mod parser;
 mod token_set;
 
-use crate::{ast::SourceFile, parser::Event};
+use crate::{ast::SourceFile, doc_comment::DocComment, lexer::Lexer, parser::Parser};
 use rowan::GreenNodeBuilder;
 
 pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
@@ -32,7 +33,18 @@ impl SyntaxError {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
+enum Event {
+    Pending,
+    Start { kind: SyntaxKind },
+    Finish,
+    Token { kind: SyntaxKind, range: TextRange },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Marker(pub usize);
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct Parse {
     green_node: GreenNode,
     errors: Vec<SyntaxError>,
@@ -43,12 +55,12 @@ impl Parse {
     #[allow(clippy::missing_panics_doc)]
     pub fn new(text: &str) -> Self {
         // let now = std::time::Instant::now();
-        let (tokens, mut lex_errors) = lexer::tokenise(text);
+        let (tokens, mut lex_errors) = Lexer::tokenise(text);
         // eprintln!("Lexing took {:?}", now.elapsed());
         // eprintln!("Tokens: {}", tokens.len());
 
         // let now = std::time::Instant::now();
-        let (events, parse_errors) = parser::parse(tokens);
+        let (events, parse_errors) = Parser::parse(tokens);
         // eprintln!("Parsing took {:?}", now.elapsed());
         // eprintln!("Events: {}", events.len());
 
@@ -61,7 +73,38 @@ impl Parse {
             match event {
                 Event::Start { kind } => builder.start_node(kind.into()),
                 Event::Finish => builder.finish_node(),
-                Event::Token { kind, range } => builder.token(kind.into(), &text[range]),
+                Event::Token { kind, range } => {
+                    if kind != SyntaxKind::DocComment {
+                        builder.token(kind.into(), &text[range]);
+                        continue;
+                    }
+
+                    builder.start_node(SyntaxKind::DocCommentNode.into());
+
+                    let (events, errors) = DocComment::parse(&text[range]);
+                    lex_errors.extend(errors.into_iter().map(|e| SyntaxError {
+                        range: e.range + range.start(),
+                        ..e
+                    }));
+
+                    for event in events {
+                        match event {
+                            Event::Start { kind } => builder.start_node(kind.into()),
+                            Event::Finish => builder.finish_node(),
+                            Event::Pending => {
+                                panic!("Pending event found, current tree: {:#?}", builder.finish())
+                            }
+                            Event::Token {
+                                kind,
+                                range: token_range,
+                            } => {
+                                builder.token(kind.into(), &text[token_range + range.start()]);
+                            }
+                        }
+                    }
+
+                    builder.finish_node();
+                }
                 Event::Pending => {
                     panic!("Pending event found, current tree: {:#?}", builder.finish())
                 }

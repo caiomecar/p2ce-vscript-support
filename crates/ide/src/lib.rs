@@ -1,7 +1,6 @@
 mod arena;
 mod collector;
 mod db;
-mod doc;
 mod symbol;
 
 use std::{collections::hash_map::Entry, fmt::Write as _};

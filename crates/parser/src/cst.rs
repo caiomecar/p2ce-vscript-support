@@ -117,6 +117,19 @@ pub enum SyntaxKind {
     FileKeyword,
     LineKeyword,
 
+    // Doc comment related
+    DocAsterisk,
+    DocSlashAsteriskAsterisk,
+    DocAsteriskSlash,
+    DocWhitespace,
+    DocNewLine,
+    DocAt,
+    DocOpenBrace,
+    DocPipe,
+    DocCloseBrace,
+    DocIdentifier,
+    DocText,
+
     __LastToken,
 
     SourceFile,
@@ -216,6 +229,29 @@ pub enum SyntaxKind {
 
     CaseClause,
     DefaultClause,
+
+    DocCommentNode,
+    DocDescription,
+    DocDescriptionLine,
+
+    DocTagItem,
+    DocName,
+    DocType,
+    DocTypeName,
+
+    UnknownTag,
+    ParamTag,
+    VarArgsTag,
+    TypeTag,
+    ReturnTag,
+    ThrowTag,
+    YieldTag,
+    NativeTag,
+    EntityTag,
+    HideTag,
+    DeprecatedTag,
+    ConstTag,
+    InputTag,
 
     __Last,
 }

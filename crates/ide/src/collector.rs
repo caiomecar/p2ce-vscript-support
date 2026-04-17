@@ -1,22 +1,23 @@
 use la_arena::Idx;
 use rustc_hash::FxHashMap;
 use sq_3_parser::{
-    AstNode, SyntaxKind, SyntaxToken, TextRange, TextSize,
+    AstNode, SyntaxKind, SyntaxNode, SyntaxToken, TextRange, TextSize,
     ast::{
         self, ArrayLiteralExpression, BaseExpression, BinaryExpression, BinaryOperator,
         BlockStatement, BreakStatement, CallExpression, ClassExpression, ClassStatement,
         CloneExpression, ConditionalExpression, ConstStatement, ContinueStatement,
-        DeleteExpression, DoWhileStatement, ElementAccessExpression, EnumStatement, Expr,
-        ExpressionStatement, ExpressionWrapper, ForEachStatement, ForInitialiserKind, ForStatement,
-        FunctionBody, FunctionExpression, FunctionStatement, HasBody, HasDoc, HasName, HasOperand,
-        IfStatement, IsClass, IsClassMember, IsFunction, LambdaExpression, LiteralExpression,
-        LiteralExpressionKind, LocalFunctionDeclaration, LocalVariableDeclaration, Member,
-        MemberAccessExpression, MemberName, Name, Parameter, ParenthesisedExpression,
-        PostfixUpdateExpression, PostfixUpdateOperator, PrefixUnaryExpression, PrefixUnaryOperator,
-        PrefixUpdateExpression, PrefixUpdateOperator, Property, RawCallExpression,
-        ResumeExpression, ReturnStatement, RootAccessExpression, SourceFile, Stmt, StringNameKind,
-        SwitchClause, SwitchStatement, TableLiteralExpression, ThisExpression, ThrowStatement,
-        TryStatement, TypeOfExpression, WhileStatement, YieldStatement,
+        DeleteExpression, DoWhileStatement, DocComment, DocTypeName, ElementAccessExpression,
+        EnumStatement, Expr, ExpressionStatement, ExpressionWrapper, ForEachStatement,
+        ForInitialiserKind, ForStatement, FunctionBody, FunctionExpression, FunctionStatement,
+        HasBody, HasDescription, HasDoc, HasName, HasOperand, HasType, IfStatement, IsClass,
+        IsClassMember, IsFunction, LambdaExpression, LiteralExpression, LiteralExpressionKind,
+        LocalFunctionDeclaration, LocalVariableDeclaration, Member, MemberAccessExpression,
+        MemberName, Name, Parameter, ParenthesisedExpression, PostfixUpdateExpression,
+        PostfixUpdateOperator, PrefixUnaryExpression, PrefixUnaryOperator, PrefixUpdateExpression,
+        PrefixUpdateOperator, Property, RawCallExpression, ResumeExpression, ReturnStatement,
+        RootAccessExpression, SourceFile, Stmt, StringNameKind, SwitchClause, SwitchStatement,
+        TableLiteralExpression, Tag, ThisExpression, ThrowStatement, TryStatement,
+        TypeOfExpression, VariableDeclaration, WhileStatement, YieldStatement,
     },
 };
 use std::path::PathBuf;
@@ -31,7 +32,6 @@ use crate::{
         UnionId,
     },
     db::{Db, ScriptResolutionError, SpecialFunction},
-    doc::{Doc, TagItem, parent_doc},
     symbol::{
         AnnotatedType, LocalKind, PropertyKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type,
         TypeKind, TypeSet, insert_symbol,
@@ -325,19 +325,19 @@ impl<'db> Collector<'db> {
             diagnostics: Vec::new(),
         };
 
-        let is_native = node.doc().is_some_and(|token| {
-            let doc = Doc::new(token.text());
-            for tag in doc.tags {
-                match tag.item {
-                    TagItem::Native => return true,
-                    TagItem::Entity => {
+        let mut is_native = false;
+        if let Some(doc) = node.doc() {
+            for tag in doc.tags() {
+                match tag {
+                    Tag::Native(_) => is_native = true,
+                    Tag::Entity(_) => {
                         let base_entity = db.base_entity_class();
                         let id = collector.symbol(Symbol {
                             name: "self".to_owned(),
                             typ: AnnotatedType(Type::Instance(base_entity), true),
                             kind: SymbolKind::Property(PropertyKind::Embedded),
-                            name_range: token.text_range(),
-                            range: token.text_range(),
+                            name_range: tag.syntax().text_range(),
+                            range: tag.syntax().text_range(),
                             ..Default::default()
                         });
 
@@ -346,8 +346,7 @@ impl<'db> Collector<'db> {
                     _ => {}
                 }
             }
-            false
-        });
+        }
 
         for stmt in node.statements() {
             collector.collect_stmt(&stmt);
@@ -639,8 +638,10 @@ impl<'db> Collector<'db> {
         locals.or_else(consts).or_else(members).or_else(root)
     }
 
-    fn resolve_doc_type(&self, str_type: &str, offset: TextSize) -> Option<Type> {
-        Some(match str_type {
+    fn resolve_doc_type(&mut self, name: &DocTypeName, offset: TextSize) -> Option<Type> {
+        let identifier = name.identifier()?;
+        let text = identifier.text();
+        Some(match text {
             "*" | "any" => Type::Any,
             "int" | "integer" => Type::Integer(None),
             "float" => Type::Float(None),
@@ -659,7 +660,16 @@ impl<'db> Collector<'db> {
                 // If we resolve symbols first rather than preset names, the builtins
                 // file is started to break, this is anyways a small enough matter to
                 // care about (don't use the same name as defaults for your classes)
-                let id = self.resolve_name(str_type, offset)?;
+                let Some(id) = self.resolve_name(text, offset) else {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!(
+                            "Couldn't find type '{identifier}', defaulting to using 'unknown''"
+                        ),
+                        range: name.syntax().text_range(),
+                        severity: DiagnosticSeverity::Information,
+                    });
+                    return None;
+                };
                 let Type::Class(id) = self.get(id).typ.0 else {
                     return None;
                 };
@@ -669,13 +679,16 @@ impl<'db> Collector<'db> {
         })
     }
 
-    fn resolve_doc_types(&mut self, str_types: &[String], offset: TextSize) -> Option<Type> {
-        let mut iter = str_types.iter();
-        let first = iter.next()?;
+    fn resolve_doc_types(
+        &mut self,
+        mut types: impl Iterator<Item = DocTypeName>,
+        offset: TextSize,
+    ) -> Option<Type> {
+        let first = types.next()?;
 
-        let mut last_type = self.resolve_doc_type(first, offset);
-        for typ in iter {
-            let Some(next_type) = self.resolve_doc_type(typ, offset) else {
+        let mut last_type = self.resolve_doc_type(&first, offset);
+        for typ in types {
+            let Some(next_type) = self.resolve_doc_type(&typ, offset) else {
                 continue;
             };
 
@@ -1787,20 +1800,19 @@ impl<'db> Collector<'db> {
     where
         T: HasDoc,
     {
-        let Some(doc_token) = node.doc() else {
+        let Some(doc) = node.doc() else {
             return false;
         };
 
-        let doc = Doc::new(doc_token.text());
         let offset = node.syntax().text_range().end();
-        for tag in doc.tags {
-            match tag.item {
-                TagItem::Type(type_tag) => {
-                    let Some(types) = type_tag.typ else {
+        for tag in doc.tags() {
+            match tag {
+                Tag::Type(type_tag) => {
+                    let Some(typ) = type_tag.typ() else {
                         continue;
                     };
 
-                    let Some(doc_type) = self.resolve_doc_types(&types, offset) else {
+                    let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) else {
                         continue;
                     };
 
@@ -1822,17 +1834,17 @@ impl<'db> Collector<'db> {
                         symbol.typ = AnnotatedType(doc_type, true);
                     }
                 }
-                TagItem::Const => {
+                Tag::Const(_) => {
                     if let Some(symbol) = self.get_mut(symbol) {
                         symbol.flags |= SymbolFlags::CONST;
                     }
                 }
-                TagItem::Hide => {
+                Tag::Hide(_) => {
                     if let Some(symbol) = self.get_mut(symbol) {
                         symbol.flags |= SymbolFlags::HIDE;
                     }
                 }
-                TagItem::Deprecated => {
+                Tag::Deprecated(_) => {
                     if let Some(symbol) = self.get_mut(symbol) {
                         symbol.flags |= SymbolFlags::DEPRECATED;
                     }
@@ -1844,7 +1856,7 @@ impl<'db> Collector<'db> {
     }
 
     fn resolve_function_doc(&mut self, entry: &DeferredFunctionEntry, offset: TextSize) {
-        let Some(doc_token) = entry.trace.node.doc().or_else(|| {
+        let Some(doc) = entry.trace.node.doc().or_else(|| {
             let syntax = entry.trace.node.syntax();
             if !matches!(
                 syntax.kind(),
@@ -1856,40 +1868,52 @@ impl<'db> Collector<'db> {
         }) else {
             return;
         };
+        dbg!(&doc);
 
-        let doc = Doc::new(doc_token.text());
         if let Some(symbol_id) = self.arena[entry.idx].symbol
             && let Some(symbol) = self.get_mut(symbol_id)
+            && let Some(desc) = doc.description()
         {
-            symbol.description = Some(doc.description);
+            symbol.description = desc.content();
         }
-        for tag in doc.tags {
-            match tag.item {
-                TagItem::Return(item) => {
-                    let Some(types) = item.typ else {
+
+        for tag in doc.tags() {
+            match tag {
+                Tag::Return(tag) => {
+                    let Some(typ) = tag.typ() else {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.resolve_doc_types(&types, offset) {
+                    if let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) {
                         self.arena[entry.idx].ret = Some(AnnotatedType(doc_type, true));
                     }
                 }
-                TagItem::Parameter(item) => {
+                Tag::Param(tag) => {
+                    let Some(param_name) = tag.name().and_then(|n| n.identifier()) else {
+                        continue;
+                    };
+                    let text = param_name.text();
+
                     let Some(param_id) = self.arena[entry.idx]
                         .params
                         .iter()
                         .rev()
-                        .find(|id| self.get(**id).name == item.name)
+                        .find(|id| self.get(**id).name == text)
                         .copied()
                     else {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!("Couldn't find param '{text}'"),
+                            range: param_name.text_range(),
+                            severity: DiagnosticSeverity::Information,
+                        });
                         continue;
                     };
 
-                    let Some(types) = item.typ else {
+                    let Some(typ) = tag.typ() else {
                         continue;
                     };
 
-                    let Some(doc_type) = self.resolve_doc_types(&types, offset) else {
+                    let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) else {
                         continue;
                     };
 
@@ -1911,44 +1935,48 @@ impl<'db> Collector<'db> {
 
                     if let Some(param) = self.get_mut(param_id) {
                         param.typ = AnnotatedType(doc_type, true);
-                        param.description = Some(tag.description);
+                        if let Some(desc) = tag.description() {
+                            param.description = desc.content();
+                        }
                     }
                 }
-                TagItem::Throw(item) => {
-                    let Some(types) = item.typ else {
+                Tag::Throw(tag) => {
+                    let Some(typ) = tag.typ() else {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.resolve_doc_types(&types, offset) {
+                    if let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) {
                         self.arena[entry.idx].throws = Some(AnnotatedType(doc_type, true));
                     }
                 }
-                TagItem::Yield(item) => {
-                    let Some(types) = item.typ else {
+                Tag::Yield(tag) => {
+                    let Some(typ) = tag.typ() else {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.resolve_doc_types(&types, offset) {
+                    if let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) {
                         self.arena[entry.idx].yields = Some(AnnotatedType(doc_type, true));
                     }
                 }
-                TagItem::VarArgs(item) => {
+                Tag::VarArgs(tag) => {
                     let ParamsState::VarArgs(_, id) = self.arena[entry.idx].params_state else {
                         continue;
                     };
 
-                    let Some(types) = item.typ else {
+                    let Some(typ) = tag.typ() else {
                         continue;
                     };
 
-                    let Some(typ) = self.resolve_doc_types(&types, offset) else {
+                    let Some(typ) = self.resolve_doc_types(typ.types(), offset) else {
                         continue;
                     };
 
                     let array_id = self.array(ArrayData { typ });
                     if let Some(symbol) = self.get_mut(id) {
                         symbol.typ = AnnotatedType(Type::Array(Some(array_id)), true);
-                        symbol.description = Some(tag.description);
+                        if let Some(desc) = tag.description() {
+                            symbol.description = desc.content();
+                        }
                     }
                 }
                 _ => {}
@@ -4555,4 +4583,33 @@ impl<'db> Collector<'db> {
             }
         }
     }
+}
+
+pub fn parent_doc(node: &SyntaxNode) -> Option<DocComment> {
+    let parent = node.parent()?;
+    // /** ... */
+    // new <- function() {}
+    if let Some(bin) = BinaryExpression::cast(parent.clone()) {
+        return bin.doc();
+    }
+
+    // class a = {
+    //    /** ... */
+    //    prop = function() {}
+    // }
+    if let Some(prop) = Property::cast(parent.clone()) {
+        return prop.doc();
+    }
+
+    // Initially wrapped in 'Initialiser' node
+    let parent = parent.parent()?;
+    let init = VariableDeclaration::cast(parent.clone())?;
+
+    // local
+    // /** ... */
+    // a = function() {}
+    init.doc().or_else(||
+                    // /** ... */
+                    // local a = function() {}
+                    LocalVariableDeclaration::cast(parent.parent()?)?.doc())
 }

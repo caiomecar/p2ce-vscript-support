@@ -309,7 +309,7 @@ class array {
      * objects and/or tables, they will be sorted by reference not value.
      * The comparison function should take two parameters and return -1 if the first value
      * should be placed before the second, 1 if it should follow, or 0 if they are equivalent.
-     * The spaceship operator <=> may come in handy, e.g. arr.sort(@(a, b) a.distance <=> b.distance).
+     * The spaceship operator <=> may come in handy, e.g. arr.sort(\@(a, b) a.distance <=> b.distance).
      * @param {function} compare - function(a: any, b: any) -> integer
      */
     function sort(compare = @(a, b) a <=> b);

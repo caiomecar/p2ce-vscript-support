@@ -103,8 +103,8 @@ pub trait HasName: AstNode<Language = SquirrelLanguage> {
 }
 
 pub trait HasDoc: AstNode<Language = SquirrelLanguage> {
-    fn doc(&self) -> Option<SyntaxToken> {
-        support::token(self.syntax(), SyntaxKind::DocComment)
+    fn doc(&self) -> Option<DocComment> {
+        support::child(self.syntax())
     }
 }
 
@@ -930,3 +930,139 @@ ast_enum!(Member {
     Constructor(Constructor),
     Method(Method),
 });
+
+pub trait HasDescription: AstNode<Language = SquirrelLanguage> {
+    fn description(&self) -> Option<DocDescription> {
+        support::child(self.syntax())
+    }
+}
+
+pub trait HasType: AstNode<Language = SquirrelLanguage> {
+    fn typ(&self) -> Option<DocType> {
+        support::child(self.syntax())
+    }
+}
+
+ast_node!(DocComment, DocCommentNode);
+impl HasDescription for DocComment {}
+impl DocComment {
+    #[must_use]
+    pub fn tags(&self) -> AstChildren<Tag> {
+        support::children(&self.0)
+    }
+}
+
+ast_node!(DocDescription, DocDescription);
+impl DocDescription {
+    #[must_use]
+    pub fn lines(&self) -> AstChildren<DocDescriptionLine> {
+        support::children(self.syntax())
+    }
+
+    #[must_use]
+    pub fn content(&self) -> Option<String> {
+        let mut lines = self.lines().peekable();
+        lines.peek()?;
+        Some(lines.filter_map(|l| l.content()).collect())
+    }
+}
+
+ast_node!(DocDescriptionLine, DocDescriptionLine);
+impl DocDescriptionLine {
+    #[must_use]
+    pub fn content_token(&self) -> Option<SyntaxToken> {
+        support::token(self.syntax(), SyntaxKind::DocText)
+    }
+
+    #[must_use]
+    pub fn content(&self) -> Option<String> {
+        self.content_token().map(|t| t.text().to_owned())
+    }
+}
+
+ast_node!(DocName, DocName);
+impl DocName {
+    #[must_use]
+    pub fn identifier(&self) -> Option<SyntaxToken> {
+        support::token(&self.0, SyntaxKind::DocIdentifier)
+    }
+}
+
+ast_node!(DocType, DocType);
+impl DocType {
+    #[must_use]
+    pub fn types(&self) -> AstChildren<DocTypeName> {
+        support::children(&self.0)
+    }
+}
+
+ast_node!(DocTypeName, DocTypeName);
+impl DocTypeName {
+    #[must_use]
+    pub fn identifier(&self) -> Option<SyntaxToken> {
+        support::token(&self.0, SyntaxKind::DocIdentifier)
+    }
+}
+
+ast_enum!(Tag {
+    Return(ReturnTag),
+    Param(ParamTag),
+    VarArgs(VarArgsTag),
+    Type(TypeTag),
+    Throw(ThrowTag),
+    Yield(YieldTag),
+    Native(NativeTag),
+    Entity(EntityTag),
+    Hide(HideTag),
+    Deprecated(DeprecatedTag),
+    Const(ConstTag),
+    Input(InputTag),
+});
+
+ast_node!(ReturnTag, ReturnTag);
+impl HasDescription for ReturnTag {}
+impl HasType for ReturnTag {}
+
+ast_node!(ParamTag, ParamTag);
+impl HasDescription for ParamTag {}
+impl HasType for ParamTag {}
+impl ParamTag {
+    #[must_use]
+    pub fn name(&self) -> Option<DocName> {
+        support::child(&self.0)
+    }
+}
+
+ast_node!(VarArgsTag, VarArgsTag);
+impl HasDescription for VarArgsTag {}
+impl HasType for VarArgsTag {}
+
+ast_node!(TypeTag, TypeTag);
+impl HasDescription for TypeTag {}
+impl HasType for TypeTag {}
+
+ast_node!(ThrowTag, ThrowTag);
+impl HasDescription for ThrowTag {}
+impl HasType for ThrowTag {}
+
+ast_node!(YieldTag, YieldTag);
+impl HasDescription for YieldTag {}
+impl HasType for YieldTag {}
+
+ast_node!(NativeTag, NativeTag);
+impl HasDescription for NativeTag {}
+
+ast_node!(EntityTag, EntityTag);
+impl HasDescription for EntityTag {}
+
+ast_node!(HideTag, HideTag);
+impl HasDescription for HideTag {}
+
+ast_node!(DeprecatedTag, DeprecatedTag);
+impl HasDescription for DeprecatedTag {}
+
+ast_node!(ConstTag, ConstTag);
+impl HasDescription for ConstTag {}
+
+ast_node!(InputTag, InputTag);
+impl HasDescription for InputTag {}

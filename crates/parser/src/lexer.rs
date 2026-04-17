@@ -51,35 +51,31 @@ pub struct Token {
     pub range: TextRange,
 }
 
-struct Lexer<'a> {
+pub struct Lexer<'a> {
     text: &'a str,
     pos: TextSize,
     token_start: TextSize,
     errors: Vec<SyntaxError>,
 }
 
-pub fn tokenise(text: &str) -> (Vec<Token>, Vec<SyntaxError>) {
-    let mut lexer = Lexer::new(text);
-    let mut tokens = Vec::new();
-    loop {
-        let token = lexer.next_token();
-        tokens.push(token);
-        if token.kind == SyntaxKind::Eof {
-            break;
-        }
-    }
-
-    (tokens, lexer.errors)
-}
-
 impl<'a> Lexer<'a> {
-    const fn new(text: &'a str) -> Self {
-        Self {
+    pub fn tokenise(text: &'a str) -> (Vec<Token>, Vec<SyntaxError>) {
+        let mut lexer = Self {
             text,
             pos: TextSize::new(0),
             token_start: TextSize::new(0),
             errors: Vec::new(),
+        };
+        let mut tokens = Vec::new();
+        loop {
+            let token = lexer.next_token();
+            tokens.push(token);
+            if token.kind == SyntaxKind::Eof {
+                break;
+            }
         }
+
+        (tokens, lexer.errors)
     }
 
     fn peek(&self) -> Option<char> {

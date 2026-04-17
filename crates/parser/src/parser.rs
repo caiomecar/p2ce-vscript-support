@@ -1,16 +1,5 @@
-use crate::{SyntaxError, SyntaxKind, lexer::Token, token_set::TokenSet};
+use crate::{Event, Marker, SyntaxError, SyntaxKind, lexer::Token, token_set::TokenSet};
 use rowan::{TextRange, TextSize};
-
-#[derive(Debug)]
-pub enum Event {
-    Pending,
-    Start { kind: SyntaxKind },
-    Finish,
-    Token { kind: SyntaxKind, range: TextRange },
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Marker(usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum BinaryOperatorPrecedence {
@@ -87,14 +76,8 @@ enum VariableDeclaration {
     Catch,
 }
 
-pub fn parse(tokens: Vec<Token>) -> (Vec<Event>, Vec<SyntaxError>) {
-    let mut parser = Parser::new(tokens);
-    parser.parse_source_file();
-    (parser.events, parser.errors)
-}
-
 #[derive(Debug, Default)]
-struct Parser {
+pub struct Parser {
     tokens: Vec<Token>,
     // We keep track of index of the token we've put into events(meaning that it is
     // consumed) and index of the token we're currently inspecting
@@ -127,11 +110,13 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
-        Self {
+    pub fn parse(tokens: Vec<Token>) -> (Vec<Event>, Vec<SyntaxError>) {
+        let mut parser = Self {
             tokens,
             ..Default::default()
-        }
+        };
+        parser.parse_source_file();
+        (parser.events, parser.errors)
     }
 
     fn parse_source_file(&mut self) {
@@ -321,14 +306,6 @@ impl Parser {
         }
     }
 
-    // fn is_scalar_expression(&self, marker: Marker) -> bool {
-    //     match self.marker_kind(marker) {
-    //         SyntaxKind::LiteralExpression => true,
-    //         SyntaxKind::PrefixUnaryExpression => {
-    //         }
-    //     }
-    // }
-
     // We don't care for range in most places
     fn token(&self) -> SyntaxKind {
         self.tokens[self.lookahead_index].kind
@@ -352,14 +329,11 @@ impl Parser {
                         }
                     }
                 }
-                SyntaxKind::LineComment => {
+                SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::DocComment => {
                     if self.preceding_comments_index.is_none() {
                         self.preceding_comments_index = Some(self.lookahead_index);
                     }
                     self.has_new_line_after_comment = false;
-                }
-                SyntaxKind::BlockComment | SyntaxKind::DocComment => {
-                    self.preceding_comments_index = Some(self.lookahead_index);
                 }
                 _ => break,
             }
