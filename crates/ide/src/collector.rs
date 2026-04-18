@@ -20,7 +20,7 @@ use sq_3_parser::{
         TypeOfExpression, VariableDeclaration, WhileStatement, YieldStatement,
     },
 };
-use std::path::PathBuf;
+use std::{collections::hash_map::Entry, path::PathBuf};
 
 use crate::{
     Diagnostic, DiagnosticSeverity, ExpressionKind, File, FindSymbol, ImportMembers,
@@ -202,6 +202,7 @@ pub struct Collector<'db> {
 
     range_to_expr: FxHashMap<TextRange, ExpressionKind>,
     range_to_symbol: FxHashMap<TextRange, SymbolId>,
+    doc_to_symbol: FxHashMap<TextRange, SymbolId>,
     symbol_to_ranges: FxHashMap<SymbolId, Vec<TextRange>>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -247,6 +248,10 @@ impl Source for Collector<'_> {
         &self.range_to_symbol
     }
 
+    fn doc_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId> {
+        &self.doc_to_symbol
+    }
+
     fn symbol_to_ranges(&self) -> &FxHashMap<SymbolId, Vec<TextRange>> {
         &self.symbol_to_ranges
     }
@@ -268,6 +273,7 @@ impl Source for Collector<'_> {
         &self.diagnostics
     }
 }
+
 impl<'db> Collector<'db> {
     pub fn symbol_from_source_file(db: &'db dyn Db, file: File, node: &SourceFile) -> SourceSymbol {
         let mut arena = SourceArena::default();
@@ -321,6 +327,7 @@ impl<'db> Collector<'db> {
             deferred_functions: FxHashMap::default(),
             range_to_expr: FxHashMap::default(),
             range_to_symbol: FxHashMap::default(),
+            doc_to_symbol: FxHashMap::default(),
             symbol_to_ranges: FxHashMap::default(),
             diagnostics: Vec::new(),
         };
@@ -379,6 +386,7 @@ impl<'db> Collector<'db> {
             source_table,
             range_to_expr: collector.range_to_expr,
             range_to_symbol: collector.range_to_symbol,
+            doc_to_symbol: collector.doc_to_symbol,
             symbol_to_ranges: collector.symbol_to_ranges,
             diagnostics: collector.diagnostics,
         }
@@ -638,11 +646,11 @@ impl<'db> Collector<'db> {
         locals.or_else(consts).or_else(members).or_else(root)
     }
 
-    fn resolve_doc_type(&mut self, name: &DocTypeName, offset: TextSize) -> Option<Type> {
+    fn doc_type_single(&mut self, name: &DocTypeName, offset: TextSize) -> Option<Type> {
         let identifier = name.identifier()?;
         let text = identifier.text();
         Some(match text {
-            "*" | "any" => Type::Any,
+            "any" => Type::Any,
             "int" | "integer" => Type::Integer(None),
             "float" => Type::Float(None),
             "string" => Type::String(None),
@@ -679,16 +687,16 @@ impl<'db> Collector<'db> {
         })
     }
 
-    fn resolve_doc_types(
+    fn doc_type(
         &mut self,
         mut types: impl Iterator<Item = DocTypeName>,
         offset: TextSize,
     ) -> Option<Type> {
         let first = types.next()?;
 
-        let mut last_type = self.resolve_doc_type(&first, offset);
+        let mut last_type = self.doc_type_single(&first, offset);
         for typ in types {
-            let Some(next_type) = self.resolve_doc_type(&typ, offset) else {
+            let Some(next_type) = self.doc_type_single(&typ, offset) else {
                 continue;
             };
 
@@ -1804,7 +1812,15 @@ impl<'db> Collector<'db> {
             return false;
         };
 
-        let offset = node.syntax().text_range().end();
+        let range = doc.syntax().text_range();
+        match self.doc_to_symbol.entry(range) {
+            Entry::Occupied(_) => return true,
+            Entry::Vacant(e) => {
+                e.insert(symbol);
+            }
+        }
+
+        let offset = range.end();
         for tag in doc.tags() {
             match tag {
                 Tag::Type(type_tag) => {
@@ -1812,7 +1828,7 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) else {
+                    let Some(doc_type) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
 
@@ -1883,7 +1899,7 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) {
+                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
                         self.arena[entry.idx].ret = Some(AnnotatedType(doc_type, true));
                     }
                 }
@@ -1918,7 +1934,7 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) else {
+                    let Some(doc_type) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
 
@@ -1947,7 +1963,7 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) {
+                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
                         self.arena[entry.idx].throws = Some(AnnotatedType(doc_type, true));
                     }
                 }
@@ -1956,7 +1972,7 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.resolve_doc_types(typ.types(), offset) {
+                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
                         self.arena[entry.idx].yields = Some(AnnotatedType(doc_type, true));
                     }
                 }
@@ -1975,7 +1991,7 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    let Some(typ) = self.resolve_doc_types(typ.types(), offset) else {
+                    let Some(typ) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
 
@@ -4590,7 +4606,7 @@ impl<'db> Collector<'db> {
     }
 }
 
-pub fn parent_doc(node: &SyntaxNode) -> Option<DocComment> {
+fn parent_doc(node: &SyntaxNode) -> Option<DocComment> {
     let parent = node.parent()?;
     // /** ... */
     // new <- function() {}

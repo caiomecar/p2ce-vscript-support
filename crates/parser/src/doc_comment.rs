@@ -79,15 +79,18 @@ impl<'a> DocComment<'a> {
     }
 
     fn skip_trivia(&mut self) {
+        let start = self.start_token();
         while let Some(char) = self.peek() {
             match char {
                 ' ' | '\t' | '\r' => {
-                    let start = self.start_token();
                     self.next();
-                    self.finish_token(start, SyntaxKind::Whitespace);
                 }
-                _ => return,
+                _ => break,
             }
+        }
+
+        if start != self.pos {
+            self.finish_token(start, SyntaxKind::Whitespace);
         }
     }
 

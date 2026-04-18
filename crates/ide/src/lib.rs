@@ -10,10 +10,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{SyntaxKind, SyntaxNode, SyntaxToken, TextRange, TextSize};
 
 use crate::{
-    arena::{
-        ClassId, Container, EnumId, FunctionId, ImportTarget, ScopeId, SourceArena, TableData,
-        TableId,
-    },
+    arena::{ClassId, Container, EnumId, ImportTarget, SourceArena, TableData, TableId},
     db::{
         Db, top_const_members, top_root_members, top_source_and_const_members,
         top_source_and_root_members, top_source_members,
@@ -21,7 +18,7 @@ use crate::{
     symbol::{FlatSymbolTable, TypeSet, to_flat_symbol_table},
 };
 
-pub use arena::{ArenaId, FunctionData, ParamsState, SymbolId};
+pub use arena::{ArenaId, FunctionData, FunctionId, ParamsState, ScopeId, SymbolId};
 pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
 pub use symbol::{LocalKind, PropertyKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type};
 
@@ -200,6 +197,7 @@ pub trait Source {
     fn const_table(&self) -> TableId;
     fn range_to_expr(&self) -> &FxHashMap<TextRange, ExpressionKind>;
     fn range_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId>;
+    fn doc_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId>;
     fn symbol_to_ranges(&self) -> &FxHashMap<SymbolId, Vec<TextRange>>;
     fn diagnostics(&self) -> &[Diagnostic];
 
@@ -1019,6 +1017,10 @@ impl Source for FinishedFile<'_> {
         &self.source().range_to_symbol
     }
 
+    fn doc_to_symbol(&self) -> &FxHashMap<TextRange, SymbolId> {
+        &self.source().doc_to_symbol
+    }
+
     fn symbol_to_ranges(&self) -> &FxHashMap<SymbolId, Vec<TextRange>> {
         &self.source().symbol_to_ranges
     }
@@ -1039,6 +1041,7 @@ pub struct SourceSymbol {
 
     range_to_expr: FxHashMap<TextRange, ExpressionKind>,
     range_to_symbol: FxHashMap<TextRange, SymbolId>,
+    doc_to_symbol: FxHashMap<TextRange, SymbolId>,
     symbol_to_ranges: FxHashMap<SymbolId, Vec<TextRange>>,
     diagnostics: Vec<Diagnostic>,
 }

@@ -72,6 +72,7 @@ fn main() -> Result<()> {
                 "@".to_owned(),
                 "{".to_owned(),
                 "|".to_owned(),
+                "*".to_owned(),
             ]),
             ..Default::default()
         }),
