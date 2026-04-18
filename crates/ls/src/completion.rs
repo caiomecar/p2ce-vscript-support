@@ -7,7 +7,10 @@ use lsp_types::{
     Command, CompletionItem, CompletionItemKind, CompletionItemTag, CompletionParams,
     CompletionResponse, CompletionTextEdit, InsertTextFormat, TextEdit,
 };
-use sq_3_parser::{AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize, ast};
+use sq_3_parser::{
+    AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize,
+    ast::{self, IsClassMember},
+};
 use std::fmt::Write as _;
 
 use crate::conversions;
@@ -35,9 +38,22 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
 
     CompletionResponse::Array(
         match context_completions(&syntax, offset, trigger_char.as_deref(), &finished_file) {
-            Some(ContextCompletions::Flat) => completions_flat(offset, &finished_file),
+            // Some(ContextCompletions::Flat) => completions_flat(offset, &finished_file),
+            Some(ContextCompletions::Statement) => {
+                let mut completions = completions_flat(offset, &finished_file);
+                completions.extend(statement_keywords());
+                completions
+            }
+            Some(ContextCompletions::Expression) => {
+                let mut completions = completions_flat(offset, &finished_file);
+                completions.extend(expression_keywords());
+                completions
+            }
             Some(ContextCompletions::FromObject { typ, prefix_range }) => {
                 completions_from_object(line_idx, offset, &finished_file, scope, typ, prefix_range)
+            }
+            Some(ContextCompletions::FromQualifiedName { typ }) => {
+                completions_from_qualified_name(offset, &finished_file, scope, typ)
             }
             Some(ContextCompletions::FromObjectAsString { typ, replace_range }) => {
                 completions_from_object_as_string(
@@ -50,6 +66,35 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
                 )
             }
             Some(ContextCompletions::Root) => completions_root(offset, &finished_file, scope),
+            Some(ContextCompletions::AfterLocal | ContextCompletions::Table) => {
+                let keywords = [Keyword("function", KeywordPostfix::Space)];
+                keywords_to_completion(&keywords)
+            }
+            Some(ContextCompletions::Class) => {
+                let keywords = [
+                    Keyword("function", KeywordPostfix::Space),
+                    Keyword("constructor", KeywordPostfix::Parentheses),
+                    Keyword("static", KeywordPostfix::Space),
+                ];
+                keywords_to_completion(&keywords)
+            }
+            Some(ContextCompletions::ClassAfterStatic) => {
+                let keywords = [
+                    Keyword("function", KeywordPostfix::Space),
+                    Keyword("constructor", KeywordPostfix::Parentheses),
+                ];
+                keywords_to_completion(&keywords)
+            }
+            Some(ContextCompletions::Switch) => {
+                let mut completions = completions_flat(offset, &finished_file);
+                completions.extend(statement_keywords());
+                let keywords = [
+                    Keyword("case", KeywordPostfix::Space),
+                    Keyword("default", KeywordPostfix::None),
+                ];
+                completions.extend(keywords_to_completion(&keywords));
+                completions
+            }
             Some(ContextCompletions::DocTag { replace_range }) => {
                 completion_doc_tag(line_idx, replace_range)
             }
@@ -66,10 +111,17 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
 }
 
 enum ContextCompletions {
-    Flat,
+    Statement,
+    Expression,
     Root,
+    FromQualifiedName { typ: Option<Type> },
     FromObject { typ: Type, prefix_range: TextRange },
     FromObjectAsString { typ: Type, replace_range: TextRange },
+    AfterLocal,
+    Table,
+    Class,
+    ClassAfterStatic,
+    Switch,
     DocTag { replace_range: Option<TextRange> },
     DocType,
     DocParamNames { id: FunctionId },
@@ -121,37 +173,56 @@ fn context_completions(
     finished_file: &FinishedFile,
 ) -> Option<ContextCompletions> {
     let Some(mut token) = syntax.token_at_offset(offset).left_biased() else {
-        return Some(ContextCompletions::Flat);
+        return Some(ContextCompletions::Statement);
     };
 
     let touching = token.kind() != SyntaxKind::Whitespace;
     if !touching {
         let Some(prev_token) = token.prev_token() else {
-            return Some(ContextCompletions::Flat);
+            return Some(ContextCompletions::Statement);
         };
 
         token = prev_token;
     }
 
     match token.kind() {
-        SyntaxKind::LineComment | SyntaxKind::BlockComment => None,
+        SyntaxKind::LineComment | SyntaxKind::BlockComment => {
+            if touching {
+                None
+            } else {
+                Some(ContextCompletions::Statement)
+            }
+        }
         SyntaxKind::ColonColon => {
             if doc_trigger(trigger_char) {
                 return None;
             }
-            let Some(parent) = token.parent() else {
-                return Some(ContextCompletions::Flat);
-            };
 
-            Some(if ast::RootAccessExpression::can_cast(parent.kind()) {
-                ContextCompletions::Root
-            } else {
-                ContextCompletions::Flat
+            let parent = token.parent()?;
+
+            // e.g.
+            // ::|
+            // ::   |
+            if ast::RootAccessExpression::can_cast(parent.kind()) {
+                return Some(ContextCompletions::Root);
+            }
+
+            // e.g.
+            // function abc::|
+            // function abc::   |
+            let part = ast::QualifiedNamePart::cast(parent)?;
+            let name = part.name()?;
+            let symbol = finished_file
+                .range_to_symbol()
+                .get(&name.syntax().text_range())?;
+
+            Some(ContextCompletions::FromQualifiedName {
+                typ: Some(finished_file.get(*symbol).typ.0),
             })
         }
         SyntaxKind::String => {
             if !touching {
-                return None;
+                return Some(ContextCompletions::Expression);
             }
 
             if trigger_char != Some("\"") {
@@ -190,7 +261,7 @@ fn context_completions(
             }
 
             let Some(parent) = token.parent() else {
-                return Some(ContextCompletions::Flat);
+                return Some(ContextCompletions::Statement);
             };
 
             Some(
@@ -201,10 +272,31 @@ fn context_completions(
                         prefix_range: token.text_range().cover_offset(offset),
                     }
                 } else {
-                    ContextCompletions::Flat
+                    ContextCompletions::Statement
                 },
             )
         }
+        SyntaxKind::FunctionKeyword if !touching => {
+            if doc_trigger(trigger_char) {
+                return None;
+            }
+
+            let parent = token.parent()?;
+            // function |
+            if ast::FunctionStatement::can_cast(parent.kind()) {
+                return Some(ContextCompletions::FromQualifiedName { typ: None });
+            }
+
+            // The rest are
+            // local function |
+            // (method) function |
+            // (expression) function |
+            // These should not have any completions since we're writing out the name
+            None
+        }
+        SyntaxKind::LocalKeyword if !touching => Some(ContextCompletions::AfterLocal),
+        SyntaxKind::StaticKeyword if !touching => Some(ContextCompletions::ClassAfterStatic),
+        SyntaxKind::EnumKeyword | SyntaxKind::ConstKeyword if !touching => None,
 
         SyntaxKind::BaseKeyword
         | SyntaxKind::BreakKeyword
@@ -245,25 +337,123 @@ fn context_completions(
         | SyntaxKind::LineKeyword
         | SyntaxKind::Identifier => {
             if !touching {
-                return None;
+                return Some(ContextCompletions::Expression);
             }
 
             if doc_trigger(trigger_char) {
                 return None;
             }
 
-            // It's either in 'Name' or 'Error' node
-            let Some(parent) = token.parent().and_then(|p| p.parent()) else {
-                return Some(ContextCompletions::Flat);
-            };
+            let mut parent = token.parent()?;
+            if matches!(parent.kind(), SyntaxKind::Name | SyntaxKind::Error) {
+                parent = parent.parent()?;
+            }
 
+            // local a = {
+            //    fun|
+            // }
+            if ast::SimpleName::can_cast(parent.kind()) {
+                let property = ast::Property::cast(parent.parent()?)?;
+                return match property.syntax().parent()?.kind() {
+                    SyntaxKind::TableLiteralExpression => Some(ContextCompletions::Table),
+                    SyntaxKind::ClassStatement | SyntaxKind::ClassExpression => {
+                        if property.static_keyword().is_none() {
+                            Some(ContextCompletions::Class)
+                        } else {
+                            Some(ContextCompletions::ClassAfterStatic)
+                        }
+                    }
+                    _ => None,
+                };
+            }
+
+            // const b| = 1;
+            // local b = {
+            //    function ab|
+            // }
+            if matches!(
+                parent.kind(),
+                |SyntaxKind::LocalFunctionDeclaration| SyntaxKind::Method
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::ForeachKey
+                    | SyntaxKind::ForeachValue
+                    | SyntaxKind::ConstStatement
+                    | SyntaxKind::EnumStatement
+            ) {
+                return None;
+            }
+
+            // local a| = 1
+            // function abc(a|)
+            if let Some(var) = ast::VariableDeclaration::cast(parent.clone()) {
+                let local_decl = ast::LocalVariableDeclaration::cast(parent.parent()?)?;
+                let first = local_decl.declarations().next()?;
+                if first == var {
+                    return Some(ContextCompletions::AfterLocal);
+                }
+                return None;
+            }
+
+            // ::  a|
             if ast::RootAccessExpression::can_cast(parent.kind()) {
                 return Some(ContextCompletions::Root);
             }
 
+            // function abc::wow::new|
+            // function new|
+            if let Some(qualified_name) = ast::QualifiedName::cast(parent.clone()) {
+                if let Some(last) = qualified_name.parts().last() {
+                    let name = last.name()?;
+                    let symbol = finished_file
+                        .range_to_symbol()
+                        .get(&name.syntax().text_range())?;
+
+                    return Some(ContextCompletions::FromQualifiedName {
+                        typ: Some(finished_file.get(*symbol).typ.0),
+                    });
+                }
+
+                return Some(ContextCompletions::FromQualifiedName { typ: None });
+            }
+
+            // function abc::wow|::new
+            if let Some(part) = ast::QualifiedNamePart::cast(parent.clone()) {
+                let qualified_name = ast::QualifiedName::cast(part.syntax().parent()?)?;
+                let mut last = None;
+                for part in qualified_name.parts() {
+                    if part.syntax().text_range().end() < offset {
+                        last = Some(part);
+                    } else {
+                        break;
+                    }
+                }
+
+                let name = last?.name()?;
+                let symbol = finished_file
+                    .range_to_symbol()
+                    .get(&name.syntax().text_range())?;
+
+                return Some(ContextCompletions::FromQualifiedName {
+                    typ: Some(finished_file.get(*symbol).typ.0),
+                });
+            }
+
+            if ast::ExpressionStatement::can_cast(parent.kind()) {
+                if let Some(parent) = parent.parent()
+                    && matches!(
+                        parent.kind(),
+                        //no default clause because no clauses below it make sense?
+                        SyntaxKind::SwitchStatement | SyntaxKind::CaseClause // | SyntaxKind::DefaultClause
+                    )
+                {
+                    return Some(ContextCompletions::Switch);
+                }
+                return Some(ContextCompletions::Statement);
+            }
+
             // Member access also wraps it in 'member' node
             let Some(member_access) = parent.parent() else {
-                return Some(ContextCompletions::Flat);
+                return Some(ContextCompletions::Statement);
             };
 
             Some(
@@ -276,10 +466,45 @@ fn context_completions(
                     );
                     ContextCompletions::FromObject { typ, prefix_range }
                 } else {
-                    ContextCompletions::Flat
+                    ContextCompletions::Expression
                 },
             )
         }
+        SyntaxKind::Comma => {
+            if doc_trigger(trigger_char) {
+                return None;
+            }
+
+            match token.parent()?.kind() {
+                SyntaxKind::TableLiteralExpression => Some(ContextCompletions::Table),
+                SyntaxKind::ClassStatement | SyntaxKind::ClassExpression => {
+                    Some(ContextCompletions::Class)
+                }
+                SyntaxKind::ParameterList
+                | SyntaxKind::LocalVariableDeclaration
+                | SyntaxKind::ForEachStatement
+                | SyntaxKind::EnumStatement => None,
+                _ => Some(ContextCompletions::Expression),
+            }
+        }
+        SyntaxKind::LineFeed | SyntaxKind::Semicolon => {
+            if doc_trigger(trigger_char) {
+                return None;
+            }
+
+            match token.parent()?.kind() {
+                SyntaxKind::TableLiteralExpression => Some(ContextCompletions::Table),
+                SyntaxKind::ClassStatement | SyntaxKind::ClassExpression => {
+                    Some(ContextCompletions::Class)
+                }
+                //no default clause because no clauses below it make sense?
+                SyntaxKind::SwitchStatement | SyntaxKind::CaseClause // | SyntaxKind::DefaultClause
+                    => Some(ContextCompletions::Switch),
+                SyntaxKind::EnumStatement => None,
+                _ => Some(ContextCompletions::Statement),
+            }
+        }
+
         SyntaxKind::DocOpenBrace | SyntaxKind::DocPipe => {
             if not_doc_trigger(trigger_char) {
                 return None;
@@ -378,7 +603,7 @@ fn context_completions(
         }
         SyntaxKind::DocAsteriskSlash | SyntaxKind::DocSlashAsteriskAsterisk => {
             if token.kind() == SyntaxKind::DocAsteriskSlash && !touching {
-                return Some(ContextCompletions::Flat);
+                return Some(ContextCompletions::Statement);
             }
 
             let Some(parent) = token.parent() else {
@@ -405,12 +630,13 @@ fn context_completions(
                 replace_range: range,
             })
         }
+
         _ => {
             if doc_trigger(trigger_char) {
                 return None;
             }
 
-            Some(ContextCompletions::Flat)
+            Some(ContextCompletions::Expression)
         }
     }
 }
@@ -498,6 +724,94 @@ const fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
     }
 }
 
+enum KeywordPostfix {
+    None,
+    Space,
+    Parentheses,
+    ParenthesesSpace,
+}
+
+struct Keyword(&'static str, KeywordPostfix);
+
+fn keywords_to_completion(keywords: &[Keyword]) -> Vec<CompletionItem> {
+    keywords
+        .iter()
+        .map(|keyword| {
+            let label = keyword.0.to_owned();
+            let (insert_text, insert_text_format) = match keyword.1 {
+                KeywordPostfix::None => (None, None),
+                KeywordPostfix::Space => (Some(format!("{} ", keyword.0)), None),
+                KeywordPostfix::Parentheses => (
+                    Some(format!("{}($1)", keyword.0)),
+                    Some(InsertTextFormat::SNIPPET),
+                ),
+                KeywordPostfix::ParenthesesSpace => (
+                    Some(format!("{} ($1)", keyword.0)),
+                    Some(InsertTextFormat::SNIPPET),
+                ),
+            };
+            CompletionItem {
+                label,
+                kind: Some(CompletionItemKind::KEYWORD),
+                insert_text,
+                insert_text_format,
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+fn statement_keywords() -> Vec<CompletionItem> {
+    let keywords = [
+        Keyword("base", KeywordPostfix::None),
+        Keyword("break", KeywordPostfix::None),
+        Keyword("catch", KeywordPostfix::ParenthesesSpace),
+        Keyword("class", KeywordPostfix::Space),
+        Keyword("clone", KeywordPostfix::Space),
+        Keyword("const", KeywordPostfix::Space),
+        Keyword("continue", KeywordPostfix::None),
+        Keyword("delete", KeywordPostfix::Space),
+        Keyword("do", KeywordPostfix::None),
+        Keyword("enum", KeywordPostfix::Space),
+        Keyword("foreach", KeywordPostfix::ParenthesesSpace),
+        Keyword("for", KeywordPostfix::ParenthesesSpace),
+        Keyword("function", KeywordPostfix::Space),
+        Keyword("if", KeywordPostfix::ParenthesesSpace),
+        Keyword("local", KeywordPostfix::Space),
+        Keyword("rawcall", KeywordPostfix::Parentheses),
+        Keyword("resume", KeywordPostfix::Space),
+        Keyword("return", KeywordPostfix::None),
+        Keyword("switch", KeywordPostfix::ParenthesesSpace),
+        Keyword("this", KeywordPostfix::None),
+        Keyword("throw", KeywordPostfix::Space),
+        Keyword("try", KeywordPostfix::None),
+        Keyword("while", KeywordPostfix::ParenthesesSpace),
+        Keyword("yield", KeywordPostfix::Space),
+    ];
+
+    keywords_to_completion(&keywords)
+}
+
+fn expression_keywords() -> Vec<CompletionItem> {
+    let keywords = [
+        Keyword("base", KeywordPostfix::None),
+        Keyword("class", KeywordPostfix::Space),
+        Keyword("clone", KeywordPostfix::Space),
+        Keyword("delete", KeywordPostfix::Space),
+        Keyword("resume", KeywordPostfix::Space),
+        Keyword("this", KeywordPostfix::None),
+        Keyword("function", KeywordPostfix::Parentheses),
+        Keyword("null", KeywordPostfix::None),
+        Keyword("false", KeywordPostfix::None),
+        Keyword("true", KeywordPostfix::None),
+        Keyword("typeof", KeywordPostfix::Space),
+        Keyword("__FILE__", KeywordPostfix::None),
+        Keyword("__LINE__", KeywordPostfix::None),
+    ];
+
+    keywords_to_completion(&keywords)
+}
+
 fn completions_flat(offset: TextSize, finished_file: &FinishedFile<'_>) -> Vec<CompletionItem> {
     finished_file
         .symbols_at(offset, true)
@@ -578,6 +892,43 @@ fn completions_from_object(
                 tags: symbol_tags(symbol),
                 ..Default::default()
             }
+        })
+        .collect()
+}
+
+fn completions_from_qualified_name(
+    offset: TextSize,
+    finished_file: &FinishedFile<'_>,
+    scope: ScopeId,
+    typ: Option<Type>,
+) -> Vec<CompletionItem> {
+    let all_members = typ.map_or_else(
+        || finished_file.symbols_at(offset, false),
+        |typ| {
+            finished_file.members_of_type(
+                typ,
+                FindSymbol::BeforeIfInExecutionRange(offset, scope),
+                false,
+            )
+        },
+    );
+
+    all_members
+        .into_iter()
+        .filter_map(|(name, id)| {
+            let symbol = finished_file.get(id);
+            if !matches!(
+                symbol.typ.0,
+                Type::Table(_) | Type::Class(_) | Type::Instance(_)
+            ) {
+                return None;
+            }
+
+            Some(CompletionItem {
+                label: name,
+                kind: Some(to_completion_kind(symbol)),
+                ..Default::default()
+            })
         })
         .collect()
 }
@@ -664,14 +1015,10 @@ fn completion_doc_tag(
     let tags = [
         "@param ",
         "@returns",
-        "@return",
         "@throws",
-        "@throw",
         "@yields",
-        "@yield",
         "@type",
         "@varargs",
-        "@vargv",
         "@deprecated",
         "@hide",
         "@native",
@@ -713,22 +1060,24 @@ fn completions_doc_type(offset: TextSize, finished_file: &FinishedFile<'_>) -> V
         "weakref",
     ];
     let symbols = finished_file.symbols_at(offset, true);
-    let tags =
-        tags.into_iter()
-            .map(std::borrow::ToOwned::to_owned)
-            .chain(symbols.into_iter().filter_map(|(name, id)| {
-                if !matches!(finished_file.get(id).typ.0, Type::Class(_)) {
-                    return None;
-                }
-                Some(name)
-            }));
 
-    tags.map(|label| CompletionItem {
-        label,
-        kind: Some(CompletionItemKind::KEYWORD),
-        ..Default::default()
-    })
-    .collect()
+    tags.into_iter()
+        .map(|name| CompletionItem {
+            label: name.to_owned(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            ..Default::default()
+        })
+        .chain(symbols.into_iter().filter_map(|(name, id)| {
+            if !matches!(finished_file.get(id).typ.0, Type::Class(_)) {
+                return None;
+            }
+            Some(CompletionItem {
+                label: name,
+                kind: Some(CompletionItemKind::CLASS),
+                ..Default::default()
+            })
+        }))
+        .collect()
 }
 
 fn completions_doc_param_names(

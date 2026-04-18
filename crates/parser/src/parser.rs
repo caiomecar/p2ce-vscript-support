@@ -1870,19 +1870,13 @@ impl Parser {
     //          _______
     fn parse_qualified_name(&mut self) -> Marker {
         let m = self.start();
+        let mut part = self.start();
         let name = self.parse_name("name", TokenSet::FUNCTION_NAME_RECOVERY);
         // Didn't parse the name
-        if name.is_none() {
-            if !self.at_set(TokenSet::NAME_QUALIFIER) {
-                self.drop(m);
-                return m;
-            }
-
-            self.parse_proper_or_error(
-                SyntaxKind::ColonColon,
-                "Expected '::' to qualify a name".to_owned(),
-            );
-            self.parse_name("name", TokenSet::FUNCTION_NAME_RECOVERY);
+        if name.is_none() && !self.at_set(TokenSet::NAME_QUALIFIER) {
+            self.drop(part);
+            self.drop(m);
+            return m;
         }
 
         while self.at_set(TokenSet::NAME_QUALIFIER) {
@@ -1890,8 +1884,13 @@ impl Parser {
                 SyntaxKind::ColonColon,
                 "Expected '::' to qualify a name".to_owned(),
             );
+            self.finish(part, SyntaxKind::QualifiedNamePart);
+
+            part = self.start();
             self.parse_name("name", TokenSet::FUNCTION_NAME_RECOVERY);
         }
+
+        self.drop(part);
 
         self.finish(m, SyntaxKind::QualifiedName);
 

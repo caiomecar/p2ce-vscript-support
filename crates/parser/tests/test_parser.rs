@@ -484,7 +484,7 @@ mod tests {
         let Some(qn) = f.name() else {
             panic!("expected qualified name")
         };
-        assert_eq!(qn.names().count(), 3);
+        assert_eq!(qn.parts().count(), 3);
     }
 
     #[test]

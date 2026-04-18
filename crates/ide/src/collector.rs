@@ -2546,22 +2546,22 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        let mut names: Vec<_> = qualified_name.names().collect();
+        let mut parts = qualified_name.parts();
 
-        let Some(final_name) = names.pop() else {
-            return;
-        };
+        let Some(first) = parts.next().and_then(|p| p.name()) else {
+            let Some(name) = qualified_name.name() else {
+                return;
+            };
 
-        let Some(final_text) = final_name.text() else {
-            return;
-        };
+            let Some(text) = name.text() else {
+                return;
+            };
 
-        if names.is_empty() {
             // Plain `function abc()`: declare in current container
             let symbol = self.symbol(Symbol {
-                name: final_text.clone(),
+                name: text.clone(),
                 typ: Type::Function(Some(id)).into(),
-                name_range: final_name.syntax().text_range(),
+                name_range: name.syntax().text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()
             });
@@ -2572,11 +2572,11 @@ impl<'db> Collector<'db> {
 
             self.resolve_variable_doc(symbol, stmt);
 
-            self.add_current_container_member(final_text, symbol);
+            self.add_current_container_member(text, symbol);
             return;
-        }
+        };
 
-        let Some(text) = names[0].text() else {
+        let Some(text) = first.text() else {
             return;
         };
 
@@ -2610,27 +2610,21 @@ impl<'db> Collector<'db> {
                 self.diagnostics.push(Diagnostic {
                     message: "Function statement does not lookup locals. Initial symbol not found"
                         .to_owned(),
-                    range: names[0].syntax().text_range(),
+                    range: first.syntax().text_range(),
                     severity: DiagnosticSeverity::Information,
                 });
             }
             return;
         };
 
-        let name_range = names[0].syntax().text_range();
+        let name_range = first.syntax().text_range();
         let mut typ = TypeWithRange {
             typ: self.get(symbol_id).typ.0,
             range: name_range,
         };
         self.new_reference(name_range, symbol_id);
 
-        for segment in &names[1..] {
-            let Some(text) = segment.text() else {
-                return;
-            };
-
-            let name_range = segment.syntax().text_range();
-
+        for segment in parts {
             let arguments = vec![
                 TypeWithRange {
                     typ: Type::String(None),
@@ -2646,6 +2640,16 @@ impl<'db> Collector<'db> {
                 return;
             };
 
+            let Some(name) = segment.name() else {
+                return;
+            };
+
+            let Some(text) = name.text() else {
+                return;
+            };
+
+            let name_range = name.syntax().text_range();
+
             let Some(id) = self
                 .members_of_container(
                     container,
@@ -2655,15 +2659,24 @@ impl<'db> Collector<'db> {
                 .into_iter()
                 .find_map(|(name, id)| if text == name { Some(id) } else { None })
             else {
+                dbg!("no");
                 return;
             };
 
             typ = TypeWithRange {
-                typ: self.get(symbol_id).typ.0,
+                typ: self.get(id).typ.0,
                 range: name_range,
             };
             self.new_reference(name_range, id);
         }
+
+        let Some(final_name) = qualified_name.name() else {
+            return;
+        };
+
+        let Some(final_text) = final_name.text() else {
+            return;
+        };
 
         let arguments = vec![
             TypeWithRange {

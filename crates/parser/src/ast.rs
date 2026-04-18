@@ -174,10 +174,23 @@ impl Name {
     }
 }
 
+ast_node!(QualifiedNamePart, QualifiedNamePart);
+impl QualifiedNamePart {
+    #[must_use]
+    pub fn name(&self) -> Option<Name> {
+        support::child(&self.0)
+    }
+}
+
 ast_node!(QualifiedName, QualifiedName);
 impl QualifiedName {
     #[must_use]
-    pub fn names(&self) -> AstChildren<Name> {
+    pub fn name(&self) -> Option<Name> {
+        support::child(self.syntax())
+    }
+
+    #[must_use]
+    pub fn parts(&self) -> AstChildren<QualifiedNamePart> {
         support::children(&self.0)
     }
 }

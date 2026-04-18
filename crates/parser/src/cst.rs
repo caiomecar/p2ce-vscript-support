@@ -136,12 +136,12 @@ pub enum SyntaxKind {
 
     Name,
     QualifiedName,
+    QualifiedNamePart,
 
     Index,
     Callee,
     MemberPart,
 
-    VariableDeclarationList,
     VariableDeclaration,
     Initialiser,
 

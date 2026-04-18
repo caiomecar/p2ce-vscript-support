@@ -1389,6 +1389,14 @@
     "other-keywords": {
       "patterns": [
         {
+          "match": "(?<![_A-Za-z])__FILE__\\b",
+          "name": "constant.language.file.squirrel"
+        },
+        {
+          "match": "(?<![_A-Za-z])__LINE__\\b",
+          "name": "constant.language.line.squirrel"
+        },
+        {
           "name": "keyword.other.in.squirrel",
           "match": "(?<![_A-Za-z])in\\b"
         },

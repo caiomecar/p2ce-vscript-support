@@ -789,7 +789,7 @@ pub trait Source {
                     }
                 })
                 .collect::<Vec<_>>()
-                .join(" | "),
+                .join("|"),
             Type::Array(_) => "array".to_owned(),
             Type::Table(_) => "table".to_owned(),
             Type::Class(_) => "class".to_owned(),
