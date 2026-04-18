@@ -16,10 +16,10 @@
     { "open": "\"", "close": "\"", "notIn": [ "string" ] },
     { "open": "`", "close": "`" },
     { "open": "</", "close": "/>", "notIn": [ "string" ] },
-    { "open": "/*", "close": " */", "notIn": [ "string" ]
-    }
+    { "open": "/*", "close": " */", "notIn": [ "string" ] },
+    { "open": "```", "close": "```", "notIn": [ "string" ] },
   ],
-  "autoCloseBefore": ";:.,=}])> \n\t\"`",
+  "autoCloseBefore": ";:.,=}])> \n\t",
   "surroundingPairs": [
     [ "{", "}" ],
     [ "[", "]" ],
@@ -116,5 +116,13 @@
         "indent": "indent"
       }
     },
+    {
+      "beforeText": "^\\s*```.*$",
+      "afterText": "^\\s*```\\s*$",
+      "action": {
+        "indent": "indentOutdent",
+        "appendText": ""
+      }
+    }
   ]
 }

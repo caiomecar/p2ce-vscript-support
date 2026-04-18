@@ -121,7 +121,6 @@ pub enum SyntaxKind {
     DocAsterisk,
     DocSlashAsteriskAsterisk,
     DocAsteriskSlash,
-    DocWhitespace,
     DocNewLine,
     DocAt,
     DocOpenBrace,

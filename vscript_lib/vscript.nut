@@ -263,7 +263,7 @@ class CBaseEntity {
 
     /**
      * Get the entity as an EHANDLE.
-     * @returns {ehandle}
+     * @returns {instance}
      * @deprecated Leftover from earlier versions of VScript.
      */
     function GetEntityHandle();
@@ -2740,7 +2740,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Return true if given entity is our enemy.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @returns {bool}
      */
     function IsEnemy(entity);
@@ -2753,7 +2753,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Return true if given entity is our friend.
-     * @param {entity} entity
+     * @param {CBaseEntity} entity
      * @returns {bool}
      */
     function IsFriend(entity);
@@ -2886,7 +2886,7 @@ class CEntities {
 
     /**
      * Find entities by classname within a radius. Pass null to start, or previous to continue.
-     * @param {CBasentity|null} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} classname
      * @param {Vector} center
      * @param {float} radius
@@ -5578,14 +5578,14 @@ function ArePlayersInHell();
 function FlagsMayBeCapped();
 
 /**
- * Whether to force on MvM-styled upgrades on/off. 0=default, 1=force off, 2=force on.
- * @param {integer} state
+ * Whether to force on MvM-styled upgrades on/off.
+ * @param {integer} state 0=default, 1=force off, 2=force on
  */
 function ForceEnableUpgrades(state);
 
 /**
- * Forces payload pushing logic. 0=default, 1=force off, 2=force on.
- * @param {integer} state
+ * Forces payload pushing logic.
+ * @param {integer} state 0=default, 1=force off, 2=force on.
  */
 function ForceEscortPushLogic(state);
 
@@ -5609,7 +5609,7 @@ function GameModeUsesUpgrades();
 
 /**
  * Get class limit for class.
- * @param {integer} class - See Constants.ETFClass
+ * @param {integer} class_number - See Constants.ETFClass
  * @returns {integer}
  */
 function GetClassLimit(class_number);

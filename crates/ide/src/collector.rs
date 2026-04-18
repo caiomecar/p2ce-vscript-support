@@ -1868,7 +1868,6 @@ impl<'db> Collector<'db> {
         }) else {
             return;
         };
-        dbg!(&doc);
 
         if let Some(symbol_id) = self.arena[entry.idx].symbol
             && let Some(symbol) = self.get_mut(symbol_id)
@@ -1909,6 +1908,12 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
+                    if let Some(param) = self.get_mut(param_id)
+                        && let Some(desc) = tag.description()
+                    {
+                        param.description = desc.content();
+                    }
+
                     let Some(typ) = tag.typ() else {
                         continue;
                     };
@@ -1935,9 +1940,6 @@ impl<'db> Collector<'db> {
 
                     if let Some(param) = self.get_mut(param_id) {
                         param.typ = AnnotatedType(doc_type, true);
-                        if let Some(desc) = tag.description() {
-                            param.description = desc.content();
-                        }
                     }
                 }
                 Tag::Throw(tag) => {
@@ -1963,6 +1965,12 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
+                    if let Some(symbol) = self.get_mut(id)
+                        && let Some(desc) = tag.description()
+                    {
+                        symbol.description = desc.content();
+                    }
+
                     let Some(typ) = tag.typ() else {
                         continue;
                     };
@@ -1974,9 +1982,6 @@ impl<'db> Collector<'db> {
                     let array_id = self.array(ArrayData { typ });
                     if let Some(symbol) = self.get_mut(id) {
                         symbol.typ = AnnotatedType(Type::Array(Some(array_id)), true);
-                        if let Some(desc) = tag.description() {
-                            symbol.description = desc.content();
-                        }
                     }
                 }
                 _ => {}

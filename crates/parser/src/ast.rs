@@ -937,6 +937,12 @@ pub trait HasDescription: AstNode<Language = SquirrelLanguage> {
     }
 }
 
+pub trait IsTag: AstNode<Language = SquirrelLanguage> {
+    fn tag_item(&self) -> Option<DocTagItem> {
+        support::child(self.syntax())
+    }
+}
+
 pub trait HasType: AstNode<Language = SquirrelLanguage> {
     fn typ(&self) -> Option<DocType> {
         support::child(self.syntax())
@@ -980,6 +986,8 @@ impl DocDescriptionLine {
     }
 }
 
+ast_node!(DocTagItem, DocTagItem);
+
 ast_node!(DocName, DocName);
 impl DocName {
     #[must_use]
@@ -1021,10 +1029,12 @@ ast_enum!(Tag {
 
 ast_node!(ReturnTag, ReturnTag);
 impl HasDescription for ReturnTag {}
+impl IsTag for ReturnTag {}
 impl HasType for ReturnTag {}
 
 ast_node!(ParamTag, ParamTag);
 impl HasDescription for ParamTag {}
+impl IsTag for ParamTag {}
 impl HasType for ParamTag {}
 impl ParamTag {
     #[must_use]
@@ -1035,34 +1045,44 @@ impl ParamTag {
 
 ast_node!(VarArgsTag, VarArgsTag);
 impl HasDescription for VarArgsTag {}
+impl IsTag for VarArgsTag {}
 impl HasType for VarArgsTag {}
 
 ast_node!(TypeTag, TypeTag);
 impl HasDescription for TypeTag {}
+impl IsTag for TypeTag {}
 impl HasType for TypeTag {}
 
 ast_node!(ThrowTag, ThrowTag);
 impl HasDescription for ThrowTag {}
+impl IsTag for ThrowTag {}
 impl HasType for ThrowTag {}
 
 ast_node!(YieldTag, YieldTag);
 impl HasDescription for YieldTag {}
+impl IsTag for YieldTag {}
 impl HasType for YieldTag {}
 
 ast_node!(NativeTag, NativeTag);
 impl HasDescription for NativeTag {}
+impl IsTag for NativeTag {}
 
 ast_node!(EntityTag, EntityTag);
 impl HasDescription for EntityTag {}
+impl IsTag for EntityTag {}
 
 ast_node!(HideTag, HideTag);
 impl HasDescription for HideTag {}
+impl IsTag for HideTag {}
 
 ast_node!(DeprecatedTag, DeprecatedTag);
 impl HasDescription for DeprecatedTag {}
+impl IsTag for DeprecatedTag {}
 
 ast_node!(ConstTag, ConstTag);
 impl HasDescription for ConstTag {}
+impl IsTag for ConstTag {}
 
 ast_node!(InputTag, InputTag);
 impl HasDescription for InputTag {}
+impl IsTag for InputTag {}

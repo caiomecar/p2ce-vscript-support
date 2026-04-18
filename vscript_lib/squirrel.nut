@@ -235,7 +235,7 @@ function log(x);
 function log10(x);
 
 /**
- * Returns x raised to the power of y.
+ * Returns `x` raised to the power of `y`.
  * @param {float} x
  * @param {float} y
  * @returns {float}
@@ -243,21 +243,21 @@ function log10(x);
 function pow(x, y);
 
 /**
- * Returns a random integer where 0 <= rand() <= RAND_MAX.
+ * Returns a random integer where `0 <= rand() <= RAND_MAX`.
  * @returns {integer}
  */
 function rand();
 
 /**
- * Returns the sine of x.
- * @param {float} x
+ * Returns the sine of value.
+ * @param {float} value
  * @returns {float}
  */
 function sin(value);
 
 /**
- * Returns the square root of x.
- * @param {float} x
+ * Returns the square root of value.
+ * @param {float} value
  * @returns {float}
  */
 function sqrt(value);
@@ -467,7 +467,7 @@ class blob {
      * Writes the contents of another blob into this blob at the current position.
      * @param {blob} src
      */
-    function writeblob(blob);
+    function writeblob(src);
 
     /**
      * Writes a number to the blob according to the data type character.

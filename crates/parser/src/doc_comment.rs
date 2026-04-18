@@ -84,7 +84,7 @@ impl<'a> DocComment<'a> {
                 ' ' | '\t' | '\r' => {
                     let start = self.start_token();
                     self.next();
-                    self.finish_token(start, SyntaxKind::DocWhitespace);
+                    self.finish_token(start, SyntaxKind::Whitespace);
                 }
                 _ => return,
             }
@@ -92,29 +92,31 @@ impl<'a> DocComment<'a> {
     }
 
     fn description(&mut self) {
-        let m = self.start();
-        let mut has_content = false;
-
+        self.skip_trivia();
         // Skip leading blank lines before any content
         while self.peek() == Some('\n') {
             self.new_line();
         }
 
-        loop {
-            self.skip_trivia();
-            if matches!(self.peek(), None | Some('@')) {
-                break;
-            }
+        if matches!(self.peek(), None | Some('@')) {
+            return;
+        }
 
-            has_content = true;
+        let m = self.start();
+        loop {
             let line_m = self.start();
             let start = self.start_token();
             loop {
                 match self.peek() {
                     None | Some('@') => {
-                        self.finish_token(start, SyntaxKind::DocText);
-                        self.finish(m, SyntaxKind::DocDescriptionLine);
-                        break;
+                        if start == self.pos {
+                            self.drop(line_m);
+                        } else {
+                            self.finish_token(start, SyntaxKind::DocText);
+                            self.finish(line_m, SyntaxKind::DocDescriptionLine);
+                        }
+                        self.finish(m, SyntaxKind::DocDescription);
+                        return;
                     }
                     Some('\n') => {
                         self.next();
@@ -134,12 +136,6 @@ impl<'a> DocComment<'a> {
                     }
                 }
             }
-        }
-
-        if has_content {
-            self.finish(m, SyntaxKind::DocDescription);
-        } else {
-            self.drop(m);
         }
     }
 
@@ -260,9 +256,9 @@ impl<'a> DocComment<'a> {
             let ident = self.identifier("Expected type's name".to_owned());
             if ident.is_empty() {
                 self.drop(name);
-                break;
+            } else {
+                self.finish(name, SyntaxKind::DocTypeName);
             }
-            self.finish(name, SyntaxKind::DocTypeName);
 
             self.skip_trivia();
             match self.peek() {
