@@ -42,7 +42,7 @@ pub fn handle_document_symbols(
 
         let range = conversions::range(line_idx, symbol.range);
         let name_range = conversions::range(line_idx, symbol.name_range);
-        let kind = match symbol.typ.0 {
+        let kind = match symbol.typ {
             Type::Function(_) => LspSymbolKind::FUNCTION,
             Type::Class(_) => LspSymbolKind::CLASS,
             Type::Enum(_) => LspSymbolKind::ENUM,
@@ -57,7 +57,7 @@ pub fn handle_document_symbols(
         let name = if symbol.name.is_empty() {
             "<unnamed>".to_owned()
         } else {
-            symbol.name.clone()
+            symbol.name.to_string()
         };
 
         if !symbol.range.contains_range(symbol.name_range) {
@@ -70,7 +70,7 @@ pub fn handle_document_symbols(
         #[allow(deprecated)]
         let doc_symbol = DocumentSymbol {
             name,
-            detail: Some(finished_file.type_to_string(symbol.typ.0)),
+            detail: Some(finished_file.type_to_str(symbol.typ).into_string()),
             kind,
             range,
             selection_range: name_range,

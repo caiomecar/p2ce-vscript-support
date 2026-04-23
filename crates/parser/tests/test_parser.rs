@@ -336,7 +336,7 @@ mod tests {
         let Stmt::Const(c) = stmt else {
             panic!("expected const")
         };
-        assert_eq!(c.name().unwrap().text().unwrap(), "MAX");
+        assert_eq!(c.name().unwrap().identifier().unwrap().text(), "MAX");
         assert_eq!(
             c.value().unwrap().expression().unwrap().syntax().text(),
             "100"
@@ -351,7 +351,7 @@ mod tests {
         };
         let decls: Vec<_> = lv.declarations().collect();
         assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].name().unwrap().text().unwrap(), "x");
+        assert_eq!(decls[0].name().unwrap().identifier().unwrap().text(), "x");
         assert!(decls[0].initialiser().is_some());
     }
 
@@ -380,7 +380,7 @@ mod tests {
         let Stmt::LocalFunction(lf) = stmt else {
             panic!("expected local function")
         };
-        assert_eq!(lf.name().unwrap().text().unwrap(), "greet");
+        assert_eq!(lf.name().unwrap().identifier().unwrap().text(), "greet");
         assert_eq!(lf.parameter_list().unwrap().parameters().count(), 1);
         assert!(lf.body().is_some());
     }
@@ -520,7 +520,7 @@ mod tests {
         let Member::Method(m) = c.members().next().unwrap() else {
             panic!()
         };
-        assert_eq!(m.name().unwrap().text().unwrap(), "bar");
+        assert_eq!(m.name().unwrap().identifier().unwrap().text(), "bar");
         assert_eq!(m.parameter_list().unwrap().parameters().count(), 2);
     }
 
@@ -531,7 +531,7 @@ mod tests {
         let Stmt::Enum(e) = stmt else {
             panic!("expected enum")
         };
-        assert_eq!(e.name().unwrap().text().unwrap(), "Color");
+        assert_eq!(e.name().unwrap().identifier().unwrap().text(), "Color");
         assert_eq!(e.members().count(), 3);
     }
 
@@ -606,7 +606,7 @@ mod tests {
         let Expr::Name(n) = expr else {
             panic!("expected name")
         };
-        assert_eq!(n.text().unwrap(), "myVar");
+        assert_eq!(n.identifier().unwrap().text(), "myVar");
     }
 
     #[test]
@@ -732,7 +732,13 @@ mod tests {
         };
         assert!(m.object().is_some());
         assert_eq!(
-            m.member_part().unwrap().name().unwrap().text().unwrap(),
+            m.member_part()
+                .unwrap()
+                .name()
+                .unwrap()
+                .identifier()
+                .unwrap()
+                .text(),
             "field"
         );
     }
@@ -744,14 +750,28 @@ mod tests {
             panic!()
         };
         assert_eq!(
-            outer.member_part().unwrap().name().unwrap().text().unwrap(),
+            outer
+                .member_part()
+                .unwrap()
+                .name()
+                .unwrap()
+                .identifier()
+                .unwrap()
+                .text(),
             "c"
         );
         let Expr::MemberAccess(inner) = outer.object().unwrap() else {
             panic!()
         };
         assert_eq!(
-            inner.member_part().unwrap().name().unwrap().text().unwrap(),
+            inner
+                .member_part()
+                .unwrap()
+                .name()
+                .unwrap()
+                .identifier()
+                .unwrap()
+                .text(),
             "b"
         );
     }
@@ -799,7 +819,7 @@ mod tests {
         let Expr::RootAccess(r) = expr else {
             panic!("expected root access")
         };
-        assert_eq!(r.name().unwrap().text().unwrap(), "globalVar");
+        assert_eq!(r.name().unwrap().identifier().unwrap().text(), "globalVar");
     }
 
     #[test]
@@ -972,7 +992,7 @@ mod tests {
             .unwrap()
             .parameters()
             .map(|p| match p {
-                Parameter::Variable(v) => v.name().unwrap().text().unwrap(),
+                Parameter::Variable(v) => v.name().unwrap().identifier().unwrap().text().to_owned(),
                 Parameter::Ellipsis(_) => panic!(),
             })
             .collect();
@@ -989,7 +1009,7 @@ mod tests {
         let MemberName::Identifier(name) = p.name().unwrap() else {
             panic!()
         };
-        assert_eq!(name.name().unwrap().text().unwrap(), "hp");
+        assert_eq!(name.name().unwrap().identifier().unwrap().text(), "hp");
         assert_eq!(p.value().unwrap().syntax().text(), "100");
         assert!(p.value().is_some());
     }
@@ -1013,7 +1033,7 @@ mod tests {
         let Stmt::LocalFunction(lf) = stmt else {
             panic!("expected local function")
         };
-        assert_eq!(lf.name().unwrap().text().unwrap(), "abc");
+        assert_eq!(lf.name().unwrap().identifier().unwrap().text(), "abc");
         let pl = lf.parameter_list().unwrap();
         assert!(lf.environment().is_some());
         assert_eq!(pl.parameters().count(), 1);

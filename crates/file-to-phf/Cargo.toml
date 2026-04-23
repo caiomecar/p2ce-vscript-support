@@ -1,0 +1,18 @@
+[package]
+name = "file-to-phf"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+phf_codegen = "0.13.1"
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
+syn = "2.0.117"
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true

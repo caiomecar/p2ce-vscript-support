@@ -1,0 +1,442 @@
+# TF2 entity properties
+# Blank lines and lines starting with # are ignored.
+
+healing_array_element
+m_AttributeManager.m_hOuter
+m_EndEntity
+m_Handle
+m_Local.m_PlayerFog.m_hCtrl
+m_Network.m_hParent
+# m_Shared.m_ConditionData.000.m_pProvider
+# m_Shared.m_ConditionData.001.m_pProvider
+# m_Shared.m_ConditionData.002.m_pProvider
+# m_Shared.m_ConditionData.003.m_pProvider
+# m_Shared.m_ConditionData.004.m_pProvider
+# m_Shared.m_ConditionData.005.m_pProvider
+# m_Shared.m_ConditionData.006.m_pProvider
+# m_Shared.m_ConditionData.007.m_pProvider
+# m_Shared.m_ConditionData.008.m_pProvider
+# m_Shared.m_ConditionData.009.m_pProvider
+# m_Shared.m_ConditionData.010.m_pProvider
+# m_Shared.m_ConditionData.011.m_pProvider
+# m_Shared.m_ConditionData.012.m_pProvider
+# m_Shared.m_ConditionData.013.m_pProvider
+# m_Shared.m_ConditionData.014.m_pProvider
+# m_Shared.m_ConditionData.015.m_pProvider
+# m_Shared.m_ConditionData.016.m_pProvider
+# m_Shared.m_ConditionData.017.m_pProvider
+# m_Shared.m_ConditionData.018.m_pProvider
+# m_Shared.m_ConditionData.019.m_pProvider
+# m_Shared.m_ConditionData.020.m_pProvider
+# m_Shared.m_ConditionData.021.m_pProvider
+# m_Shared.m_ConditionData.022.m_pProvider
+# m_Shared.m_ConditionData.023.m_pProvider
+# m_Shared.m_ConditionData.024.m_pProvider
+# m_Shared.m_ConditionData.025.m_pProvider
+# m_Shared.m_ConditionData.026.m_pProvider
+# m_Shared.m_ConditionData.027.m_pProvider
+# m_Shared.m_ConditionData.028.m_pProvider
+# m_Shared.m_ConditionData.029.m_pProvider
+# m_Shared.m_ConditionData.030.m_pProvider
+# m_Shared.m_ConditionData.031.m_pProvider
+# m_Shared.m_ConditionData.032.m_pProvider
+# m_Shared.m_ConditionData.033.m_pProvider
+# m_Shared.m_ConditionData.034.m_pProvider
+# m_Shared.m_ConditionData.035.m_pProvider
+# m_Shared.m_ConditionData.036.m_pProvider
+# m_Shared.m_ConditionData.037.m_pProvider
+# m_Shared.m_ConditionData.038.m_pProvider
+# m_Shared.m_ConditionData.039.m_pProvider
+# m_Shared.m_ConditionData.040.m_pProvider
+# m_Shared.m_ConditionData.041.m_pProvider
+# m_Shared.m_ConditionData.042.m_pProvider
+# m_Shared.m_ConditionData.043.m_pProvider
+# m_Shared.m_ConditionData.044.m_pProvider
+# m_Shared.m_ConditionData.045.m_pProvider
+# m_Shared.m_ConditionData.046.m_pProvider
+# m_Shared.m_ConditionData.047.m_pProvider
+# m_Shared.m_ConditionData.048.m_pProvider
+# m_Shared.m_ConditionData.049.m_pProvider
+# m_Shared.m_ConditionData.050.m_pProvider
+# m_Shared.m_ConditionData.051.m_pProvider
+# m_Shared.m_ConditionData.052.m_pProvider
+# m_Shared.m_ConditionData.053.m_pProvider
+# m_Shared.m_ConditionData.054.m_pProvider
+# m_Shared.m_ConditionData.055.m_pProvider
+# m_Shared.m_ConditionData.056.m_pProvider
+# m_Shared.m_ConditionData.057.m_pProvider
+# m_Shared.m_ConditionData.058.m_pProvider
+# m_Shared.m_ConditionData.059.m_pProvider
+# m_Shared.m_ConditionData.060.m_pProvider
+# m_Shared.m_ConditionData.061.m_pProvider
+# m_Shared.m_ConditionData.062.m_pProvider
+# m_Shared.m_ConditionData.063.m_pProvider
+# m_Shared.m_ConditionData.064.m_pProvider
+# m_Shared.m_ConditionData.065.m_pProvider
+# m_Shared.m_ConditionData.066.m_pProvider
+# m_Shared.m_ConditionData.067.m_pProvider
+# m_Shared.m_ConditionData.068.m_pProvider
+# m_Shared.m_ConditionData.069.m_pProvider
+# m_Shared.m_ConditionData.070.m_pProvider
+# m_Shared.m_ConditionData.071.m_pProvider
+# m_Shared.m_ConditionData.072.m_pProvider
+# m_Shared.m_ConditionData.073.m_pProvider
+# m_Shared.m_ConditionData.074.m_pProvider
+# m_Shared.m_ConditionData.075.m_pProvider
+# m_Shared.m_ConditionData.076.m_pProvider
+# m_Shared.m_ConditionData.077.m_pProvider
+# m_Shared.m_ConditionData.078.m_pProvider
+# m_Shared.m_ConditionData.079.m_pProvider
+# m_Shared.m_ConditionData.080.m_pProvider
+# m_Shared.m_ConditionData.081.m_pProvider
+# m_Shared.m_ConditionData.082.m_pProvider
+# m_Shared.m_ConditionData.083.m_pProvider
+# m_Shared.m_ConditionData.084.m_pProvider
+# m_Shared.m_ConditionData.085.m_pProvider
+# m_Shared.m_ConditionData.086.m_pProvider
+# m_Shared.m_ConditionData.087.m_pProvider
+# m_Shared.m_ConditionData.088.m_pProvider
+# m_Shared.m_ConditionData.089.m_pProvider
+# m_Shared.m_ConditionData.090.m_pProvider
+# m_Shared.m_ConditionData.091.m_pProvider
+# m_Shared.m_ConditionData.092.m_pProvider
+# m_Shared.m_ConditionData.093.m_pProvider
+# m_Shared.m_ConditionData.094.m_pProvider
+# m_Shared.m_ConditionData.095.m_pProvider
+# m_Shared.m_ConditionData.096.m_pProvider
+# m_Shared.m_ConditionData.097.m_pProvider
+# m_Shared.m_ConditionData.098.m_pProvider
+# m_Shared.m_ConditionData.099.m_pProvider
+# m_Shared.m_ConditionData.100.m_pProvider
+# m_Shared.m_ConditionData.101.m_pProvider
+# m_Shared.m_ConditionData.102.m_pProvider
+# m_Shared.m_ConditionData.103.m_pProvider
+# m_Shared.m_ConditionData.104.m_pProvider
+# m_Shared.m_ConditionData.105.m_pProvider
+# m_Shared.m_ConditionData.106.m_pProvider
+# m_Shared.m_ConditionData.107.m_pProvider
+# m_Shared.m_ConditionData.108.m_pProvider
+# m_Shared.m_ConditionData.109.m_pProvider
+# m_Shared.m_ConditionData.110.m_pProvider
+# m_Shared.m_ConditionData.111.m_pProvider
+# m_Shared.m_ConditionData.112.m_pProvider
+# m_Shared.m_ConditionData.113.m_pProvider
+# m_Shared.m_ConditionData.114.m_pProvider
+# m_Shared.m_ConditionData.115.m_pProvider
+# m_Shared.m_ConditionData.116.m_pProvider
+# m_Shared.m_ConditionData.117.m_pProvider
+# m_Shared.m_ConditionData.118.m_pProvider
+# m_Shared.m_ConditionData.119.m_pProvider
+# m_Shared.m_ConditionData.120.m_pProvider
+# m_Shared.m_ConditionData.121.m_pProvider
+# m_Shared.m_ConditionData.122.m_pProvider
+# m_Shared.m_ConditionData.123.m_pProvider
+# m_Shared.m_ConditionData.124.m_pProvider
+# m_Shared.m_ConditionData.125.m_pProvider
+# m_Shared.m_ConditionData.126.m_pProvider
+# m_Shared.m_ConditionData.127.m_pProvider
+# m_Shared.m_ConditionData.128.m_pProvider
+# m_Shared.m_ConditionData.129.m_pProvider
+# m_Shared.m_ConditionData.130.m_pProvider
+m_Shared.m_hCarriedObject
+m_Shared.m_hDisguiseTarget
+m_Shared.m_hDisguiseWeapon
+m_Shared.m_hPasstimePassTarget
+m_Shared.m_hStunner
+m_Shared.m_hSwitchTo
+m_SoundPool.m_hOwner
+m_SoundPool.m_hTarget
+m_StartEntity
+m_VehiclePhysics.m_actionScale
+m_VehiclePhysics.m_actionSpeed
+m_VehiclePhysics.m_actionValue
+m_VehiclePhysics.m_bIsOn
+m_VehiclePhysics.m_bLastBoost
+m_VehiclePhysics.m_bLastSkid
+m_VehiclePhysics.m_bLastThrottle
+m_VehiclePhysics.m_controls.bHasBrakePedal
+m_VehiclePhysics.m_controls.boost
+m_VehiclePhysics.m_controls.brake
+m_VehiclePhysics.m_controls.brakepedal
+m_VehiclePhysics.m_controls.handbrake
+m_VehiclePhysics.m_controls.handbrakeLeft
+m_VehiclePhysics.m_controls.handbrakeRight
+m_VehiclePhysics.m_controls.steering
+m_VehiclePhysics.m_controls.throttle
+m_VehiclePhysics.m_debugRadius
+m_VehiclePhysics.m_fLastBoost
+m_VehiclePhysics.m_flMaxRevThrottle
+m_VehiclePhysics.m_flMaxSpeed
+m_VehiclePhysics.m_flVehicleVolume
+m_VehiclePhysics.m_maxThrottle
+m_VehiclePhysics.m_nBoostTimeLeft
+m_VehiclePhysics.m_nHasBoost
+m_VehiclePhysics.m_nLastSpeed
+m_VehiclePhysics.m_nRPM
+m_VehiclePhysics.m_nSpeed
+m_VehiclePhysics.m_poseParameters
+m_VehiclePhysics.m_throttleActiveTime
+m_VehiclePhysics.m_throttleRate
+m_VehiclePhysics.m_throttleStartTime
+m_VehiclePhysics.m_turboTimer
+m_VehiclePhysics.m_wheelBaseHeight
+m_VehiclePhysics.m_wheelCount
+m_VehiclePhysics.m_wheelPosition
+m_VehiclePhysics.m_wheelRotation
+m_VehiclePhysics.m_wheelTotalHeight
+m_attachedObject
+m_bEngineLocked
+m_bEnterAnimOn
+m_bExitAnimOn
+m_bHasGun
+m_bLocked
+m_bUnableToFire
+m_flLastPhysicsInfluenceTime
+m_flMinimumSpeedToEnterExit
+m_flThrottle
+m_flTurnOffKeepUpright
+m_hActivator
+m_hActiveMinigame
+m_hActiveWeapon
+m_hActor
+m_hActorList
+m_hAssociatedModel
+m_hAttachEntity
+m_hAttachedToEntity
+m_hAttacker
+m_hAutoAimTarget
+m_hBall
+m_hBirthdayPlayer
+m_hBlocker
+m_hBlueKothTimer
+m_hBlueTeamLeader
+m_hBonusLogic
+m_hBonusWinner
+m_hBreaker
+m_hBuilder
+m_hBuiltOnEntity
+m_hCamera
+m_hCarrier
+m_hCarryingPlayer
+m_hCine
+m_hCoach
+m_hConstraintEntity
+m_hControlPointEnts
+m_hCurrentBlocker
+m_hCurrentInstance
+m_hCurrentTarget
+m_hDamageEntity
+m_hDamageFilter
+m_hDeflectOwner
+m_hDoorBlocker
+m_hEffect
+m_hEffectEntity
+m_hEndEntity
+m_hEndPoint
+m_hEnemy
+m_hEnemyFilter
+m_hEnemyOccluder
+m_hEntAttached
+m_hEntity
+m_hEntityIgnore
+m_hExpressionSceneEnt
+m_hExtraWearable
+m_hExtraWearableViewModel
+m_hEyeLookTarget
+m_hFilter
+m_hFlameManager
+m_hFlareEnt
+m_hForcedInteractionPartner
+m_hForcedTarget
+m_hGlowEnt
+m_hGoalEnt
+m_hGoalEntity
+m_hGrapplingHookTarget
+m_hGroundEntity
+m_hHealingTarget
+m_hHighFivePartner
+m_hHintOwner
+m_hHomingTarget
+m_hIgnoreEntity
+m_hInflictor
+m_hInfoCameraLink
+m_hInteractionPartner
+m_hInteractionRelativeEntity
+m_hInterruptScene
+m_hItem
+m_hKeepUpright
+m_hKiller
+m_hLastAttacker
+m_hLastFoundEntity
+m_hLastHealingTarget
+m_hLastInteractionTestTarget
+m_hLastWeapon
+m_hLaunchTarget
+m_hLauncher
+m_hLeader
+m_hLightingLandmark
+m_hLightingOrigin
+m_hLightingOriginRelative
+m_hListenFilter
+m_hLockTarget
+m_hLockedBy
+m_hLocker
+m_hLookAtEntity
+m_hLookTarget
+m_hMaster
+m_hMeasureReference
+m_hMeasureTarget
+m_hMoveChild
+m_hMoveParent
+m_hMovePeer
+m_hMovingEntity
+m_hMyWeapons
+m_hMyWearables
+m_hNPC
+m_hNPCDriver
+m_hNextCine
+m_hObjectBeingBuilt
+m_hObserverTarget
+m_hOpeningDoor
+m_hOriginalLauncher
+m_hOwner
+m_hOwnerEntity
+m_hPhysicsAttacker
+m_hPhysicsBlocker
+m_hPlayer
+m_hPlayerOwner
+m_hPrevCarrier
+m_hPrevOwner
+m_hProjectile
+m_hProps
+m_hProxySoundscape
+m_hRagWearables
+m_hRagdoll
+m_hRedKothTimer
+m_hRedTeamLeader
+m_hRobotArm
+m_hRope
+m_hSaveWeapon
+m_hScenes[0]
+m_hScenes[10]
+m_hScenes[11]
+m_hScenes[12]
+m_hScenes[13]
+m_hScenes[14]
+m_hScenes[15]
+m_hScenes[1]
+m_hScenes[2]
+m_hScenes[3]
+m_hScenes[4]
+m_hScenes[5]
+m_hScenes[6]
+m_hScenes[7]
+m_hScenes[8]
+m_hScenes[9]
+m_hSecondaryLastWeapon
+m_hSoundscape
+m_hSpeaker
+m_hStartPoint
+m_hStoredPathTarget
+m_hStudent
+m_hTarget
+m_hTarget1
+m_hTarget2
+m_hTarget3
+m_hTarget4
+m_hTarget5
+m_hTarget6
+m_hTarget7
+m_hTarget8
+m_hTargetEnt
+m_hTargetEntity
+m_hTargetPlayer
+m_hTargetReference
+m_hThrower
+m_hTrain
+m_hUnragdoll
+m_hUseEntity
+m_hVehicle
+m_hVehicleEntity
+m_hViewEntity
+m_hViewModel
+m_hViewPosition
+m_hViewPositionMover
+m_hViewTarget
+m_hViewTargetAngles
+m_hWaitingForThisResumeScene
+m_hWeapon
+m_hWeaponAssociatedWith
+m_hZoomOwner
+m_itHandle
+m_nBoostTimeLeft
+m_nHasBoost
+m_nRPM
+m_nScannerDisabledVehicle
+m_nScannerDisabledWeapons
+m_nSpeed
+m_nVehicleType
+m_pActivator
+m_pBlocker
+m_pCurrentKeyFrame
+m_pHintNode
+m_pJet
+m_pLockedBestSound.m_hOwner
+m_pLockedBestSound.m_hTarget
+m_pMoveProbe.m_hLastBlockingEnt
+m_pNavigator.m_hBigStepGroundEnt
+m_pNavigator.m_hLastBlockingEnt
+m_pNavigator.m_pPath.m_goalDirectionTarget
+m_pNavigator.m_pPath.m_goalSpeedTarget
+m_pNavigator.m_pPath.m_target
+m_pNextKey
+m_pParent
+m_pPath
+m_pPostKeyFrame
+m_pPreKeyFrame
+m_pPrevKey
+m_pServerVehicle.m_ViewSmoothing.bRunningEnterExit
+m_pServerVehicle.m_ViewSmoothing.bWasRunningAnim
+m_pServerVehicle.m_ViewSmoothing.flEnterExitDuration
+m_pServerVehicle.m_ViewSmoothing.flEnterExitStartTime
+m_pServerVehicle.m_ViewSmoothing.flFOV
+m_pServerVehicle.m_ViewSmoothing.vecAngleDiffMin
+m_pServerVehicle.m_ViewSmoothing.vecAngleDiffSaved
+m_pServerVehicle.m_ViewSmoothing.vecAnglesSaved
+m_pServerVehicle.m_ViewSmoothing.vecOriginSaved
+m_pServerVehicle.m_chPreviousTextureType
+m_pServerVehicle.m_flSpeedPercentage
+m_pServerVehicle.m_flTurnDegrees
+m_pServerVehicle.m_flVehicleVolume
+m_pServerVehicle.m_hExitBlocker
+m_pServerVehicle.m_iCurrentExitAnim
+m_pServerVehicle.m_iSoundGear
+m_pServerVehicle.m_lastSpeed
+m_pServerVehicle.m_nNPCButtons
+m_pServerVehicle.m_nPrevNPCButtons
+m_pServerVehicle.m_savedViewOffset
+m_pServerVehicle.m_soundState
+m_pServerVehicle.m_soundStateStartTime
+m_pServerVehicle.m_vecCurrentExitEndPoint
+m_pServerVehicle.m_vehicleSounds.iszSound
+m_pServerVehicle.m_vehicleSounds.iszStateSounds
+m_pServerVehicle.m_vehicleSounds.minStateTime
+m_pSprite
+m_pTargetKeyFrame
+m_paltpath
+m_player
+m_pnext
+m_pool
+m_ppath
+m_pprevious
+m_rgEntities
+m_trackBottom
+m_trackTop
+m_train
+m_vecEyeExitEndpoint
+m_vecGunCrosshair
+m_vecSmoothedVelocity
+m_vehicleScript
+moveparent
+player_object_array_element
+team_object_array_element

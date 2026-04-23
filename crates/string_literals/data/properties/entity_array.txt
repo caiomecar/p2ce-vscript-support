@@ -1,0 +1,12 @@
+# TF2 entity array properties
+# Blank lines and lines starting with # are ignored.
+
+m_hActorList
+m_hAttachEntity
+m_hControlPointEnts
+m_hMyWeapons
+m_hMyWearables
+m_hProps
+m_hRagWearables
+m_hViewModel
+m_rgEntities

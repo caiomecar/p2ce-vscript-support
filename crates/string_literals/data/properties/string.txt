@@ -1,0 +1,28 @@
+# TF2 string array properties
+# Blank lines and lines starting with # are ignored.
+
+m_SpotlightTextureName
+m_chCurrentSlideLists
+m_chPoseIndex
+m_dpv
+m_iszMannVsMachineWaveClassNames
+m_iszMannVsMachineWaveClassNames2
+m_iszOverlayNames
+m_iszWarnSound
+m_lookupFilename
+m_rgbTimeBasedDamage
+m_szAnimExtension
+m_szDisplayText
+m_szInstanceFilename
+m_szLandmarkName
+m_szLastSound
+m_szMapName
+m_szMaterialName
+m_szMaterialVar
+m_szMaterialVarValue
+m_szNetname
+m_szNetworkIDString
+m_szSlideshowDirectory
+m_textParms
+m_uchShuffleCaseMap
+m_weaponNames

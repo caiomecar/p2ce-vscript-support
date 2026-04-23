@@ -11,6 +11,7 @@ salsa = "0.26.0"
 rustc-hash = "2.1.1"
 line-index = "0.1.2"
 bitflags = "2"
+phf = { version = "0.13.1", features = ["macros"] }
 
 [profile.release]
 codegen-units = 1

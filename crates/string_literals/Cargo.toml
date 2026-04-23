@@ -1,0 +1,13 @@
+[package]
+name = "string_literals"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+phf = { workspace = true }
+file-to-phf = { path = "../file-to-phf" }
+
+[lints]
+workspace = true

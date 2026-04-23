@@ -401,8 +401,8 @@ class table {
     /**
      * Assigns the passed table as the target's new custom delegate. Returns the target table.
      * To remove a delegate, pass null.
-     * @param {table} delegate
-     * @returns {table|null}
+     * @param {table|null} delegate
+     * @returns {table}
      */
     function setdelegate(delegate);
 

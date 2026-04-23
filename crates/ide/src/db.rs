@@ -13,7 +13,7 @@ use crate::{
     FinishedFile, Source, SourceSymbol, SymbolId, Type,
     arena::{ArenaId, ClassId, FunctionId},
     collector::Collector,
-    symbol::{FlatSymbolTable, SymbolTable, to_flat_symbol_table},
+    symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
 #[salsa::input]
@@ -67,6 +67,8 @@ pub struct Builtins {
 
 #[derive(Debug, Clone, Copy)]
 pub enum SpecialFunction {
+    SetDelegate,
+    Bindenv,
     GetRootTable,
     GetConstTable,
     NewThread,
@@ -221,48 +223,55 @@ impl Database {
             .set_text(self)
             .with_durability(salsa::Durability::HIGH);
 
-        let source = source_symbol(self, builtins);
-        let source_members = source.arena[source.source_table].members.clone();
+        for (special_function, path) in [
+            (SpecialFunction::SetDelegate, ["table", "setdelegate"]),
+            (SpecialFunction::Bindenv, ["function_", "bindenv"]),
+        ] {
+            let Some(symbol) = self.find_symbol(builtins, &path) else {
+                continue;
+            };
+
+            let Type::Function(Some(function_id)) =
+                source_symbol(self, builtins).arena[symbol.idx()].typ
+            else {
+                eprintln!(
+                    "Standard library symbol '{path:?}' has a wrong type. (Expected 'function')"
+                );
+                continue;
+            };
+
+            self.special_functions.insert(function_id, special_function);
+        }
 
         self.builtins = Some(Builtins {
-            integer: self.init_builtin(&source_members, "integer"),
-            float: self.init_builtin(&source_members, "float"),
-            boolean: self.init_builtin(&source_members, "bool"),
-            string: self.init_builtin(&source_members, "string"),
-            array: self.init_builtin(&source_members, "array"),
-            table: self.init_builtin(&source_members, "table"),
-            function: self.init_builtin(&source_members, "function_"),
-            class: self.init_builtin(&source_members, "class_"),
-            instance: self.init_builtin(&source_members, "instance"),
-            generator: self.init_builtin(&source_members, "generator"),
-            thread: self.init_builtin(&source_members, "thread"),
-            weakref: self.init_builtin(&source_members, "weakref"),
+            integer: self.init_builtin(builtins, "integer"),
+            float: self.init_builtin(builtins, "float"),
+            boolean: self.init_builtin(builtins, "bool"),
+            string: self.init_builtin(builtins, "string"),
+            array: self.init_builtin(builtins, "array"),
+            table: self.init_builtin(builtins, "table"),
+            function: self.init_builtin(builtins, "function_"),
+            class: self.init_builtin(builtins, "class_"),
+            instance: self.init_builtin(builtins, "instance"),
+            generator: self.init_builtin(builtins, "generator"),
+            thread: self.init_builtin(builtins, "thread"),
+            weakref: self.init_builtin(builtins, "weakref"),
         });
     }
 
-    fn init_builtin(&self, source_members: &SymbolTable, name: &str) -> Builtin {
-        let Some(symbol_id) = source_members.iter().find_map(|(symbol_name, ids)| {
-            if symbol_name != name {
-                return None;
-            }
+    fn init_builtin(&self, file: File, name: &'static str) -> Builtin {
+        let symbol = self
+            .find_symbol(file, &[name])
+            .expect("Builtins should always exist");
 
-            if ids.len() > 1 {
-                eprintln!("Multiple definitions for the symbol '{name}'");
-            }
+        let source = source_symbol(self, file);
 
-            Some(ids[0])
-        }) else {
-            panic!("'{name}' is not contained inside builtins members");
-        };
-
-        let typ = symbol_id.get_data(self).typ.0;
-
-        let Type::Class(Some(id)) = typ else {
+        let Type::Class(Some(id)) = source.arena[symbol.idx()].typ else {
             panic!("'{name}' member is not of type 'class'");
         };
 
         Builtin {
-            symbol: symbol_id,
+            symbol,
             members: to_flat_symbol_table(id.get_data(self).members.clone()),
         }
     }
@@ -273,9 +282,25 @@ impl Database {
         };
 
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
-        let special_functions = self.find_special_functions(lib);
-        for (key, value) in special_functions {
-            self.special_functions.insert(key, value);
+        for (special_function, path) in [
+            (SpecialFunction::NewThread, ["newthread"]),
+            (SpecialFunction::GetRootTable, ["getroottable"]),
+            (SpecialFunction::GetConstTable, ["getconsttable"]),
+        ] {
+            let Some(symbol) = self.find_symbol(lib, &path) else {
+                continue;
+            };
+
+            let Type::Function(Some(function_id)) =
+                source_symbol(self, lib).arena[symbol.idx()].typ
+            else {
+                eprintln!(
+                    "Standard library symbol '{path:?}' has a wrong type. (Expected 'function')"
+                );
+                continue;
+            };
+
+            self.special_functions.insert(function_id, special_function);
         }
 
         self.squirrel_lib = Some(lib);
@@ -288,64 +313,69 @@ impl Database {
 
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
 
-        let special_functions = self.find_special_functions(lib);
-        for (key, value) in special_functions {
-            self.special_functions.insert(key, value);
+        for (special_function, path) in [
+            (SpecialFunction::IncludeScript, ["IncludeScript"]),
+            (SpecialFunction::DoIncludeScript, ["DoIncludeScript"]),
+        ] {
+            let Some(symbol) = self.find_symbol(lib, &path) else {
+                continue;
+            };
+
+            let Type::Function(Some(function_id)) =
+                source_symbol(self, lib).arena[symbol.idx()].typ
+            else {
+                eprintln!(
+                    "Standard library symbol '{path:?}' has a wrong type. (Expected 'function')"
+                );
+                continue;
+            };
+
+            self.special_functions.insert(function_id, special_function);
         }
 
-        self.find_base_entity(lib);
+        if let Some(symbol) = self.find_symbol(lib, &["CBaseEntity"]) {
+            if let Type::Class(maybe_id) = source_symbol(self, lib).arena[symbol.idx()].typ {
+                self.base_entity_class = maybe_id;
+            } else {
+                eprintln!(
+                    "Standard library symbol 'CBaseEntity' has a wrong type. (Expected 'class')",
+                );
+            }
+        }
 
         self.vscript_lib = Some(lib);
     }
 
-    fn find_base_entity(&mut self, file: File) {
+    fn find_symbol(&self, file: File, path: &[&'static str]) -> Option<SymbolId> {
         let source = source_symbol(self, file);
-        let source_members = &source.arena[source.source_table].members;
-        for (name, ids) in source_members {
-            if name != "CBaseEntity" {
-                continue;
-            }
 
-            if ids.len() > 1 {
-                eprintln!("Multiple definitions for the standard library symbol '{name}'");
-            }
-
-            let id = ids
-                .last()
-                .expect("SymbolTable vector contains at least 1 symbol");
-
-            if id.file() != file {
-                eprintln!("Standard library symbol '{name}' is defined externally");
-                return;
-            }
-
-            let Type::Class(Some(class_id)) = source.arena[id.idx()].typ.0 else {
-                eprintln!("Standard library symbol '{name}' has a wrong type. (Expected 'class')",);
-                return;
+        let mut last: Option<SymbolId> = None;
+        'inner: for part in path {
+            let members = match last {
+                Some(id) => {
+                    if let Type::Class(Some(id)) = source.arena[id.idx()].typ {
+                        if id.file() != file {
+                            eprintln!(
+                                "Standard library symbol in '{path:?}' is defined externally"
+                            );
+                            return None;
+                        }
+                        &source.arena[id.idx()].members
+                    } else {
+                        eprintln!(
+                            "Symbol '{}' in '{path:?}' is not of type class",
+                            source.arena[id.idx()].name
+                        );
+                        return None;
+                    }
+                }
+                None => &source.arena[source.source_table].members,
             };
 
-            self.base_entity_class = Some(class_id);
-            return;
-        }
-    }
-
-    fn find_special_functions(&self, file: File) -> Vec<(FunctionId, SpecialFunction)> {
-        let source = source_symbol(self, file);
-        let source_members = &source.arena[source.source_table].members;
-        source_members
-            .iter()
-            .filter_map(|(name, ids)| {
-                // Both squirrel and vscript files use the same match, this works fine since
-                // there's no name clashing for special functions but it might not be the best
-                // practice
-                let kind = match name.as_str() {
-                    "getroottable" => SpecialFunction::GetRootTable,
-                    "getconsttable" => SpecialFunction::GetConstTable,
-                    "newthread" => SpecialFunction::NewThread,
-                    "IncludeScript" => SpecialFunction::IncludeScript,
-                    "DoIncludeScript" => SpecialFunction::DoIncludeScript,
-                    _ => return None,
-                };
+            for (name, ids) in members {
+                if name.as_ref() != *part {
+                    continue;
+                }
 
                 if ids.len() > 1 {
                     eprintln!("Multiple definitions for the standard library symbol '{name}'");
@@ -360,16 +390,15 @@ impl Database {
                     return None;
                 }
 
-                let Type::Function(Some(function_id)) = source.arena[id.idx()].typ.0 else {
-                    eprintln!(
-                        "Standard library symbol '{name}' has a wrong type. (Expected 'function')",
-                    );
-                    return None;
-                };
+                last = Some(*id);
+                continue 'inner;
+            }
 
-                Some((function_id, kind))
-            })
-            .collect()
+            eprintln!("Couldn't find '{part}' in '{path:?}'");
+            return None;
+        }
+
+        last
     }
 }
 

@@ -23,7 +23,7 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
     // can't do token.text() if the token is a string that got unquoted
     let reference_file = FinishedFile::new(db, finished_file.file());
     let reference = reference_file.get(reference_id);
-    let name = reference.name.as_str();
+    let name = reference.name.as_ref();
     let name_range = reference.name_range;
     let mut all_locations = Vec::new();
 

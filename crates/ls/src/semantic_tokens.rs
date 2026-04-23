@@ -60,7 +60,7 @@ pub fn handle_semantic_tokens(
         }
 
         let token_type = match symbol.kind {
-            SymbolKind::Local(kind) => match symbol.typ.0 {
+            SymbolKind::Local(kind) => match symbol.typ {
                 Type::Function(_) => TokenType::Function,
                 Type::Class(_) => TokenType::Class,
                 _ => {
@@ -80,7 +80,7 @@ pub fn handle_semantic_tokens(
                     modifiers |= TokenModifier::STATIC;
                 }
 
-                match symbol.typ.0 {
+                match symbol.typ {
                     Type::Function(_) => TokenType::Function,
                     Type::Class(_) => TokenType::Class,
                     _ => TokenType::Property,

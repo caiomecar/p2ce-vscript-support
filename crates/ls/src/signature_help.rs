@@ -35,7 +35,7 @@ pub fn handle_signature_help(db: &Database, params: SignatureHelpParams) -> Opti
         Some(ExpressionKind::Literal(typ)) => (String::new(), typ),
         Some(ExpressionKind::Symbol(id)) => {
             let symbol = finished_file.get(id);
-            (symbol.name.clone(), symbol.typ.0)
+            (symbol.name.to_string(), symbol.typ)
         }
         None => return None,
     };

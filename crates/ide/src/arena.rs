@@ -6,7 +6,7 @@ use line_index::{TextRange, TextSize};
 use crate::{
     File,
     db::{Db, source_symbol},
-    symbol::{AnnotatedType, Symbol, SymbolTable, Type, TypeSet},
+    symbol::{Symbol, SymbolTable, Type, TypeSet, TypeState},
 };
 
 pub trait ArenaId: Clone + Copy + PartialEq + Eq {
@@ -55,7 +55,7 @@ arena_id!(ClassId => ClassData);
 arena_id!(EnumId => EnumData);
 arena_id!(FunctionId => FunctionData);
 arena_id!(ArrayId => ArrayData);
-arena_id!(StringId => StringData);
+arena_id!(StringLiteralId => StringLiteralData);
 arena_id!(UnionId => UnionData);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -174,13 +174,16 @@ pub struct EnumData {
 pub struct FunctionData {
     pub symbol: Option<SymbolId>,
     pub range: TextRange,
-    pub ret: Option<AnnotatedType>,
+    pub ret: Type,
+    pub ret_state: TypeState,
     pub container: Container,
     pub bindenv: Option<Container>,
     pub params: Vec<SymbolId>,
     pub params_state: ParamsState,
-    pub yields: Option<AnnotatedType>,
-    pub throws: Option<AnnotatedType>,
+    pub yields: Type,
+    pub yields_state: TypeState,
+    pub throws: Type,
+    pub throws_state: TypeState,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -197,8 +200,9 @@ pub struct ArrayData {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct StringData {
+pub struct StringLiteralData {
     pub text: Box<str>,
+    pub range: TextRange,
     pub unquoted_range: TextRange,
 }
 
@@ -260,7 +264,7 @@ impl_source_arena! {
     enums:     EnumData,
     functions: FunctionData,
     arrays:    ArrayData,
-    strings:   StringData,
+    strings:   StringLiteralData,
     unions:    UnionData,
 }
 

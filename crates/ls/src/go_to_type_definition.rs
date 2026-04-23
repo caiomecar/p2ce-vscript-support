@@ -27,7 +27,7 @@ pub fn handle_go_to_type_definition(
     let symbol_id = finished_file.symbol_at(range)?;
 
     let symbol = finished_file.get(symbol_id);
-    let type_id = finished_file.type_to_symbol(symbol.typ.0)?;
+    let type_id = finished_file.type_to_symbol(symbol.typ)?;
 
     let file = type_id.file();
     let line_idx = line_index(db, file);

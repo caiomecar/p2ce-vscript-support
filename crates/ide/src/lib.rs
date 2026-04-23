@@ -20,7 +20,10 @@ use crate::{
 
 pub use arena::{ArenaId, FunctionData, FunctionId, ParamsState, ScopeId, SymbolId};
 pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
-pub use symbol::{LocalKind, PropertyKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type};
+pub use symbol::{
+    LocalKind, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type,
+    TypeState,
+};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -49,7 +52,7 @@ pub enum ExpressionKind {
 
 pub type NullableExprKind = Option<ExpressionKind>;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct TypeWithRange {
     typ: Type,
     range: TextRange,
@@ -218,7 +221,7 @@ pub trait Source {
                     return Some(FunctionIdResolution::DefaultConstructor);
                 };
 
-                self.to_function_id(member.typ.0, offset)
+                self.to_function_id(member.typ, offset)
             }
             Type::Function(id) => Some(FunctionIdResolution::Function(id?)),
             Type::Table(id) => {
@@ -227,12 +230,12 @@ pub trait Source {
 
                 let member = self.find_member(Container::Table(delegate_idx), "_call", offset)?;
 
-                self.to_function_id(member.typ.0, offset)
+                self.to_function_id(member.typ, offset)
             }
             Type::Instance(id) => {
                 let member = self.find_member(Container::Instance(id?), "_call", offset)?;
 
-                self.to_function_id(member.typ.0, offset)
+                self.to_function_id(member.typ, offset)
             }
             _ => None,
         }
@@ -475,7 +478,7 @@ pub trait Source {
             Type::Enum(id) => self.enum_members(id),
             Type::Integer(_) => integer_members(self.db()),
             Type::Float(_) => float_members(self.db()),
-            Type::String(_) => string_members(self.db()),
+            Type::String { .. } => string_members(self.db()),
             Type::Boolean(_) => boolean_members(self.db()),
             Type::Array(_) => array_members(self.db()),
             Type::Function(_) => function_members(self.db()),
@@ -718,7 +721,7 @@ pub trait Source {
             }
             Type::Integer(_) => integer_symbol(self.db())?,
             Type::Float(_) => float_symbol(self.db())?,
-            Type::String(_) => string_symbol(self.db())?,
+            Type::String { .. } => string_symbol(self.db())?,
             Type::Boolean(_) => boolean_symbol(self.db())?,
             Type::Array(_) => array_symbol(self.db())?,
             Type::Table(_) => table_symbol(self.db())?,
@@ -734,7 +737,7 @@ pub trait Source {
     fn expr_kind_to_type(&self, maybe_kind: NullableExprKind) -> Type {
         match maybe_kind {
             Some(ExpressionKind::Literal(typ)) => typ,
-            Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ.0,
+            Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ,
             None => Type::Unknown,
         }
     }
@@ -758,22 +761,22 @@ pub trait Source {
         self.expr_kind_to_type(self.expr_kind_at(text_range))
     }
 
-    fn type_to_string(&self, typ: Type) -> String {
+    fn type_to_str(&self, typ: Type) -> Box<str> {
         match typ {
-            Type::Unknown => "unknown".to_owned(),
-            Type::Any => "any".to_owned(),
-            Type::Integer(_) => "integer".to_owned(),
-            Type::Float(_) => "float".to_owned(),
-            Type::String(_) => "string".to_owned(),
-            Type::Boolean(_) => "bool".to_owned(),
-            Type::Null => "null".to_owned(),
+            Type::Unknown => "unknown".into(),
+            Type::Any => "any".into(),
+            Type::Integer(_) => "integer".into(),
+            Type::Float(_) => "float".into(),
+            Type::String { .. } => "string".into(),
+            Type::Boolean(_) => "bool".into(),
+            Type::Null => "null".into(),
             Type::Instance(id) => {
                 if let Some(id) = id
                     && let Some(symbol) = self.get(id).symbol
                 {
                     self.get(symbol).name.clone()
                 } else {
-                    "instance".to_owned()
+                    "instance".into()
                 }
             }
             Type::Union(id) => self
@@ -785,19 +788,20 @@ pub trait Source {
                     if typ == Type::Unknown {
                         None
                     } else {
-                        Some(self.type_to_string(typ))
+                        Some(self.type_to_str(typ))
                     }
                 })
                 .collect::<Vec<_>>()
-                .join("|"),
-            Type::Array(_) => "array".to_owned(),
-            Type::Table(_) => "table".to_owned(),
-            Type::Class(_) => "class".to_owned(),
-            Type::Enum(_) => "enum".to_owned(),
-            Type::Function(_) => "function".to_owned(),
-            Type::Generator(_) => "generator".to_owned(),
-            Type::Thread(_) => "thread".to_owned(),
-            Type::Weakref => "weakref".to_owned(),
+                .join("|")
+                .into_boxed_str(),
+            Type::Array(_) => "array".into(),
+            Type::Table(_) => "table".into(),
+            Type::Class(_) => "class".into(),
+            Type::Enum(_) => "enum".into(),
+            Type::Function(_) => "function".into(),
+            Type::Generator(_) => "generator".into(),
+            Type::Thread(_) => "thread".into(),
+            Type::Weakref => "weakref".into(),
         }
     }
 
@@ -818,12 +822,15 @@ pub trait Source {
                 return str;
             }
             SymbolKind::Constant | SymbolKind::EnumMember => {
-                let type_text = match s.typ.0 {
+                let type_text = match s.typ {
                     Type::Integer(Some(value)) => value.to_string(),
                     Type::Float(Some(value)) => value.to_string(),
                     Type::Boolean(Some(value)) => value.to_string(),
-                    Type::String(Some(id)) => {
-                        format!("\"{}\"", self.get(id).text)
+                    Type::String {
+                        literal: Some(literal),
+                        ..
+                    } => {
+                        format!("\"{}\"", self.get(literal).text)
                     }
                     _ => {
                         let _ = write!(&mut str, "const {}", s.name);
@@ -838,7 +845,7 @@ pub trait Source {
             }
         }
 
-        match s.typ.0 {
+        match s.typ {
             Type::Function(Some(id)) => {
                 str.push_str("function ");
                 let (signature, _) = self.function_markdown(&s.name, id);
@@ -852,7 +859,7 @@ pub trait Source {
                 let _ = write!(&mut str, "class {}", s.name);
             }
             _ => {
-                let _ = write!(&mut str, "{}: {}", s.name, self.type_to_string(s.typ.0));
+                let _ = write!(&mut str, "{}: {}", s.name, self.type_to_str(s.typ));
             }
         }
 
@@ -882,8 +889,8 @@ pub trait Source {
             {
                 label.push('?');
             }
-            if param.typ.0 != Type::Unknown {
-                let _ = write!(&mut label, ": {}", self.type_to_string(param.typ.0));
+            if param.typ != Type::Unknown {
+                let _ = write!(&mut label, ": {}", self.type_to_str(param.typ));
             }
             let end = label.len();
             param_ranges.push([
@@ -899,10 +906,10 @@ pub trait Source {
             let start = label.len();
             label.push_str("...vargv");
             let symbol = self.get(id);
-            if let Type::Array(Some(id)) = symbol.typ.0 {
+            if let Type::Array(Some(id)) = symbol.typ {
                 let array = self.get(id);
                 if array.typ != Type::Unknown {
-                    let _ = write!(&mut label, ": {}", self.type_to_string(array.typ));
+                    let _ = write!(&mut label, ": {}", self.type_to_str(array.typ));
                 }
             }
             let end = label.len();
@@ -914,14 +921,12 @@ pub trait Source {
 
         label.push(')');
 
-        if func.throws.is_some() {
+        if func.throws_state != TypeState::NotAssigned {
             label.push('!');
         }
 
-        if let Some(ret) = func.ret
-            && !matches!(ret.0, Type::Unknown | Type::Null)
-        {
-            let _ = write!(&mut label, " -> {}", self.type_to_string(ret.0));
+        if !matches!(func.ret, Type::Unknown | Type::Null) {
+            let _ = write!(&mut label, " -> {}", self.type_to_str(func.ret));
         }
 
         (label, param_ranges)

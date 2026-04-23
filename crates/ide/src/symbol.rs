@@ -1,16 +1,16 @@
 use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
+use string_literals::StringLiteralValues;
 
-use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringId, SymbolId, TableId, UnionId};
+use crate::arena::{
+    ArrayId, ClassId, EnumId, FunctionId, StringLiteralId, SymbolId, TableId, UnionId,
+};
 
-/// The type itself and whether it's annotated explicitly
-/// or not. (Need to use doc comment to annotate)
-#[derive(Debug, Default, PartialEq, Clone, Copy)]
-pub struct AnnotatedType(pub Type, pub bool);
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Symbol {
-    pub name: String,
-    pub typ: AnnotatedType,
+    pub name: Box<str>,
+    pub typ: Type,
+    pub type_state: TypeState,
     pub kind: SymbolKind,
     pub name_range: TextRange,
     pub range: TextRange,
@@ -48,14 +48,14 @@ impl Symbol {
 /// pass current execution range and offset whenever
 /// we want a specific symbol but properly represents
 /// what is actually happening in the source file
-pub type SymbolTable = FxHashMap<String, Vec<SymbolId>>;
+pub type SymbolTable = FxHashMap<Box<str>, Vec<SymbolId>>;
 
 /// Maps name to a single symbol
 ///
 /// This is used in `members_of_type` where it's possible to flatten the table
-pub type FlatSymbolTable = FxHashMap<String, SymbolId>;
+pub type FlatSymbolTable = FxHashMap<Box<str>, SymbolId>;
 
-pub fn insert_symbol(table: &mut SymbolTable, name: String, value: SymbolId) {
+pub fn insert_symbol(table: &mut SymbolTable, name: Box<str>, value: SymbolId) {
     table
         .entry(name)
         .and_modify(|entry| entry.push(value))
@@ -92,7 +92,10 @@ pub enum Type {
     Any,
     Integer(Option<i32>),
     Float(Option<f32>),
-    String(Option<StringId>),
+    String {
+        kind: StringKind,
+        literal: Option<StringLiteralId>,
+    },
     Boolean(Option<bool>),
     Null,
     Instance(Option<ClassId>),
@@ -107,9 +110,185 @@ pub enum Type {
     Union(UnionId),
 }
 
-impl From<Type> for AnnotatedType {
-    fn from(val: Type) -> Self {
-        Self(val, false)
+impl Type {
+    // Those are basically defaults for a certain type
+    pub const INTEGER: Self = Self::Integer(None);
+    pub const FLOAT: Self = Self::Float(None);
+    pub const STRING: Self = Self::String {
+        kind: StringKind::Arbitrary,
+        literal: None,
+    };
+    pub const BOOLEAN: Self = Self::Boolean(None);
+    pub const INSTANCE: Self = Self::Instance(None);
+    pub const ARRAY: Self = Self::Array(None);
+    pub const TABLE: Self = Self::Table(None);
+    pub const CLASS: Self = Self::Class(None);
+    pub const FUNCTION: Self = Self::Function(None);
+    pub const GENERATOR: Self = Self::Generator(None);
+    pub const THREAD: Self = Self::Thread(None);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StringKind {
+    Arbitrary,
+
+    Script,
+
+    Attribute,
+
+    Input,
+    Output,
+    Classname,
+
+    PropInt,
+    PropIntArray,
+    PropFloat,
+    PropFloatArray,
+    PropEntity,
+    PropEntityArray,
+    PropBool,
+    PropBoolArray,
+    PropString,
+    PropStringArray,
+    PropVector,
+    PropVectorArray,
+    PropAll,
+    PropArray,
+}
+
+impl std::fmt::Display for StringKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Arbitrary => write!(f, "arbitrary"),
+            Self::Script => write!(f, "script"),
+            Self::Attribute => write!(f, "attribute"),
+            Self::Input => write!(f, "input"),
+            Self::Output => write!(f, "output"),
+            Self::Classname => write!(f, "classname"),
+            Self::PropInt => write!(f, "integer_property"),
+            Self::PropIntArray => write!(f, "integer_array_property"),
+            Self::PropFloat => write!(f, "float_property"),
+            Self::PropFloatArray => write!(f, "float_array_property"),
+            Self::PropEntity => write!(f, "entity_property"),
+            Self::PropEntityArray => write!(f, "entity_array_property"),
+            Self::PropBool => write!(f, "bool_property"),
+            Self::PropBoolArray => write!(f, "bool_array_property"),
+            Self::PropString => write!(f, "string_property"),
+            Self::PropStringArray => write!(f, "string_array_property"),
+            Self::PropVector => write!(f, "vector_property"),
+            Self::PropVectorArray => write!(f, "vector_array_property"),
+            Self::PropAll => write!(f, "property"),
+            Self::PropArray => write!(f, "array_property"),
+        }
+    }
+}
+
+impl std::str::FromStr for StringKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "arbitrary" => Self::Arbitrary,
+            "script" => Self::Script,
+            "attribute" => Self::Attribute,
+            "input" => Self::Input,
+            "output" => Self::Output,
+            "classname" => Self::Classname,
+            "integer_property" => Self::PropInt,
+            "integer_array_property" => Self::PropIntArray,
+            "float_property" => Self::PropFloat,
+            "float_array_property" => Self::PropFloatArray,
+            "entity_property" => Self::PropEntity,
+            "entity_array_property" => Self::PropEntityArray,
+            "bool_property" => Self::PropBool,
+            "bool_array_property" => Self::PropBoolArray,
+            "string_property" => Self::PropString,
+            "string_array_property" => Self::PropStringArray,
+            "vector_property" => Self::PropVector,
+            "vector_array_property" => Self::PropVectorArray,
+            "property" => Self::PropAll,
+            "property_array" => Self::PropArray,
+            _ => return Err(()),
+        })
+    }
+}
+
+impl StringKind {
+    #[must_use]
+    pub fn values(self) -> Option<&'static [&'static StringLiteralValues]> {
+        use string_literals as sl;
+
+        static ATTRIBUTE: [&StringLiteralValues; 1] = [&sl::ATTRIBUTES];
+        static INPUT: [&StringLiteralValues; 1] = [&sl::INPUTS];
+        static OUTPUT: [&StringLiteralValues; 1] = [&sl::OUTPUTS];
+        static CLASSNAME: [&StringLiteralValues; 1] = [&sl::CLASSNAMES];
+        static PROP_INT: [&StringLiteralValues; 2] =
+            [&sl::PROPERTY_INTEGER, &sl::PROPERTY_INTEGER_ARRAY];
+        static PROP_INT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_INTEGER_ARRAY];
+        static PROP_FLOAT: [&StringLiteralValues; 2] =
+            [&sl::PROPERTY_FLOAT, &sl::PROPERTY_FLOAT_ARRAY];
+        static PROP_FLOAT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_FLOAT_ARRAY];
+        static PROP_ENTITY: [&StringLiteralValues; 2] =
+            [&sl::PROPERTY_ENTITY, &sl::PROPERTY_ENTITY_ARRAY];
+        static PROP_ENT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_ENTITY_ARRAY];
+        static PROP_BOOL: [&StringLiteralValues; 2] =
+            [&sl::PROPERTY_BOOL, &sl::PROPERTY_BOOL_ARRAY];
+        static PROP_BOOL_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_BOOL_ARRAY];
+        static PROP_STRING: [&StringLiteralValues; 2] =
+            [&sl::PROPERTY_STRING, &sl::PROPERTY_STRING_ARRAY];
+        static PROP_STR_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_STRING_ARRAY];
+        static PROP_VECTOR: [&StringLiteralValues; 2] =
+            [&sl::PROPERTY_VECTOR, &sl::PROPERTY_VECTOR_ARRAY];
+        static PROP_VEC_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_VECTOR_ARRAY];
+        static PROP_ALL: [&StringLiteralValues; 12] = [
+            &sl::PROPERTY_INTEGER,
+            &sl::PROPERTY_INTEGER_ARRAY,
+            &sl::PROPERTY_FLOAT,
+            &sl::PROPERTY_FLOAT_ARRAY,
+            &sl::PROPERTY_ENTITY,
+            &sl::PROPERTY_ENTITY_ARRAY,
+            &sl::PROPERTY_BOOL,
+            &sl::PROPERTY_BOOL_ARRAY,
+            &sl::PROPERTY_STRING,
+            &sl::PROPERTY_STRING_ARRAY,
+            &sl::PROPERTY_VECTOR,
+            &sl::PROPERTY_VECTOR_ARRAY,
+        ];
+        static PROP_ARRAY: [&StringLiteralValues; 6] = [
+            &sl::PROPERTY_INTEGER_ARRAY,
+            &sl::PROPERTY_FLOAT_ARRAY,
+            &sl::PROPERTY_ENTITY_ARRAY,
+            &sl::PROPERTY_BOOL_ARRAY,
+            &sl::PROPERTY_STRING_ARRAY,
+            &sl::PROPERTY_VECTOR_ARRAY,
+        ];
+
+        Some(match self {
+            Self::Arbitrary | Self::Script => return None,
+            Self::Attribute => &ATTRIBUTE,
+            Self::Input => &INPUT,
+            Self::Output => &OUTPUT,
+            Self::Classname => &CLASSNAME,
+            Self::PropInt => &PROP_INT,
+            Self::PropIntArray => &PROP_INT_ARRAY,
+            Self::PropFloat => &PROP_FLOAT,
+            Self::PropFloatArray => &PROP_FLOAT_ARRAY,
+            Self::PropEntity => &PROP_ENTITY,
+            Self::PropEntityArray => &PROP_ENT_ARRAY,
+            Self::PropBool => &PROP_BOOL,
+            Self::PropBoolArray => &PROP_BOOL_ARRAY,
+            Self::PropString => &PROP_STRING,
+            Self::PropStringArray => &PROP_STR_ARRAY,
+            Self::PropVector => &PROP_VECTOR,
+            Self::PropVectorArray => &PROP_VEC_ARRAY,
+            Self::PropAll => &PROP_ALL,
+            Self::PropArray => &PROP_ARRAY,
+        })
+    }
+
+    #[must_use]
+    pub const fn is_case_sensetive(self) -> bool {
+        !matches!(self, Self::Input | Self::Output | Self::Classname)
     }
 }
 
@@ -129,6 +308,15 @@ pub enum LocalKind {
     Parameter,
     VariedArgs,
     Exception,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum TypeState {
+    #[default]
+    NotAssigned,
+    Inferred,
+    // From doc
+    Explicit,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
@@ -247,7 +435,7 @@ impl From<Type> for TypeKind {
             Type::Any => Self::Any,
             Type::Integer(_) => Self::Integer,
             Type::Float(_) => Self::Float,
-            Type::String(_) => Self::String,
+            Type::String { .. } => Self::String,
             Type::Boolean(_) => Self::Boolean,
             Type::Null => Self::Null,
             Type::Instance(_) => Self::Instance,

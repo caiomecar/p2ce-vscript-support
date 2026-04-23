@@ -167,28 +167,14 @@ impl Name {
     pub fn identifier(&self) -> Option<SyntaxToken> {
         support::token(&self.0, SyntaxKind::Identifier)
     }
-
-    #[must_use]
-    pub fn text(&self) -> Option<String> {
-        self.identifier().map(|t| t.text().to_owned())
-    }
 }
 
 ast_node!(QualifiedNamePart, QualifiedNamePart);
-impl QualifiedNamePart {
-    #[must_use]
-    pub fn name(&self) -> Option<Name> {
-        support::child(&self.0)
-    }
-}
+impl HasName for QualifiedNamePart {}
 
 ast_node!(QualifiedName, QualifiedName);
+impl HasName for QualifiedName {}
 impl QualifiedName {
-    #[must_use]
-    pub fn name(&self) -> Option<Name> {
-        support::child(self.syntax())
-    }
-
     #[must_use]
     pub fn parts(&self) -> AstChildren<QualifiedNamePart> {
         support::children(&self.0)

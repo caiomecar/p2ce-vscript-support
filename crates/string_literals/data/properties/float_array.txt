@@ -1,0 +1,24 @@
+# TF2 float array properties
+# Blank lines and lines starting with # are ignored.
+
+m_Shared.m_flItemChargeMeter
+m_TeamRespawnWaveTimes
+m_flCPTimerTimes
+m_flCapPercentages
+m_flConnectTime
+m_flEncodedController
+m_flLazyCapPerc
+m_flNextRespawnTime
+m_flNextRespawnWave
+m_flNodeHillData
+m_flOverlayTimes
+m_flPathDistance
+m_flPoseParameter
+m_flRefireDelay
+m_flSupport
+m_flTeamCapTime
+m_flUnlockTimes
+m_flexWeight
+m_flextarget
+m_rgflCoordinateFrame
+m_rgflSuitNoRepeatTime

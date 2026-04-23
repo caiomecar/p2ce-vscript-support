@@ -28,15 +28,43 @@ use crate::{
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ImportTarget, ParamsState, Scope, ScopeId, SourceArena,
-        StringData, StringId, SymbolId, TableData, TableId, TypeConversionError, UnionData,
-        UnionId,
+        StringLiteralData, StringLiteralId, SymbolId, TableData, TableId, TypeConversionError,
+        UnionData, UnionId,
     },
     db::{Db, ScriptResolutionError, SpecialFunction},
     symbol::{
-        AnnotatedType, LocalKind, PropertyKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type,
-        TypeKind, TypeSet, insert_symbol,
+        LocalKind, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type,
+        TypeKind, TypeSet, TypeState, insert_symbol,
     },
 };
+
+macro_rules! dispatch_union {
+    // For methods returning Option<T>
+    ($self:ident, $operand:expr, $error_msg:expr, $single_method:ident $(, $extra:expr)*) => {{
+        let operand = $operand;
+        if let Type::Union(id) = operand.typ {
+            let types = $self.get(id).types.clone();
+            for typ in types {
+                if let Some(result) = $self.$single_method(
+                    TypeWithRange { typ, ..operand },
+                    $($extra,)*
+                    false,
+                ) {
+                    return Some(result);
+                }
+            }
+            if !$self.get(id).type_set.contains(TypeSet::ANY) {
+                $self.diagnostics.push(Diagnostic {
+                    message: format!($error_msg, $self.type_to_str(operand.typ)),
+                    range: operand.range,
+                    severity: DiagnosticSeverity::Error,
+                });
+            }
+            return None;
+        }
+        $self.$single_method(operand, $($extra,)* true)
+    }};
+}
 
 #[derive(Debug, Clone)]
 enum AssignmentLeftHandSide {
@@ -61,20 +89,20 @@ enum AssignmentLeftHandSide {
     Invalid(NullableExprKind),
 }
 
-fn to_operand_and_arguments(
+const fn to_operand_and_arguments(
     parent: Type,
     expr_range: TextRange,
     name_range: TextRange,
     argument: TypeWithRange,
-) -> (TypeWithRange, Vec<TypeWithRange>) {
+) -> (TypeWithRange, [TypeWithRange; 2]) {
     let operand = TypeWithRange {
         typ: parent,
         range: expr_range,
     };
 
-    let arguments = vec![
+    let arguments = [
         TypeWithRange {
-            typ: Type::String(None),
+            typ: Type::STRING,
             range: name_range,
         },
         argument,
@@ -107,13 +135,12 @@ impl From<&AssignmentLeftHandSide> for NullableExprKind {
     }
 }
 
-fn get_name<T>(node: &T) -> Option<(Name, String)>
+fn get_name<T>(node: &T) -> Option<SyntaxToken>
 where
     T: HasName,
 {
     let name = node.name()?;
-    let text = name.text()?;
-    Some((name, text))
+    name.identifier()
 }
 
 impl TryFrom<AssignmentLeftHandSide> for Type {
@@ -169,10 +196,17 @@ enum CheckTypeSource {
     Yield,
 }
 
+#[derive(Debug, Clone, Copy)]
 enum NewSlotResult {
     CanAdd(Container),
     Allowed,
     NotAllowed,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum NewType {
+    NotExplicit(TypeWithRange),
+    Explicit { typ: Type, value_range: TextRange },
 }
 
 pub struct Collector<'db> {
@@ -340,15 +374,16 @@ impl<'db> Collector<'db> {
                     Tag::Entity(_) => {
                         let base_entity = db.base_entity_class();
                         let id = collector.symbol(Symbol {
-                            name: "self".to_owned(),
-                            typ: AnnotatedType(Type::Instance(base_entity), true),
+                            name: "self".into(),
+                            typ: Type::Instance(base_entity),
+                            type_state: TypeState::Explicit,
                             kind: SymbolKind::Property(PropertyKind::Embedded),
                             name_range: tag.syntax().text_range(),
                             range: tag.syntax().text_range(),
                             ..Default::default()
                         });
 
-                        collector.add_current_container_member("self".to_owned(), id);
+                        collector.add_current_container_member("self".into(), id);
                     }
                     _ => {}
                 }
@@ -428,7 +463,7 @@ impl<'db> Collector<'db> {
                 Type::Unknown | Type::Any => None,
                 typ => {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to inherit from '{}'", self.type_to_string(typ)),
+                        message: format!("Trying to inherit from '{}'", self.type_to_str(typ)),
                         range: expr.syntax().text_range(),
                         ..Default::default()
                     });
@@ -453,7 +488,7 @@ impl<'db> Collector<'db> {
         ArrayId::new(self.file, self.arena.alloc(array))
     }
 
-    fn string(&mut self, token_result: &(StringNameKind, SyntaxToken)) -> StringId {
+    fn string(&mut self, token_result: &(StringNameKind, SyntaxToken)) -> StringLiteralId {
         let (left_offset, right_offset, text) = match token_result.0 {
             StringNameKind::Normal => {
                 let input = token_result.1.text();
@@ -479,16 +514,17 @@ impl<'db> Collector<'db> {
 
         let range = token_result.1.text_range();
 
-        let range = TextRange::new(
+        let unquoted_range = TextRange::new(
             range.start() + TextSize::new(left_offset),
             range.end() - TextSize::new(right_offset),
         );
 
-        StringId::new(
+        StringLiteralId::new(
             self.file,
-            self.arena.alloc(StringData {
+            self.arena.alloc(StringLiteralData {
                 text: text.into_boxed_str(),
-                unquoted_range: range,
+                range,
+                unquoted_range,
             }),
         )
     }
@@ -537,11 +573,11 @@ impl<'db> Collector<'db> {
         )
     }
 
-    fn add_current_container_member(&mut self, name: String, symbol: SymbolId) {
+    fn add_current_container_member(&mut self, name: Box<str>, symbol: SymbolId) {
         self.add_container_member(self.container, name, symbol);
     }
 
-    fn add_container_member(&mut self, container: Container, name: String, symbol: SymbolId) {
+    fn add_container_member(&mut self, container: Container, name: Box<str>, symbol: SymbolId) {
         match container {
             Container::Table(id) => {
                 if let Some(t) = self.get_mut(id) {
@@ -597,7 +633,7 @@ impl<'db> Collector<'db> {
                 }
                 _ => format!(
                     "'{}' has no member named '{}'",
-                    self.type_to_string(obj),
+                    self.type_to_str(obj),
                     member_name
                 ),
             },
@@ -607,8 +643,12 @@ impl<'db> Collector<'db> {
     }
 
     fn resolve_name(&self, text: &str, offset: TextSize) -> Option<SymbolId> {
-        let filter = |(name, id)| {
-            if name == text { Some(id) } else { None }
+        let filter = |(name, id): (Box<str>, SymbolId)| {
+            if name.as_ref() == text {
+                Some(id)
+            } else {
+                None
+            }
         };
 
         let locals = self.local_members(offset).into_iter().find_map(filter);
@@ -651,20 +691,27 @@ impl<'db> Collector<'db> {
         let text = identifier.text();
         Some(match text {
             "any" => Type::Any,
-            "int" | "integer" => Type::Integer(None),
-            "float" => Type::Float(None),
-            "string" => Type::String(None),
-            "bool" | "boolean" => Type::Boolean(None),
+            "int" | "integer" => Type::INTEGER,
+            "float" => Type::FLOAT,
+            "string" => Type::STRING,
+            "bool" | "boolean" => Type::BOOLEAN,
             "null" => Type::Null,
-            "instance" => Type::Instance(None),
-            "array" => Type::Array(None),
-            "table" => Type::Table(None),
-            "class" => Type::Class(None),
-            "function" => Type::Function(None),
-            "generator" => Type::Generator(None),
-            "thread" => Type::Thread(None),
+            "instance" => Type::INSTANCE,
+            "array" => Type::ARRAY,
+            "table" => Type::TABLE,
+            "class" => Type::CLASS,
+            "function" => Type::FUNCTION,
+            "generator" => Type::GENERATOR,
+            "thread" => Type::THREAD,
             "weakref" => Type::Weakref,
             _ => {
+                if let Ok(kind) = text.parse::<StringKind>() {
+                    return Some(Type::String {
+                        kind,
+                        literal: None,
+                    });
+                }
+
                 // If we resolve symbols first rather than preset names, the builtins
                 // file is started to break, this is anyways a small enough matter to
                 // care about (don't use the same name as defaults for your classes)
@@ -678,7 +725,7 @@ impl<'db> Collector<'db> {
                     });
                     return None;
                 };
-                let Type::Class(id) = self.get(id).typ.0 else {
+                let Type::Class(id) = self.get(id).typ else {
                     return None;
                 };
 
@@ -717,11 +764,10 @@ impl<'db> Collector<'db> {
 
         Some(match (left, right) {
             (Type::Any, _) | (_, Type::Any) => Type::Any,
-            (Type::Unknown, other) | (other, Type::Unknown) => other,
-            (Type::Integer(_), Type::Integer(_)) => Type::Integer(None),
-            (Type::Float(_), Type::Float(_)) => Type::Float(None),
-            (Type::Boolean(_), Type::Boolean(_)) => Type::Boolean(None),
-            (Type::String(_), Type::String(_)) => Type::String(None),
+            (Type::Integer(_), Type::Integer(_)) => Type::INTEGER,
+            (Type::Float(_), Type::Float(_)) => Type::FLOAT,
+            (Type::Boolean(_), Type::Boolean(_)) => Type::BOOLEAN,
+            (Type::String { .. }, Type::String { .. }) => Type::STRING,
 
             (Type::Instance(Some(left_id)), Type::Instance(Some(right_id))) => {
                 if left_id == right_id {
@@ -745,13 +791,13 @@ impl<'db> Collector<'db> {
                 }
                 return None;
             }
-            (Type::Instance(_), Type::Instance(_)) => Type::Instance(None),
-            (Type::Table(_), Type::Table(_)) => Type::Table(None),
-            (Type::Class(_), Type::Class(_)) => Type::Class(None),
-            (Type::Array(_), Type::Array(_)) => Type::Array(None),
-            (Type::Function(_), Type::Function(_)) => Type::Function(None),
-            (Type::Generator(_), Type::Generator(_)) => Type::Generator(None),
-            (Type::Thread(_), Type::Thread(_)) => Type::Thread(None),
+            (Type::Instance(_), Type::Instance(_)) => Type::INSTANCE,
+            (Type::Table(_), Type::Table(_)) => Type::TABLE,
+            (Type::Class(_), Type::Class(_)) => Type::CLASS,
+            (Type::Array(_), Type::Array(_)) => Type::ARRAY,
+            (Type::Function(_), Type::Function(_)) => Type::FUNCTION,
+            (Type::Generator(_), Type::Generator(_)) => Type::GENERATOR,
+            (Type::Thread(_), Type::Thread(_)) => Type::THREAD,
             (Type::Union(_), _) | (_, Type::Union(_)) => {
                 panic!("Union type should not be passed into 'merge_types'")
             }
@@ -907,72 +953,127 @@ impl<'db> Collector<'db> {
 
                 false
             }
+
             (_, _) => TypeKind::from(left) == right.into(),
         }
     }
 
-    fn check_or_update_type(
-        &mut self,
-        current: Option<AnnotatedType>,
-        new: TypeWithRange,
-        source: CheckTypeSource,
-    ) -> Option<Type> {
-        // If type is not explicitly stated, just unionate the types,
-        // if the first type was null, then completely replace it
-        // since that's usually not the intend of the user
-        let Some(current) = current else {
-            return Some(new.typ);
+    fn check_string_literal(&mut self, left: Type, right: Type, error_range: TextRange) -> Type {
+        let Type::String { kind, .. } = left else {
+            return left;
         };
 
-        if !current.1 {
-            // If the initial type was null
-            if matches!(
-                source,
-                CheckTypeSource::Variable | CheckTypeSource::Parameter
-            ) && current.0 == Type::Null
-            {
-                return Some(new.typ);
-            }
+        let Type::String {
+            literal: Some(literal),
+            ..
+        } = right
+        else {
+            return left;
+        };
 
-            let new_type = self.merge_or_union(current.0, new.typ);
-            return Some(new_type);
-        }
+        let text = &self.get(literal).text;
 
-        if !self.is_type_suitable(current.0, new.typ) {
+        let text = if kind.is_case_sensetive() {
+            text.to_string()
+        } else {
+            text.to_lowercase()
+        };
+
+        let should_error = kind
+            .values()
+            .is_some_and(|sets| !sets.iter().any(|set| set.0.contains(&text)));
+
+        if should_error {
             self.diagnostics.push(Diagnostic {
-                message: match source {
-                    CheckTypeSource::Variable => format!(
-                        "Trying to assign a variable of type '{}' to '{}'",
-                        self.type_to_string(current.0),
-                        self.type_to_string(new.typ)
-                    ),
-                    CheckTypeSource::VarArgs |
-                    CheckTypeSource::Parameter => format!(
-                        "Expected parameter of type '{}', but got '{}'",
-                        self.type_to_string(current.0),
-                        self.type_to_string(new.typ)
-                    ),
-                    CheckTypeSource::Return => format!(
-                        "Trying to return a value of type '{}' in a function with declared return type of '{}'",
-                        self.type_to_string(new.typ),
-                        self.type_to_string(current.0),
-                    ),
-                    CheckTypeSource::Throw => format!(
-                        "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
-                        self.type_to_string(new.typ),
-                        self.type_to_string(current.0),
-                    ),
-                    CheckTypeSource::Yield => format!(
-                        "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
-                        self.type_to_string(new.typ),
-                        self.type_to_string(current.0),
-                    ),
-                },
-                range: new.range,
+                message: format!("Text of string literal is not suitable for the type '{kind}'"),
+                range: error_range,
                 severity: DiagnosticSeverity::Warning,
             });
         }
+
+        let typ = Type::String {
+            kind,
+            literal: Some(literal),
+        };
+
+        if literal.file() == self.file {
+            self.range_to_expr
+                .insert(self.get(literal).range, ExpressionKind::Literal(typ));
+        }
+
+        typ
+    }
+
+    fn check_type(
+        &mut self,
+        left: Type,
+        right: Type,
+        source: CheckTypeSource,
+        error_range: TextRange,
+    ) -> Option<Type> {
+        if self.is_type_suitable(left, right) {
+            return Some(self.check_string_literal(left, right, error_range));
+        }
+
+        self.diagnostics.push(Diagnostic {
+            message: match source {
+                CheckTypeSource::Variable => format!(
+                    "Trying to assign a variable of type '{}' to '{}'",
+                    self.type_to_str(left),
+                    self.type_to_str(right)
+                ),
+                CheckTypeSource::VarArgs |
+                CheckTypeSource::Parameter => format!(
+                    "Expected parameter of type '{}', but got '{}'",
+                    self.type_to_str(left),
+                    self.type_to_str(right)
+                ),
+                CheckTypeSource::Return => format!(
+                    "Trying to return a value of type '{}' in a function with declared return type of '{}'",
+                    self.type_to_str(left),
+                    self.type_to_str(right),
+                ),
+                CheckTypeSource::Throw => format!(
+                    "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
+                    self.type_to_str(left),
+                    self.type_to_str(right),
+                ),
+                CheckTypeSource::Yield => format!(
+                    "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
+                    self.type_to_str(left),
+                    self.type_to_str(right),
+                ),
+            },
+            range: error_range,
+            severity: DiagnosticSeverity::Warning,
+        });
+
         None
+    }
+
+    fn check_or_update_type(
+        &mut self,
+        current: Type,
+        current_state: TypeState,
+        new: NewType,
+        source: CheckTypeSource,
+    ) -> Option<Type> {
+        match current_state {
+            TypeState::NotAssigned => Some(match new {
+                NewType::Explicit { typ, .. } => typ,
+                NewType::NotExplicit(new) => new.typ,
+            }),
+            TypeState::Inferred => match new {
+                NewType::NotExplicit(new) => Some(self.merge_or_union(current, new.typ)),
+                NewType::Explicit { typ, value_range } => {
+                    self.check_type(typ, current, source, value_range)
+                }
+            },
+            TypeState::Explicit => match new {
+                NewType::Explicit { typ, .. } => Some(typ),
+                NewType::NotExplicit(new) => self.check_type(current, new.typ, source, new.range),
+            },
+        }
     }
 
     fn collect_params(
@@ -985,7 +1086,7 @@ impl<'db> Collector<'db> {
         for (count, param) in parameters.enumerate() {
             match param {
                 Parameter::Variable(var) => {
-                    let Some((name, text)) = get_name(&var) else {
+                    let Some(name) = get_name(&var) else {
                         let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                             continue;
                         };
@@ -1017,17 +1118,17 @@ impl<'db> Collector<'db> {
                         }
 
                         let symbol = self.symbol(Symbol {
-                            name: text.clone(),
-                            typ: Type::Unknown.into(),
+                            name: name.text().into(),
+                            typ: Type::Unknown,
                             kind: SymbolKind::Local(LocalKind::Parameter),
-                            name_range: name.syntax().text_range(),
+                            name_range: name.text_range(),
                             range: var.syntax().text_range(),
                             ..Default::default()
                         });
 
                         self.resolve_variable_doc(symbol, &var);
 
-                        insert_symbol(&mut self.current_scope().locals, text, symbol);
+                        insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
                         self.arena[idx].params.push(symbol);
                         continue;
                     };
@@ -1035,17 +1136,17 @@ impl<'db> Collector<'db> {
                     let typ = self.expr_to_type(&expr);
 
                     let symbol = self.symbol(Symbol {
-                        name: text.clone(),
-                        typ: typ.into(),
+                        name: name.text().into(),
+                        typ,
                         kind: SymbolKind::Local(LocalKind::Parameter),
-                        name_range: name.syntax().text_range(),
+                        name_range: name.text_range(),
                         range: var.syntax().text_range(),
                         ..Default::default()
                     });
 
                     self.resolve_variable_doc(symbol, &var);
 
-                    insert_symbol(&mut self.current_scope().locals, text, symbol);
+                    insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
                     self.arena[idx].params.push(symbol);
 
                     match params_state {
@@ -1068,15 +1169,15 @@ impl<'db> Collector<'db> {
                     ParamsState::NoDefault => {
                         let vargv_array = self.array(ArrayData { typ: Type::Unknown });
                         let symbol = self.symbol(Symbol {
-                            name: "vargv".to_owned(),
-                            typ: Type::Array(Some(vargv_array)).into(),
+                            name: "vargv".into(),
+                            typ: Type::Array(Some(vargv_array)),
                             kind: SymbolKind::Local(LocalKind::VariedArgs),
                             name_range: var_args.syntax().text_range(),
                             range: var_args.syntax().text_range(),
                             ..Default::default()
                         });
 
-                        insert_symbol(&mut self.current_scope().locals, "vargv".to_owned(), symbol);
+                        insert_symbol(&mut self.current_scope().locals, "vargv".into(), symbol);
                         params_state = ParamsState::VarArgs(count, symbol);
                     }
                     ParamsState::Default(_) => {
@@ -1151,8 +1252,9 @@ impl<'db> Collector<'db> {
                 };
 
                 Some(self.callable(
+                    callable.typ,
                     TypeWithRange {
-                        typ: member.typ.0,
+                        typ: member.typ,
                         range: callable.range,
                     },
                     arguments,
@@ -1177,8 +1279,9 @@ impl<'db> Collector<'db> {
                 };
 
                 Some(self.callable(
+                    callable.typ,
                     TypeWithRange {
-                        typ: member.typ.0,
+                        typ: member.typ,
                         range: callable.range,
                     },
                     arguments,
@@ -1191,7 +1294,7 @@ impl<'db> Collector<'db> {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "'{}' does not support {}",
-                                self.type_to_string(callable.typ),
+                                self.type_to_str(callable.typ),
                                 keyword
                             ),
                             range: callable.range,
@@ -1203,9 +1306,9 @@ impl<'db> Collector<'db> {
                             self.diagnostics.push(Diagnostic {
                                 message: format!(
                                     "'{}' does not support {} with '{}'",
-                                    self.type_to_string(callable.typ),
+                                    self.type_to_str(callable.typ),
                                     keyword,
-                                    self.type_to_string(right.typ)
+                                    self.type_to_str(right.typ)
                                 ),
                                 range: right.range,
                                 ..Default::default()
@@ -1278,14 +1381,16 @@ impl<'db> Collector<'db> {
 
                 return NewSlotResult::Allowed;
             }
-            self.diagnostics.push(Diagnostic {
-                message: format!(
-                    "'{}' does not support new slot operator",
-                    self.type_to_string(operand.typ)
-                ),
-                range: operand.range,
-                severity: DiagnosticSeverity::Error,
-            });
+            if self.get(id).type_set.contains(TypeSet::ANY) {
+                self.diagnostics.push(Diagnostic {
+                    message: format!(
+                        "'{}' does not support new slot operator",
+                        self.type_to_str(operand.typ)
+                    ),
+                    range: operand.range,
+                    severity: DiagnosticSeverity::Error,
+                });
+            }
             return NewSlotResult::NotAllowed;
         }
         self.new_slot_single(operand, arguments, true)
@@ -1296,49 +1401,35 @@ impl<'db> Collector<'db> {
         operand: TypeWithRange,
         index: TypeWithRange,
         should_error: bool,
-    ) -> bool {
+    ) -> Option<Type> {
         match operand.typ {
-            Type::Class(_) => true,
+            Type::Class(_) => Some(Type::Unknown),
             Type::Table(_) => {
-                self.call_metamethod(operand, "_delslot", &[index], MetamethodErrors::No);
-                true
+                self.call_metamethod(operand, "_delslot", &[index], MetamethodErrors::No)
             }
-            _ => self
-                .call_metamethod(
-                    operand,
-                    "_delslot",
-                    &[index],
-                    if should_error {
-                        MetamethodErrors::Yes {
-                            keyword: "delete operator",
-                        }
-                    } else {
-                        MetamethodErrors::No
-                    },
-                )
-                .is_some(),
+            _ => self.call_metamethod(
+                operand,
+                "_delslot",
+                &[index],
+                if should_error {
+                    MetamethodErrors::Yes {
+                        keyword: "delete operator",
+                    }
+                } else {
+                    MetamethodErrors::No
+                },
+            ),
         }
     }
 
-    fn delete(&mut self, operand: TypeWithRange, index: TypeWithRange) -> bool {
-        if let Type::Union(id) = operand.typ {
-            let types = self.get(id).types.clone();
-            for typ in types {
-                if self.delete_single(TypeWithRange { typ, ..operand }, index, false) {
-                    return true;
-                }
-            }
-            self.diagnostics.push(Diagnostic {
-                message: format!(
-                    "'{}' does not support delete operator",
-                    self.type_to_string(operand.typ)
-                ),
-                range: operand.range,
-                severity: DiagnosticSeverity::Error,
-            });
-            return false;
-        }
-        self.delete_single(operand, index, false)
+    fn delete(&mut self, operand: TypeWithRange, index: TypeWithRange) -> Option<Type> {
+        dispatch_union!(
+            self,
+            operand,
+            "'{}' does not support equals operator",
+            delete_single,
+            index
+        )
     }
 
     fn set_single(
@@ -1346,52 +1437,39 @@ impl<'db> Collector<'db> {
         operand: TypeWithRange,
         arguments: &[TypeWithRange],
         should_error: bool,
-    ) -> bool {
+    ) -> Option<Type> {
         match operand.typ {
-            Type::Array(_) | Type::Class(_) => true,
-            Type::Table(_) | Type::Instance(_) => {
-                self.call_metamethod(operand, "_set", arguments, MetamethodErrors::No);
-                true
-            }
-            _ => self
-                .call_metamethod(
-                    operand,
-                    "_set",
-                    arguments,
-                    if should_error {
-                        MetamethodErrors::Yes {
-                            keyword: "equals operator",
-                        }
-                    } else {
-                        MetamethodErrors::No
-                    },
-                )
-                .is_some(),
+            Type::Array(_) | Type::Class(_) => Some(arguments.last()?.typ),
+            Type::Table(_) | Type::Instance(_) => Some(
+                self.call_metamethod(operand, "_set", arguments, MetamethodErrors::No)
+                    .unwrap_or(arguments.last()?.typ),
+            ),
+            _ => self.call_metamethod(
+                operand,
+                "_set",
+                arguments,
+                if should_error {
+                    MetamethodErrors::Yes {
+                        keyword: "equals operator",
+                    }
+                } else {
+                    MetamethodErrors::No
+                },
+            ),
         }
     }
 
-    fn set(&mut self, operand: TypeWithRange, arguments: &[TypeWithRange]) -> bool {
-        if let Type::Union(id) = operand.typ {
-            let types = self.get(id).types.clone();
-            for typ in types {
-                if self.set_single(TypeWithRange { typ, ..operand }, arguments, false) {
-                    return true;
-                }
-            }
-            self.diagnostics.push(Diagnostic {
-                message: format!(
-                    "'{}' does not support equals operator",
-                    self.type_to_string(operand.typ)
-                ),
-                range: operand.range,
-                severity: DiagnosticSeverity::Error,
-            });
-            return false;
-        }
-        self.set_single(operand, arguments, false)
+    fn set(&mut self, operand: TypeWithRange, arguments: &[TypeWithRange]) -> Option<Type> {
+        dispatch_union!(
+            self,
+            operand,
+            "'{}' does not support equals operator",
+            set_single,
+            arguments
+        )
     }
 
-    fn arithmetic_operator_single(
+    fn arithmetic_single(
         &mut self,
         operand: TypeWithRange,
         with: TypeWithRange,
@@ -1413,22 +1491,21 @@ impl<'db> Collector<'db> {
         if (operator == BinaryOperator::Add || operator == BinaryOperator::AddAssign)
             && (TypeSet::STRING.contains(operand_set) || TypeSet::STRING.contains(with_set))
         {
-            return Some(Type::String(None));
+            return Some(Type::STRING);
         }
 
         if TypeSet::INTEGER.contains(operand_set) && TypeSet::INTEGER.contains(with_set) {
-            return Some(Type::Integer(None));
+            return Some(Type::INTEGER);
         }
 
         if TypeSet::are_both_numbers(operand_set, with_set) {
-            return Some(Type::Float(None));
+            return Some(Type::FLOAT);
         }
 
-        let arguments = vec![with];
         self.call_metamethod(
             operand,
             metamethod,
-            &arguments,
+            &[with],
             if should_error {
                 MetamethodErrors::YesBinary {
                     keyword,
@@ -1446,30 +1523,14 @@ impl<'db> Collector<'db> {
         with: TypeWithRange,
         operator: BinaryOperator,
     ) -> Option<Type> {
-        if let Type::Union(id) = operand.typ {
-            let types = self.get(id).types.clone();
-            for typ in types {
-                if let Some(result) = self.arithmetic_operator_single(
-                    TypeWithRange { typ, ..operand },
-                    with,
-                    operator,
-                    false,
-                ) {
-                    return Some(result);
-                }
-            }
-            self.diagnostics.push(Diagnostic {
-                message: format!(
-                    "'{}' does not support arithmetic operations",
-                    self.type_to_string(operand.typ)
-                ),
-                range: operand.range,
-                severity: DiagnosticSeverity::Error,
-            });
-            return None;
-        }
-
-        self.arithmetic_operator_single(operand, with, operator, true)
+        dispatch_union!(
+            self,
+            operand,
+            "'{}' does not support arithmetic operations",
+            arithmetic_single,
+            with,
+            operator
+        )
     }
 
     fn iterable_single(
@@ -1479,7 +1540,7 @@ impl<'db> Collector<'db> {
     ) -> Option<(Type, Type)> {
         match iterable.typ {
             Type::Table(_) => {
-                let arguments = vec![TypeWithRange {
+                let arguments = [TypeWithRange {
                     typ: Type::Null,
                     ..iterable
                 }];
@@ -1488,18 +1549,16 @@ impl<'db> Collector<'db> {
             }
             Type::Array(id) => {
                 let typ = id.map_or(Type::Unknown, |id| self.get(id).typ);
-                Some((Type::Integer(None), typ))
+                Some((Type::INTEGER, typ))
             }
             Type::Generator(id) => {
-                let typ = id
-                    .and_then(|id| self.get(id).yields.as_ref().map(|y| y.0))
-                    .unwrap_or(Type::Unknown);
+                let typ = id.map_or(Type::Unknown, |id| self.get(id).yields);
 
-                Some((Type::Integer(None), typ))
+                Some((Type::INTEGER, typ))
             }
             Type::Class(_) => Some((Type::Unknown, Type::Unknown)),
             _ => {
-                let arguments = vec![TypeWithRange {
+                let arguments = [TypeWithRange {
                     typ: Type::Null,
                     ..iterable
                 }];
@@ -1522,30 +1581,18 @@ impl<'db> Collector<'db> {
     }
 
     fn iterable(&mut self, iterable: TypeWithRange) -> Option<(Type, Type)> {
-        if let Type::Union(id) = iterable.typ {
-            let types = self.get(id).types.clone();
-            for typ in types {
-                if let Some(result) = self.iterable_single(TypeWithRange { typ, ..iterable }, false)
-                {
-                    return Some(result);
-                }
-            }
-            self.diagnostics.push(Diagnostic {
-                message: format!(
-                    "'{}' does not support iterating",
-                    self.type_to_string(iterable.typ)
-                ),
-                range: iterable.range,
-                severity: DiagnosticSeverity::Error,
-            });
-            return None;
-        }
-        self.iterable_single(iterable, true)
+        dispatch_union!(
+            self,
+            iterable,
+            "'{}' does not support iterating",
+            iterable_single
+        )
     }
 
     fn callable_single(
         &mut self,
         callable: TypeWithRange,
+        context: Type,
         arguments: &[TypeWithRange],
         should_error: bool,
     ) -> Option<Type> {
@@ -1575,34 +1622,41 @@ impl<'db> Collector<'db> {
 
                         let typ = self.get(vargv).typ;
 
-                        let Type::Array(Some(id)) = typ.0 else {
+                        let Type::Array(Some(id)) = typ else {
                             continue;
                         };
 
-                        let Some(new) = self.check_or_update_type(
-                            Some(AnnotatedType(self.get(id).typ, typ.1)),
-                            argument,
+                        let Some(new_typ) = self.check_or_update_type(
+                            typ,
+                            self.get(vargv).type_state,
+                            NewType::NotExplicit(argument),
                             CheckTypeSource::VarArgs,
                         ) else {
                             continue;
                         };
 
+                        if let Some(symbol) = self.get_mut(vargv) {
+                            symbol.type_state = TypeState::Inferred;
+                        }
+
                         if let Some(array) = self.get_mut(id) {
-                            array.typ = new;
+                            array.typ = new_typ;
                         }
                         continue;
                     };
 
                     let Some(new) = self.check_or_update_type(
-                        Some(self.get(param).typ),
-                        argument,
+                        self.get(param).typ,
+                        self.get(param).type_state,
+                        NewType::NotExplicit(argument),
                         CheckTypeSource::Parameter,
                     ) else {
                         continue;
                     };
 
                     if let Some(param) = self.get_mut(param) {
-                        param.typ.0 = new;
+                        param.typ = new;
+                        param.type_state = TypeState::Inferred;
                     }
                 }
 
@@ -1649,15 +1703,22 @@ impl<'db> Collector<'db> {
                         {
                             return Some(Type::Thread(func));
                         }
-                        return Some(Type::Thread(None));
+                        return Some(Type::THREAD);
+                    }
+                    Some(SpecialFunction::SetDelegate) => {
+                        self.set_delegate(context, arguments);
+                        return Some(context);
+                    }
+                    Some(SpecialFunction::Bindenv) => {
+                        return Some(self.bindenv(context, arguments));
                     }
                     None => {}
                 }
 
-                Some(if self.get(id).yields.is_some() {
-                    Type::Generator(Some(id))
+                Some(if self.get(id).yields_state == TypeState::NotAssigned {
+                    self.clone_type(self.get(id).ret)
                 } else {
-                    self.clone_type(self.get(id).ret.map_or(Type::Unknown, |r| r.0))
+                    Type::Generator(Some(id))
                 })
             }
             Type::Class(id) => {
@@ -1665,8 +1726,9 @@ impl<'db> Collector<'db> {
                     self.find_member(Container::Class(id?), "constructor", callable.range.start())
                 {
                     self.callable(
+                        context,
                         TypeWithRange {
-                            typ: symbol.typ.0,
+                            typ: symbol.typ,
                             ..callable
                         },
                         arguments,
@@ -1694,28 +1756,20 @@ impl<'db> Collector<'db> {
         }
     }
 
-    fn callable(&mut self, callable: TypeWithRange, arguments: &[TypeWithRange]) -> Option<Type> {
-        if let Type::Union(id) = callable.typ {
-            let types = self.get(id).types.clone();
-            for typ in types {
-                if let Some(result) =
-                    self.callable_single(TypeWithRange { typ, ..callable }, arguments, false)
-                {
-                    return Some(result);
-                }
-            }
-            self.diagnostics.push(Diagnostic {
-                message: format!(
-                    "'{}' does not support calling",
-                    self.type_to_string(callable.typ)
-                ),
-                range: callable.range,
-                severity: DiagnosticSeverity::Error,
-            });
-            return None;
-        }
-
-        self.callable_single(callable, arguments, true)
+    fn callable(
+        &mut self,
+        context: Type,
+        callable: TypeWithRange,
+        arguments: &[TypeWithRange],
+    ) -> Option<Type> {
+        dispatch_union!(
+            self,
+            callable,
+            "'{}' does not support calling",
+            callable_single,
+            context,
+            arguments
+        )
     }
 
     fn check_constant(&mut self, expr: NullableExprKind, range: TextRange) {
@@ -1723,8 +1777,10 @@ impl<'db> Collector<'db> {
             Some(ExpressionKind::Literal(
                 Type::Integer(Some(_))
                 | Type::Float(Some(_))
-                | Type::String(Some(_))
-                | Type::Boolean(Some(_)),
+                | Type::Boolean(Some(_))
+                | Type::String {
+                    literal: Some(_), ..
+                },
             )) => {}
             _ => {
                 self.diagnostics.push(Diagnostic {
@@ -1754,7 +1810,7 @@ impl<'db> Collector<'db> {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
-                                self.type_to_string(typ)
+                                self.type_to_str(typ)
                             ),
                             range,
                             severity: DiagnosticSeverity::Warning,
@@ -1779,9 +1835,12 @@ impl<'db> Collector<'db> {
                 bindenv,
                 params: Vec::new(),
                 params_state: ParamsState::NoDefault,
-                ret: None,
-                throws: None,
-                yields: None,
+                ret: Type::Unknown,
+                ret_state: TypeState::NotAssigned,
+                throws: Type::Unknown,
+                throws_state: TypeState::NotAssigned,
+                yields: Type::Unknown,
+                yields_state: TypeState::NotAssigned,
             }),
         );
 
@@ -1832,22 +1891,18 @@ impl<'db> Collector<'db> {
                         continue;
                     };
 
-                    let current_type = self.get(symbol).typ.0;
-                    if current_type != Type::Null && !self.is_type_suitable(doc_type, current_type)
+                    if let Some(typ) = self.check_or_update_type(
+                        self.get(symbol).typ,
+                        self.get(symbol).type_state,
+                        NewType::Explicit {
+                            typ: doc_type,
+                            value_range: self.get(symbol).range,
+                        },
+                        CheckTypeSource::Variable,
+                    ) && let Some(symbol) = self.get_mut(symbol)
                     {
-                        self.diagnostics.push(Diagnostic {
-                            message: format!(
-                                "Trying to assign a value of type '{}' to a variable of type '{}'",
-                                self.type_to_string(current_type),
-                                self.type_to_string(doc_type)
-                            ),
-                            range: self.get(symbol).range,
-                            severity: DiagnosticSeverity::Warning,
-                        });
-                    }
-
-                    if let Some(symbol) = self.get_mut(symbol) {
-                        symbol.typ = AnnotatedType(doc_type, true);
+                        symbol.typ = typ;
+                        symbol.type_state = TypeState::Explicit;
                     }
                 }
                 Tag::Const(_) => {
@@ -1900,7 +1955,8 @@ impl<'db> Collector<'db> {
                     };
 
                     if let Some(doc_type) = self.doc_type(typ.types(), offset) {
-                        self.arena[entry.idx].ret = Some(AnnotatedType(doc_type, true));
+                        self.arena[entry.idx].ret = doc_type;
+                        self.arena[entry.idx].ret_state = TypeState::Explicit;
                     }
                 }
                 Tag::Param(tag) => {
@@ -1913,7 +1969,7 @@ impl<'db> Collector<'db> {
                         .params
                         .iter()
                         .rev()
-                        .find(|id| self.get(**id).name == text)
+                        .find(|id| self.get(**id).name.as_ref() == text)
                         .copied()
                     else {
                         self.diagnostics.push(Diagnostic {
@@ -1941,13 +1997,13 @@ impl<'db> Collector<'db> {
                     // Default parameters are resolved in 'collect_function' since they're evaluated immediately
                     // after seeing it, and since the doc comment is resolved here we match the type of the default
                     // parameter with our annotated type
-                    let current_type = self.get(param_id).typ.0;
+                    let current_type = self.get(param_id).typ;
                     if !self.is_type_suitable(doc_type, current_type) {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to assign a default value of type '{}' to a variable of type '{}'",
-                                self.type_to_string(current_type),
-                                self.type_to_string(doc_type)
+                                self.type_to_str(current_type),
+                                self.type_to_str(doc_type)
                             ),
                             range: self.get(param_id).range,
                             severity: DiagnosticSeverity::Warning
@@ -1955,7 +2011,8 @@ impl<'db> Collector<'db> {
                     }
 
                     if let Some(param) = self.get_mut(param_id) {
-                        param.typ = AnnotatedType(doc_type, true);
+                        param.typ = doc_type;
+                        param.type_state = TypeState::Explicit;
                     }
                 }
                 Tag::Throw(tag) => {
@@ -1964,7 +2021,8 @@ impl<'db> Collector<'db> {
                     };
 
                     if let Some(doc_type) = self.doc_type(typ.types(), offset) {
-                        self.arena[entry.idx].throws = Some(AnnotatedType(doc_type, true));
+                        self.arena[entry.idx].throws = doc_type;
+                        self.arena[entry.idx].throws_state = TypeState::Explicit;
                     }
                 }
                 Tag::Yield(tag) => {
@@ -1973,7 +2031,8 @@ impl<'db> Collector<'db> {
                     };
 
                     if let Some(doc_type) = self.doc_type(typ.types(), offset) {
-                        self.arena[entry.idx].yields = Some(AnnotatedType(doc_type, true));
+                        self.arena[entry.idx].yields = doc_type;
+                        self.arena[entry.idx].yields_state = TypeState::Explicit;
                     }
                 }
                 Tag::VarArgs(tag) => {
@@ -1997,7 +2056,8 @@ impl<'db> Collector<'db> {
 
                     let array_id = self.array(ArrayData { typ });
                     if let Some(symbol) = self.get_mut(id) {
-                        symbol.typ = AnnotatedType(Type::Array(Some(array_id)), true);
+                        symbol.typ = Type::Array(Some(array_id));
+                        symbol.type_state = TypeState::Explicit;
                     }
                 }
                 _ => {}
@@ -2032,17 +2092,20 @@ impl<'db> Collector<'db> {
 
                 if let Some(new) = self.check_or_update_type(
                     self.arena[entry.idx].ret,
-                    new_ret,
+                    self.arena[entry.idx].ret_state,
+                    NewType::NotExplicit(new_ret),
                     CheckTypeSource::Return,
                 ) {
-                    self.arena[entry.idx].ret = Some(new.into());
+                    self.arena[entry.idx].ret = new;
+                    self.arena[entry.idx].ret_state = TypeState::Inferred;
                 }
             }
             FunctionBody::Stmt(stmt) => {
                 self.collect_stmt(&stmt);
 
-                if self.arena[entry.idx].ret.is_none() {
-                    self.arena[entry.idx].ret = Some(Type::Null.into());
+                if self.arena[entry.idx].ret_state == TypeState::NotAssigned {
+                    self.arena[entry.idx].ret = Type::Null;
+                    self.arena[entry.idx].ret_state = TypeState::Inferred;
                 }
             }
         }
@@ -2068,24 +2131,29 @@ impl<'db> Collector<'db> {
         Some(DeferredFunctionEntry { idx, trace })
     }
 
-    fn get_member_name(&mut self, name: MemberName) -> Option<(TextRange, String)> {
+    fn get_member_name(&mut self, name: MemberName) -> Option<(TextRange, Box<str>)> {
         match name {
             MemberName::Identifier(n) => {
-                let text = n.name().and_then(|n| n.text())?;
-                Some((n.syntax().text_range(), text))
+                let name = n.name()?;
+                let identifier = name.identifier()?;
+                Some((identifier.text_range(), identifier.text().into()))
             }
             MemberName::String(n) => {
                 let id = n.token().map(|r| self.string(&r))?;
                 let s = self.get(id);
-                Some((s.unquoted_range, s.text.to_string()))
+                Some((s.unquoted_range, s.text.clone()))
             }
             MemberName::Computed(n) => {
-                let typ = self.expr_to_type(&n.expression()?);
-                let Type::String(Some(id)) = typ else {
+                let kind = self.collect_expr(&n.expression()?);
+                let Some(ExpressionKind::Literal(Type::String {
+                    literal: Some(literal),
+                    ..
+                })) = kind
+                else {
                     return None;
                 };
-                let s = self.get(id);
-                Some((s.unquoted_range, s.text.to_string()))
+                let s = self.get(literal);
+                Some((s.unquoted_range, s.text.clone()))
             }
         }
     }
@@ -2096,14 +2164,14 @@ impl<'db> Collector<'db> {
             Member::Method(method) => {
                 let id = self.collect_function(method);
 
-                let Some((name, text)) = get_name(method) else {
+                let Some(name) = get_name(method) else {
                     return;
                 };
 
                 let symbol = self.symbol(Symbol {
-                    name: text.clone(),
-                    typ: Type::Function(Some(id)).into(),
-                    name_range: name.syntax().text_range(),
+                    name: name.text().into(),
+                    typ: Type::Function(Some(id)),
+                    name_range: name.text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
                 });
@@ -2114,7 +2182,7 @@ impl<'db> Collector<'db> {
 
                 self.resolve_variable_doc(symbol, method);
 
-                self.add_current_container_member(text, symbol);
+                self.add_current_container_member(name.text().into(), symbol);
             }
             Member::Constructor(constructor) => {
                 let id = self.collect_function(constructor);
@@ -2124,8 +2192,8 @@ impl<'db> Collector<'db> {
                 };
 
                 let symbol = self.symbol(Symbol {
-                    name: "constructor".to_owned(),
-                    typ: Type::Function(Some(id)).into(),
+                    name: "constructor".into(),
+                    typ: Type::Function(Some(id)),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
@@ -2137,7 +2205,7 @@ impl<'db> Collector<'db> {
 
                 self.resolve_variable_doc(symbol, constructor);
 
-                self.add_current_container_member("constructor".to_owned(), symbol);
+                self.add_current_container_member("constructor".into(), symbol);
             }
         }
     }
@@ -2149,15 +2217,15 @@ impl<'db> Collector<'db> {
                 let id = self.collect_function(method);
                 let statik = self.try_swap_to_instance(method, Some(id));
 
-                let Some((name, text)) = get_name(method) else {
+                let Some(name) = get_name(method) else {
                     return;
                 };
 
                 let symbol = self.symbol(Symbol {
-                    name: text.clone(),
-                    typ: Type::Function(Some(id)).into(),
+                    name: name.text().into(),
+                    typ: Type::Function(Some(id)),
                     kind: SymbolKind::Property(statik),
-                    name_range: name.syntax().text_range(),
+                    name_range: name.text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
                 });
@@ -2168,7 +2236,7 @@ impl<'db> Collector<'db> {
 
                 self.resolve_variable_doc(symbol, method);
 
-                self.add_current_container_member(text, symbol);
+                self.add_current_container_member(name.text().into(), symbol);
             }
             Member::Constructor(constructor) => {
                 let id = self.collect_function(constructor);
@@ -2179,8 +2247,8 @@ impl<'db> Collector<'db> {
                 };
 
                 let symbol = self.symbol(Symbol {
-                    name: "constructor".to_owned(),
-                    typ: Type::Function(Some(id)).into(),
+                    name: "constructor".into(),
+                    typ: Type::Function(Some(id)),
                     kind: SymbolKind::Property(statik),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
@@ -2193,7 +2261,7 @@ impl<'db> Collector<'db> {
 
                 self.resolve_variable_doc(symbol, constructor);
 
-                self.add_current_container_member("constructor".to_owned(), symbol);
+                self.add_current_container_member("constructor".into(), symbol);
             }
         }
     }
@@ -2213,9 +2281,14 @@ impl<'db> Collector<'db> {
 
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ: typ.into(),
+            typ,
             name_range,
             range: property.syntax().text_range(),
+            type_state: if typ == Type::Null {
+                TypeState::NotAssigned
+            } else {
+                TypeState::Inferred
+            },
             ..Default::default()
         });
 
@@ -2247,10 +2320,15 @@ impl<'db> Collector<'db> {
 
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ: typ.into(),
+            typ,
             kind: SymbolKind::Property(statik),
             name_range,
             range: property.syntax().text_range(),
+            type_state: if typ == Type::Null {
+                TypeState::NotAssigned
+            } else {
+                TypeState::Inferred
+            },
             ..Default::default()
         });
 
@@ -2280,10 +2358,11 @@ impl<'db> Collector<'db> {
 
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ: typ.into(),
+            typ,
             kind: SymbolKind::EnumMember,
             name_range,
             range: property.syntax().text_range(),
+            type_state: TypeState::Inferred,
             ..Default::default()
         });
 
@@ -2329,7 +2408,7 @@ impl<'db> Collector<'db> {
 
     fn local_variable(&mut self, decl: &LocalVariableDeclaration) {
         for var in decl.declarations() {
-            let Some((name, text)) = get_name(&var) else {
+            let Some(name) = get_name(&var) else {
                 let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                     continue;
                 };
@@ -2340,10 +2419,10 @@ impl<'db> Collector<'db> {
 
             let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                 let id = self.symbol(Symbol {
-                    name: text.clone(),
-                    typ: Type::Null.into(),
+                    name: name.text().into(),
+                    typ: Type::Null,
                     kind: SymbolKind::Local(LocalKind::Variable),
-                    name_range: name.syntax().text_range(),
+                    name_range: name.text_range(),
                     range: var.syntax().text_range(),
                     ..Default::default()
                 });
@@ -2352,16 +2431,17 @@ impl<'db> Collector<'db> {
                     self.resolve_variable_doc(id, decl);
                 }
 
-                insert_symbol(&mut self.current_scope().locals, text, id);
+                insert_symbol(&mut self.current_scope().locals, name.text().into(), id);
                 continue;
             };
 
             let typ = self.expr_to_type(&expr);
             let id = self.symbol(Symbol {
-                name: text.clone(),
-                typ: typ.into(),
+                name: name.text().into(),
+                typ,
+                type_state: TypeState::Inferred,
                 kind: SymbolKind::Local(LocalKind::Variable),
-                name_range: name.syntax().text_range(),
+                name_range: name.text_range(),
                 range: var.syntax().text_range(),
                 ..Default::default()
             });
@@ -2370,21 +2450,21 @@ impl<'db> Collector<'db> {
                 self.resolve_variable_doc(id, decl);
             }
 
-            insert_symbol(&mut self.current_scope().locals, text, id);
+            insert_symbol(&mut self.current_scope().locals, name.text().into(), id);
         }
     }
 
     fn local_function(&mut self, decl: &LocalFunctionDeclaration) {
         let id = self.collect_function(decl);
-        let Some((name, text)) = get_name(decl) else {
+        let Some(name) = get_name(decl) else {
             return;
         };
 
         let symbol = self.symbol(Symbol {
-            name: text.clone(),
-            typ: Type::Function(Some(id)).into(),
+            name: name.text().into(),
+            typ: Type::Function(Some(id)),
             kind: SymbolKind::Local(LocalKind::Function),
-            name_range: name.syntax().text_range(),
+            name_range: name.text_range(),
             range: decl.syntax().text_range(),
             ..Default::default()
         });
@@ -2395,7 +2475,7 @@ impl<'db> Collector<'db> {
 
         self.resolve_variable_doc(symbol, decl);
 
-        insert_symbol(&mut self.current_scope().locals, text, symbol);
+        insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
     }
 
     fn block_statement(&mut self, stmt: &BlockStatement) {
@@ -2416,22 +2496,26 @@ impl<'db> Collector<'db> {
                 self.expr_kind_to_type(value)
             });
 
-        let Some((name, text)) = get_name(stmt) else {
+        let Some(name) = get_name(stmt) else {
             return;
         };
 
         let symbol = self.symbol(Symbol {
-            name: text.clone(),
-            typ: typ.into(),
+            name: name.text().into(),
+            typ,
             kind: SymbolKind::Constant,
-            name_range: name.syntax().text_range(),
+            name_range: name.text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
         });
 
         self.resolve_variable_doc(symbol, stmt);
 
-        insert_symbol(&mut self.arena[self.const_table].members, text, symbol);
+        insert_symbol(
+            &mut self.arena[self.const_table].members,
+            name.text().into(),
+            symbol,
+        );
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
@@ -2452,33 +2536,33 @@ impl<'db> Collector<'db> {
                 });
 
         if let Some(key) = stmt.key()
-            && let Some((name, text)) = get_name(&key)
+            && let Some(name) = get_name(&key)
         {
             let symbol = self.symbol(Symbol {
-                name: text.clone(),
-                typ: key_type.into(),
+                name: name.text().into(),
+                typ: key_type,
                 kind: SymbolKind::Local(LocalKind::Variable),
-                name_range: name.syntax().text_range(),
+                name_range: name.text_range(),
                 range: key.syntax().text_range(),
                 ..Default::default()
             });
 
-            insert_symbol(&mut self.current_scope().locals, text, symbol);
+            insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
         }
 
         if let Some(value) = stmt.value()
-            && let Some((name, text)) = get_name(&value)
+            && let Some(name) = get_name(&value)
         {
             let symbol = self.symbol(Symbol {
-                name: text.clone(),
-                typ: value_type.into(),
+                name: name.text().into(),
+                typ: value_type,
                 kind: SymbolKind::Local(LocalKind::Variable),
-                name_range: name.syntax().text_range(),
+                name_range: name.text_range(),
                 range: value.syntax().text_range(),
                 ..Default::default()
             });
 
-            insert_symbol(&mut self.current_scope().locals, text, symbol);
+            insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
         }
 
         if let Some(body) = stmt.body() {
@@ -2548,20 +2632,16 @@ impl<'db> Collector<'db> {
 
         let mut parts = qualified_name.parts();
 
-        let Some(first) = parts.next().and_then(|p| p.name()) else {
-            let Some(name) = qualified_name.name() else {
-                return;
-            };
-
-            let Some(text) = name.text() else {
+        let Some(first) = parts.next().and_then(|p| get_name(&p)) else {
+            let Some(name) = get_name(&qualified_name) else {
                 return;
             };
 
             // Plain `function abc()`: declare in current container
             let symbol = self.symbol(Symbol {
-                name: text.clone(),
-                typ: Type::Function(Some(id)).into(),
-                name_range: name.syntax().text_range(),
+                name: name.text().into(),
+                typ: Type::Function(Some(id)),
+                name_range: name.text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()
             });
@@ -2572,13 +2652,11 @@ impl<'db> Collector<'db> {
 
             self.resolve_variable_doc(symbol, stmt);
 
-            self.add_current_container_member(text, symbol);
+            self.add_current_container_member(name.text().into(), symbol);
             return;
         };
 
-        let Some(text) = first.text() else {
-            return;
-        };
+        let text = first.text();
 
         let offset = qualified_name.syntax().text_range().end();
 
@@ -2589,7 +2667,13 @@ impl<'db> Collector<'db> {
                 false,
             )
             .into_iter()
-            .find_map(|(name, id)| if text == name { Some(id) } else { None });
+            .find_map(|(name, id)| {
+                if text == name.as_ref() {
+                    Some(id)
+                } else {
+                    None
+                }
+            });
 
         let root = || {
             self.members_of_table(
@@ -2598,41 +2682,47 @@ impl<'db> Collector<'db> {
                 ImportMembers::Root,
             )
             .into_iter()
-            .find_map(|(name, id)| if text == name { Some(id) } else { None })
+            .find_map(|(name, id)| {
+                if text == name.as_ref() {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
         };
 
+        let range = first.text_range();
         let Some(symbol_id) = members.or_else(root) else {
             if self
                 .local_members(offset)
                 .into_iter()
-                .any(|(name, _)| text == name)
+                .any(|(name, _)| text == name.as_ref())
             {
                 self.diagnostics.push(Diagnostic {
                     message: "Function statement does not lookup locals. Initial symbol not found"
                         .to_owned(),
-                    range: first.syntax().text_range(),
+                    range,
                     severity: DiagnosticSeverity::Information,
                 });
             }
             return;
         };
 
-        let name_range = first.syntax().text_range();
         let mut typ = TypeWithRange {
-            typ: self.get(symbol_id).typ.0,
-            range: name_range,
+            typ: self.get(symbol_id).typ,
+            range,
         };
-        self.new_reference(name_range, symbol_id);
+        self.new_reference(range, symbol_id);
 
         for segment in parts {
-            let arguments = vec![
+            let arguments = [
                 TypeWithRange {
-                    typ: Type::String(None),
+                    typ: Type::STRING,
                     range: typ.range,
                 },
                 TypeWithRange {
                     typ: Type::Unknown,
-                    range: typ.range,
+                    range: segment.syntax().text_range(),
                 },
             ];
 
@@ -2640,15 +2730,9 @@ impl<'db> Collector<'db> {
                 return;
             };
 
-            let Some(name) = segment.name() else {
+            let Some(name_token) = get_name(&segment) else {
                 return;
             };
-
-            let Some(text) = name.text() else {
-                return;
-            };
-
-            let name_range = name.syntax().text_range();
 
             let Some(id) = self
                 .members_of_container(
@@ -2657,35 +2741,37 @@ impl<'db> Collector<'db> {
                     false,
                 )
                 .into_iter()
-                .find_map(|(name, id)| if text == name { Some(id) } else { None })
+                .find_map(|(name, id)| {
+                    if name.as_ref() == name_token.text() {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                })
             else {
-                dbg!("no");
                 return;
             };
 
+            let range = name_token.text_range();
             typ = TypeWithRange {
-                typ: self.get(id).typ.0,
-                range: name_range,
+                typ: self.get(id).typ,
+                range,
             };
-            self.new_reference(name_range, id);
+            self.new_reference(range, id);
         }
 
-        let Some(final_name) = qualified_name.name() else {
+        let Some(final_name) = get_name(&qualified_name) else {
             return;
         };
 
-        let Some(final_text) = final_name.text() else {
-            return;
-        };
-
-        let arguments = vec![
+        let arguments = [
             TypeWithRange {
-                typ: Type::String(None),
+                typ: Type::STRING,
                 range: typ.range,
             },
             TypeWithRange {
                 typ: Type::Function(Some(id)),
-                range: final_name.syntax().text_range(),
+                range: final_name.text_range(),
             },
         ];
 
@@ -2694,35 +2780,32 @@ impl<'db> Collector<'db> {
         };
 
         let symbol = self.symbol(Symbol {
-            name: final_text.clone(),
-            typ: Type::Function(Some(id)).into(),
-            name_range: final_name.syntax().text_range(),
+            name: final_name.text().into(),
+            typ: Type::Function(Some(id)),
+            name_range: final_name.text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
         });
 
         if let Some(function) = self.get_mut(id) {
             function.symbol = Some(symbol);
+            function.container = container;
         }
 
         self.resolve_variable_doc(symbol, stmt);
 
-        self.add_container_member(container, final_text, symbol);
-
-        if let Some(function) = self.get_mut(id) {
-            function.container = container;
-        }
+        self.add_container_member(container, final_name.text().into(), symbol);
     }
 
     fn enum_statement(&mut self, stmt: &EnumStatement) {
         let enum_ = EnumId::new(self.file, self.arena.alloc(EnumData::default()));
 
-        if let Some((name, text)) = get_name(stmt) {
+        if let Some(name) = get_name(stmt) {
             let symbol = self.symbol(Symbol {
-                name: text.clone(),
-                typ: Type::Enum(enum_).into(),
+                name: name.text().into(),
+                typ: Type::Enum(enum_),
                 kind: SymbolKind::Enum,
-                name_range: name.syntax().text_range(),
+                name_range: name.text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()
             });
@@ -2731,7 +2814,11 @@ impl<'db> Collector<'db> {
 
             self.arena[enum_.idx()].symbol = Some(symbol);
 
-            insert_symbol(&mut self.arena[self.const_table].members, text, symbol);
+            insert_symbol(
+                &mut self.arena[self.const_table].members,
+                name.text().into(),
+                symbol,
+            );
         }
 
         let save_symbol = self.container;
@@ -2816,7 +2903,7 @@ impl<'db> Collector<'db> {
                 self.diagnostics.push(Diagnostic {
                     message: format!(
                         "Discriminant of type '{}' depends on the variable addresses",
-                        self.type_to_string(disc.typ)
+                        self.type_to_str(disc.typ)
                     ),
                     range: disc.range,
                     severity: DiagnosticSeverity::Warning,
@@ -2841,7 +2928,7 @@ impl<'db> Collector<'db> {
                                 && !TypeSet::are_both_numbers(case_set, discriminant_set)
                             {
                                 self.diagnostics.push(Diagnostic {
-                                    message: format!("Case of type '{}' is incompitable with the discriminant of type '{}'", self.type_to_string(case_type.typ), self.type_to_string(discriminant_typ)),
+                                    message: format!("Case of type '{}' is incompitable with the discriminant of type '{}'", self.type_to_str(case_type.typ), self.type_to_str(discriminant_typ)),
                                     range: case_type.range,
                                     severity: DiagnosticSeverity::Warning,
                                 });
@@ -2886,10 +2973,14 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        if let Some(new) =
-            self.check_or_update_type(self.arena[function].ret, value, CheckTypeSource::Return)
-        {
-            self.arena[function].ret = Some(new.into());
+        if let Some(new) = self.check_or_update_type(
+            self.arena[function].ret,
+            self.arena[function].ret_state,
+            NewType::NotExplicit(value),
+            CheckTypeSource::Return,
+        ) {
+            self.arena[function].ret = new;
+            self.arena[function].ret_state = TypeState::Inferred;
         }
     }
 
@@ -2908,10 +2999,14 @@ impl<'db> Collector<'db> {
             return;
         };
 
-        if let Some(new) =
-            self.check_or_update_type(self.arena[function].yields, value, CheckTypeSource::Yield)
-        {
-            self.arena[function].yields = Some(new.into());
+        if let Some(new) = self.check_or_update_type(
+            self.arena[function].yields,
+            self.arena[function].yields_state,
+            NewType::NotExplicit(value),
+            CheckTypeSource::Yield,
+        ) {
+            self.arena[function].yields = new;
+            self.arena[function].yields_state = TypeState::Inferred;
         }
     }
 
@@ -2954,20 +3049,20 @@ impl<'db> Collector<'db> {
         ));
 
         if let Some(binding) = catch.binding()
-            && let Some((name, text)) = get_name(&binding)
+            && let Some(name) = get_name(&binding)
         {
             let symbol = self.symbol(Symbol {
-                typ: Type::String(None).into(),
-                name: text.clone(),
+                typ: Type::STRING,
+                name: name.text().into(),
                 kind: SymbolKind::Local(LocalKind::Exception),
-                name_range: name.syntax().text_range(),
+                name_range: name.text_range(),
                 range: binding.syntax().text_range(),
                 ..Default::default()
             });
 
             self.resolve_variable_doc(symbol, &binding);
 
-            insert_symbol(&mut self.current_scope().locals, text, symbol);
+            insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
         }
 
         if let Some(body) = catch.body() {
@@ -2990,13 +3085,15 @@ impl<'db> Collector<'db> {
 
         if let Some(new) = self.check_or_update_type(
             self.arena[function].throws,
-            TypeWithRange {
+            self.arena[function].throws_state,
+            NewType::NotExplicit(TypeWithRange {
                 typ,
                 range: stmt.syntax().text_range(),
-            },
+            }),
             CheckTypeSource::Throw,
         ) {
-            self.arena[function].throws = Some(new.into());
+            self.arena[function].throws = new;
+            self.arena[function].throws_state = TypeState::Inferred;
         }
     }
 
@@ -3035,8 +3132,8 @@ impl<'db> Collector<'db> {
             Expr::TypeOf(expr) => Some(self.type_of_expression(expr)),
             Expr::Resume(expr) => self.resume_expression(expr),
             Expr::RawCall(expr) => self.raw_call_expression(expr),
-            Expr::File(_) => Some(ExpressionKind::Literal(Type::String(None))),
-            Expr::Line(_) => Some(ExpressionKind::Literal(Type::Integer(None))),
+            Expr::File(_) => Some(ExpressionKind::Literal(Type::STRING)),
+            Expr::Line(_) => Some(ExpressionKind::Literal(Type::INTEGER)),
             Expr::Parenthesised(expr) => self.parenthesised_expression(expr),
             Expr::Function(expr) => Some(self.function_expression(expr)),
             Expr::Lambda(expr) => Some(self.lambda_expression(expr)),
@@ -3121,12 +3218,18 @@ impl<'db> Collector<'db> {
             LiteralExpressionKind::String => {
                 let string = self.string(&(StringNameKind::Normal, token));
 
-                ExpressionKind::Literal(Type::String(Some(string)))
+                ExpressionKind::Literal(Type::String {
+                    kind: StringKind::Arbitrary,
+                    literal: Some(string),
+                })
             }
             LiteralExpressionKind::VerbatimString => {
                 let string = self.string(&(StringNameKind::Verbatim, token));
 
-                ExpressionKind::Literal(Type::String(Some(string)))
+                ExpressionKind::Literal(Type::String {
+                    kind: StringKind::Arbitrary,
+                    literal: Some(string),
+                })
             }
             LiteralExpressionKind::Null => ExpressionKind::Literal(Type::Null),
             LiteralExpressionKind::True => ExpressionKind::Literal(Type::Boolean(Some(true))),
@@ -3177,11 +3280,13 @@ impl<'db> Collector<'db> {
     }
 
     fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
-        let text = expr.text()?;
+        let ident = expr.identifier()?;
+        let text = ident.text();
+
         let offset = expr.syntax().text_range().end();
-        self.resolve_name(&text, offset).map(|id| {
-            self.new_reference(expr.syntax().text_range(), id);
-            if matches!(self.get(id).typ.0, Type::Enum(_))
+        self.resolve_name(text, offset).map(|id| {
+            self.new_reference(ident.text_range(), id);
+            if matches!(self.get(id).typ, Type::Enum(_))
                 && expr
                     .syntax()
                     .parent()
@@ -3202,7 +3307,7 @@ impl<'db> Collector<'db> {
     }
 
     fn root_access_expression(&mut self, expr: &RootAccessExpression) -> NullableExprKind {
-        let (name_node, text) = get_name(expr)?;
+        let name_token = get_name(expr)?;
         let offset = expr.syntax().text_range().end();
 
         self.members_of_table(
@@ -3212,8 +3317,8 @@ impl<'db> Collector<'db> {
         )
         .into_iter()
         .find_map(|(name, id)| {
-            if name == text {
-                self.new_reference(name_node.syntax().text_range(), id);
+            if name_token.text() == name.as_ref() {
+                self.new_reference(name_token.text_range(), id);
                 Some(ExpressionKind::Symbol(id))
             } else {
                 None
@@ -3246,21 +3351,22 @@ impl<'db> Collector<'db> {
     }
 
     fn member_access_expression(&mut self, expr: &MemberAccessExpression) -> NullableExprKind {
-        let obj = self.expr_to_type(&expr.object()?);
-        let (name_node, text) = get_name(&expr.member_part()?)?;
+        let from = self.expr_to_type(&expr.object()?);
+        let member_part = expr.member_part()?;
+        let name_token = get_name(&member_part)?;
 
         let offset = expr.syntax().text_range().end();
 
         let result = self
             .members_of_type(
-                obj,
+                from,
                 FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 false,
             )
             .into_iter()
             .find_map(|(name, id)| {
-                if name == text {
-                    self.new_reference(name_node.syntax().text_range(), id);
+                if name_token.text() == name.as_ref() {
+                    self.new_reference(name_token.text_range(), id);
                     Some(ExpressionKind::Symbol(id))
                 } else {
                     None
@@ -3268,27 +3374,30 @@ impl<'db> Collector<'db> {
             });
 
         if result.is_none() {
-            self.no_member_error(obj, &text, expr.syntax().text_range());
+            self.no_member_error(from, name_token.text(), expr.syntax().text_range());
         }
         result
     }
 
     fn element_access_expression(&mut self, expr: &ElementAccessExpression) -> NullableExprKind {
-        let obj = self.expr_to_type(&expr.object()?);
+        let from = self.expr_to_type(&expr.object()?);
         let index = expr.index()?.expression()?;
-        let Some(ExpressionKind::Literal(Type::String(Some(id)))) = self.collect_expr(&index)
+
+        let Some(ExpressionKind::Literal(Type::String {
+            literal: Some(id), ..
+        })) = self.collect_expr(&index)
         else {
             return None;
         };
 
         let string = self.get(id);
-        let text = string.text.to_string();
+        let text = string.text.clone();
         let name_range = string.unquoted_range;
         let offset = expr.syntax().text_range().end();
 
         let result = self
             .members_of_type(
-                obj,
+                from,
                 FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 false,
             )
@@ -3303,115 +3412,27 @@ impl<'db> Collector<'db> {
             });
 
         if result.is_none() {
-            self.no_member_error(obj, &text, expr.syntax().text_range());
+            self.no_member_error(from, &text, index.syntax().text_range());
         }
 
         result
     }
 
-    fn include_script(&mut self, arguments: &[TypeWithRange]) {
-        let Some(path_string) = arguments.first() else {
-            // Case with no path will be handled in call_type
-            return;
-        };
-
-        let Type::String(str) = path_string.typ else {
-            // Same as above
-            return;
-        };
-
-        let Some(id) = str else {
-            self.diagnostics.push(Diagnostic {
-                message: "Could not resolve the path statically, symbols will not be included"
-                    .to_owned(),
-                range: path_string.range,
-                severity: DiagnosticSeverity::Information,
-            });
-            return;
-        };
-
-        let path = PathBuf::from(self.get(id).text.to_string());
-
-        let file = match self.db.get_script(path) {
-            Ok(file) => file,
-            Err(ScriptResolutionError::AbsolutePath) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "The path must be relative".to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Warning,
-                });
-                return;
+    fn special_context(&self, expr: &CallExpression) -> Option<Type> {
+        match expr.callee()?.expression()? {
+            Expr::MemberAccess(expr) => {
+                let object = expr.object()?;
+                let expr = self.expr_kind_at(object.syntax().text_range())?;
+                Some(self.expr_kind_to_type(Some(expr)))
             }
-            Err(ScriptResolutionError::DoesntExist) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "Could not find the path".to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Warning,
-                });
-                return;
+            Expr::ElementAccess(expr) => {
+                let object = expr.object()?;
+                let expr = self.expr_kind_at(object.syntax().text_range())?;
+                Some(self.expr_kind_to_type(Some(expr)))
             }
-            Err(ScriptResolutionError::NoRootAssigned) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "TF2 Installation folder is not set, the symbols will not be included"
-                        .to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Information,
-                });
-                return;
-            }
-            Err(ScriptResolutionError::WrongExtension) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "The path must have none or '.nut' extension".to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Warning,
-                });
-                return;
-            }
-        };
-
-        let target = match arguments.get(1) {
-            Some(expr) => {
-                // if expr.typ == Type::Unknown {
-                //     match self.execution_container() {
-                //         Container::Table(id) => ImportTarget::Table(id),
-                //         Container::Class(id) => ImportTarget::Class(id),
-                //         Container::Instance(id) => ImportTarget::Class(id),
-                //         Container::Enum(_) => {
-                //             self.diagnostics.push(Diagnostic {
-                //                 message: format!("Type 'enum' cannot receive new members"),
-                //                 range: expr.range,
-                //                 severity: DiagnosticSeverity::Warning,
-                //             });
-                //             return;
-                //         }
-                //     }
-                // } else {
-                let Ok(target) = ImportTarget::try_from(expr.typ) else {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!(
-                            "Type '{}' cannot receive new members",
-                            self.type_to_string(expr.typ)
-                        ),
-                        range: expr.range,
-                        severity: DiagnosticSeverity::Warning,
-                    });
-                    return;
-                };
-                target
-                // }
-            }
-
-            None => match self.execution_container() {
-                Container::Table(id) => ImportTarget::Table(id),
-                Container::Class(id) | Container::Instance(id) => ImportTarget::Class(id),
-                Container::Enum(_) => return,
-            },
-        };
-
-        self.imports
-            .entry(target)
-            .and_modify(|e| e.push(file))
-            .or_insert_with(|| vec![file]);
+            Expr::RootAccess(_) => Some(Type::Table(Some(self.root_table()))),
+            _ => None,
+        }
     }
 
     fn call_expression(&mut self, expr: &CallExpression) -> NullableExprKind {
@@ -3422,7 +3443,13 @@ impl<'db> Collector<'db> {
             .map(|arg| self.expr_to_type_with_range(&arg))
             .collect();
 
-        Some(ExpressionKind::Literal(self.callable(obj, &arguments)?))
+        let context = self
+            .special_context(expr)
+            .unwrap_or_else(|| self.execution_container().into());
+
+        Some(ExpressionKind::Literal(
+            self.callable(context, obj, &arguments)?,
+        ))
     }
 
     fn clone_expression(&mut self, expr: &CloneExpression) -> NullableExprKind {
@@ -3444,12 +3471,16 @@ impl<'db> Collector<'db> {
     fn assignment_lhs(&mut self, expr: &Expr) -> Option<AssignmentLeftHandSide> {
         match expr {
             Expr::Name(expr) => {
-                let text = expr.text()?;
+                let name_token = expr.identifier()?;
                 let expr_range = expr.syntax().text_range();
                 let offset = expr_range.end();
 
-                let filter = |(name, id)| {
-                    if name == text { Some(id) } else { None }
+                let filter = |(name, id): (Box<str>, SymbolId)| {
+                    if name_token.text() == name.as_ref() {
+                        Some(id)
+                    } else {
+                        None
+                    }
                 };
 
                 let locals = self.local_members(offset).into_iter().find_map(filter);
@@ -3519,7 +3550,7 @@ impl<'db> Collector<'db> {
 
                 Some(AssignmentLeftHandSide::CanCreate {
                     parent: self.container.into(),
-                    new_key: text.into_boxed_str(),
+                    new_key: name_token.text().into(),
                     name_range: expr_range,
                     expr_range,
                 })
@@ -3528,9 +3559,9 @@ impl<'db> Collector<'db> {
                 let obj = self.expr_to_type(&expr.object()?);
                 let member_part = expr.member_part()?;
 
-                let (name, text) = get_name(&member_part)?;
+                let name_token = get_name(&member_part)?;
                 let expr_range = expr.syntax().text_range();
-                let name_range = name.syntax().text_range();
+                let name_range = name_token.text_range();
                 let offset = expr_range.end();
 
                 Some(
@@ -3540,11 +3571,17 @@ impl<'db> Collector<'db> {
                         false,
                     )
                     .into_iter()
-                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                    .find_map(|(name, id)| {
+                        if name_token.text() == name.as_ref() {
+                            Some(id)
+                        } else {
+                            None
+                        }
+                    })
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
                             parent: obj,
-                            new_key: text.into_boxed_str(),
+                            new_key: name_token.text().into(),
                             name_range,
                             expr_range,
                         },
@@ -3562,7 +3599,10 @@ impl<'db> Collector<'db> {
                 let index = expr.index()?.expression()?;
                 let expr_range = expr.syntax().text_range();
                 let kind = self.collect_expr(&index);
-                let Some(ExpressionKind::Literal(Type::String(Some(id)))) = kind else {
+                let Some(ExpressionKind::Literal(Type::String {
+                    literal: Some(id), ..
+                })) = kind
+                else {
                     return Some(AssignmentLeftHandSide::NonStringName {
                         parent: obj,
                         name: TypeWithRange {
@@ -3574,7 +3614,7 @@ impl<'db> Collector<'db> {
                 };
 
                 let string = self.get(id);
-                let text = string.text.to_string();
+                let text = string.text.clone();
                 let name_range = string.unquoted_range;
                 let offset = expr_range.end();
 
@@ -3589,7 +3629,7 @@ impl<'db> Collector<'db> {
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
                             parent: obj,
-                            new_key: text.into_boxed_str(),
+                            new_key: text,
                             name_range,
                             expr_range,
                         },
@@ -3603,9 +3643,9 @@ impl<'db> Collector<'db> {
                 )
             }
             Expr::RootAccess(expr) => {
-                let (name, text) = get_name(expr)?;
+                let name_token = get_name(expr)?;
                 let expr_range = expr.syntax().text_range();
-                let name_range = name.syntax().text_range();
+                let name_range = name_token.text_range();
                 let offset = expr_range.end();
 
                 let root = self.root_table();
@@ -3616,11 +3656,17 @@ impl<'db> Collector<'db> {
                         ImportMembers::Root,
                     )
                     .into_iter()
-                    .find_map(|(name, id)| if name == text { Some(id) } else { None })
+                    .find_map(|(name, id)| {
+                        if name_token.text() == name.as_ref() {
+                            Some(id)
+                        } else {
+                            None
+                        }
+                    })
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
                             parent: Type::Table(Some(root)),
-                            new_key: text.into_boxed_str(),
+                            new_key: name_token.text().into(),
                             name_range,
                             expr_range,
                         },
@@ -3657,9 +3703,9 @@ impl<'db> Collector<'db> {
 
                 Some(ExpressionKind::Literal(
                     if operator == BinaryOperator::ThreeWay {
-                        Type::Integer(None)
+                        Type::INTEGER
                     } else {
-                        Type::Boolean(None)
+                        Type::BOOLEAN
                     },
                 ))
             }
@@ -3671,7 +3717,7 @@ impl<'db> Collector<'db> {
             | BinaryOperator::UnsignedRightShift => {
                 self.bitwise_operator(expr);
 
-                Some(ExpressionKind::Literal(Type::Integer(None)))
+                Some(ExpressionKind::Literal(Type::INTEGER))
             }
 
             BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => {
@@ -3725,8 +3771,8 @@ impl<'db> Collector<'db> {
                 }
 
                 let symbol = self.symbol(Symbol {
-                    name: new_key.to_string(),
-                    typ: right.typ.into(),
+                    name: new_key.clone(),
+                    typ: right.typ,
                     kind: SymbolKind::Property(property_kind),
                     name_range,
                     range: whole_expr_range.unwrap_or(expr_range),
@@ -3741,7 +3787,13 @@ impl<'db> Collector<'db> {
                 }
 
                 if let NewSlotResult::CanAdd(container) = result {
-                    self.add_container_member(container, new_key.into_string(), symbol);
+                    self.add_container_member(container, new_key, symbol);
+
+                    if let Type::Function(Some(id)) = right.typ
+                        && let Some(function) = self.get_mut(id)
+                    {
+                        function.container = container;
+                    }
                 }
 
                 Some(symbol)
@@ -3772,6 +3824,7 @@ impl<'db> Collector<'db> {
 
                     let (operand, arguments) =
                         to_operand_and_arguments(parent, expr_range, name_range, right);
+
                     let result = self.new_slot(operand, &arguments);
                     if matches!(result, NewSlotResult::NotAllowed) {
                         return None;
@@ -3781,7 +3834,7 @@ impl<'db> Collector<'db> {
 
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
-                        typ: right.typ.into(),
+                        typ: right.typ,
                         kind: SymbolKind::Property(property_kind),
                         name_range,
                         range: whole_expr_range.unwrap_or(expr_range),
@@ -3797,6 +3850,12 @@ impl<'db> Collector<'db> {
 
                     if let NewSlotResult::CanAdd(container) = result {
                         self.add_container_member(container, name, symbol);
+
+                        if let Type::Function(Some(id)) = right.typ
+                            && let Some(function) = self.get_mut(id)
+                        {
+                            function.container = container;
+                        }
                     }
 
                     Some(symbol)
@@ -3821,12 +3880,19 @@ impl<'db> Collector<'db> {
                 name: key,
                 expr_range,
             }) => {
-                let arguments = vec![key, right];
+                let arguments = [key, right];
                 let operand = TypeWithRange {
                     typ: parent,
                     range: expr_range,
                 };
                 self.new_slot(operand, &arguments);
+
+                if let Ok(container) = Container::try_from(parent)
+                    && let Type::Function(Some(id)) = right.typ
+                    && let Some(function) = self.get_mut(id)
+                {
+                    function.container = container;
+                }
                 None
             }
             _ => None,
@@ -3850,13 +3916,6 @@ impl<'db> Collector<'db> {
                     .text_range(),
             },
         );
-
-        if let Some(container) = lhs_container(left.as_ref())
-            && let Type::Function(Some(id)) = right.typ
-            && let Some(function) = self.get_mut(id)
-        {
-            function.container = container;
-        }
 
         if let Some(symbol) = self.do_new_slot(
             Some(expr.syntax().text_range()),
@@ -3927,7 +3986,7 @@ impl<'db> Collector<'db> {
                 if let Some(parent) = parent {
                     let (operand, arguments) =
                         to_operand_and_arguments(parent, expr_range, name_range, right);
-                    if !self.set(operand, &arguments) {
+                    if self.set(operand, &arguments).is_none() {
                         return right_kind;
                     }
                 }
@@ -3937,12 +3996,14 @@ impl<'db> Collector<'db> {
                 }
 
                 if let Some(new) = self.check_or_update_type(
-                    Some(self.get(symbol).typ),
-                    right,
+                    self.get(symbol).typ,
+                    self.get(symbol).type_state,
+                    NewType::NotExplicit(right),
                     CheckTypeSource::Variable,
                 ) && let Some(symbol) = self.get_mut(symbol)
                 {
-                    symbol.typ.0 = new;
+                    symbol.typ = new;
+                    symbol.type_state = TypeState::Inferred;
                 }
             }
             Some(AssignmentLeftHandSide::NonStringName {
@@ -3950,7 +4011,7 @@ impl<'db> Collector<'db> {
                 name,
                 expr_range,
             }) => {
-                let arguments = vec![name, right];
+                let arguments = [name, right];
                 let operand = TypeWithRange {
                     typ: parent,
                     range: expr_range,
@@ -3979,7 +4040,7 @@ impl<'db> Collector<'db> {
                     && !TypeSet::NUMBER.contains(self.to_type_set(with.typ))
                 {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to index into an array using '{}' (only integers are applicable)", self.type_to_string(with.typ)),
+                        message: format!("Trying to index into an array using '{}' (only integers are applicable)", self.type_to_str(with.typ)),
                         range: with.range,
                         severity: DiagnosticSeverity::Warning,
                     });
@@ -3990,7 +4051,7 @@ impl<'db> Collector<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: format!(
                             "Indexing into '{}' will always return false",
-                            self.type_to_string(typ)
+                            self.type_to_str(typ)
                         ),
                         range: right.range,
                         severity: DiagnosticSeverity::Warning,
@@ -4007,13 +4068,13 @@ impl<'db> Collector<'db> {
         if let Some(left) = left
             && !TypeSet::VALID_INSTANCE_OF_LHS.contains(self.to_type_set(left.typ))
         {
-            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as left-hand side of 'instanceof' operator (only 'instance' is applicable)", self.type_to_string(left.typ)), range: left.range, ..Default::default() });
+            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as left-hand side of 'instanceof' operator (only 'instance' is applicable)", self.type_to_str(left.typ)), range: left.range, ..Default::default() });
         }
 
         if let Some(right) = right
             && !TypeSet::VALID_INSTANCE_OF_RHS.contains(self.to_type_set(right.typ))
         {
-            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as right-hand side of 'instanceof' operator (only 'class' is applicable)", self.type_to_string(right.typ)), range: right.range, ..Default::default() });
+            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as right-hand side of 'instanceof' operator (only 'class' is applicable)", self.type_to_str(right.typ)), range: right.range, ..Default::default() });
         }
 
         ExpressionKind::Literal(Type::Boolean(None))
@@ -4037,7 +4098,7 @@ impl<'db> Collector<'db> {
         self.diagnostics.push(Diagnostic {
             message: format!(
                 "'{}' does not support comparison",
-                self.type_to_string(comparable.typ),
+                self.type_to_str(comparable.typ),
             ),
             range: comparable.range,
             ..Default::default()
@@ -4071,8 +4132,7 @@ impl<'db> Collector<'db> {
         let left_set = self.to_type_set(left.typ);
 
         if TypeSet::TABLE_OR_INSTANCE.contains(left_set) {
-            let arguments =
-                vec![right.unwrap_or_else(|| TypeWithRange::at_node_end(expr.syntax()))];
+            let arguments = [right.unwrap_or_else(|| TypeWithRange::at_node_end(expr.syntax()))];
 
             if let Some(ret) = self.call_metamethod(left, "_cmp", &arguments, MetamethodErrors::No)
             {
@@ -4117,8 +4177,8 @@ impl<'db> Collector<'db> {
         self.diagnostics.push(Diagnostic {
             message: format!(
                 "'{}' does not support comparison with '{}'",
-                self.type_to_string(left.typ),
-                self.type_to_string(right.typ)
+                self.type_to_str(left.typ),
+                self.type_to_str(right.typ)
             ),
             range: right.range,
             ..Default::default()
@@ -4138,7 +4198,7 @@ impl<'db> Collector<'db> {
         self.diagnostics.push(Diagnostic {
             message: format!(
                 "'{}' does not support bitwise operations",
-                self.type_to_string(operand.typ),
+                self.type_to_str(operand.typ),
             ),
             range: operand.range,
             ..Default::default()
@@ -4205,7 +4265,7 @@ impl<'db> Collector<'db> {
                 self.new_reference(*name_range, *symbol);
                 let typ = self.arithmetic(
                     TypeWithRange {
-                        typ: self.get(*symbol).typ.0,
+                        typ: self.get(*symbol).typ,
                         range: *name_range,
                     },
                     right,
@@ -4234,7 +4294,7 @@ impl<'db> Collector<'db> {
                         *name_range,
                         type_with_range,
                     );
-                    if !self.set(operand, &arguments) {
+                    if self.set(operand, &arguments).is_none() {
                         return Some(typ);
                     }
                 }
@@ -4244,12 +4304,14 @@ impl<'db> Collector<'db> {
                 }
 
                 if let Some(new) = self.check_or_update_type(
-                    Some(self.get(*symbol).typ),
-                    type_with_range,
+                    self.get(*symbol).typ,
+                    self.get(*symbol).type_state,
+                    NewType::NotExplicit(type_with_range),
                     CheckTypeSource::Variable,
                 ) && let Some(symbol) = self.get_mut(*symbol)
                 {
-                    symbol.typ.0 = new;
+                    symbol.typ = new;
+                    symbol.type_state = TypeState::Inferred;
                 }
                 Some(typ)
             }
@@ -4436,7 +4498,7 @@ impl<'db> Collector<'db> {
                     range: expr_range,
                 };
                 let index = TypeWithRange {
-                    typ: Type::String(None),
+                    typ: Type::STRING,
                     range: name_range,
                 };
                 self.delete(delete_operand, index);
@@ -4470,12 +4532,12 @@ impl<'db> Collector<'db> {
                         range: expr_range,
                     };
                     let index = TypeWithRange {
-                        typ: Type::String(None),
+                        typ: Type::STRING,
                         range: name_range,
                     };
                     self.delete(delete_operand, index);
 
-                    return Some(ExpressionKind::Literal(self.get(symbol).typ.0));
+                    return Some(ExpressionKind::Literal(self.get(symbol).typ));
                 }
                 // ```
                 // local a = 2
@@ -4488,7 +4550,7 @@ impl<'db> Collector<'db> {
                     ..Default::default()
                 });
 
-                Some(ExpressionKind::Literal(self.get(symbol).typ.0))
+                Some(ExpressionKind::Literal(self.get(symbol).typ))
             }
             _ => None,
         }
@@ -4496,12 +4558,12 @@ impl<'db> Collector<'db> {
 
     fn type_of_expression(&mut self, expr: &TypeOfExpression) -> ExpressionKind {
         let Some(operand) = expr.operand().map(|o| self.expr_to_type_with_range(&o)) else {
-            return ExpressionKind::Literal(Type::String(None));
+            return ExpressionKind::Literal(Type::STRING);
         };
 
         ExpressionKind::Literal(
             self.call_metamethod(operand, "_typeof", &Vec::new(), MetamethodErrors::No)
-                .unwrap_or(Type::String(None)),
+                .unwrap_or(Type::STRING),
         )
     }
 
@@ -4510,7 +4572,7 @@ impl<'db> Collector<'db> {
 
         match typ {
             Type::Unknown | Type::Any => None,
-            Type::Generator(id) => Some(ExpressionKind::Literal(self.get(id?).yields?.0)),
+            Type::Generator(id) => Some(ExpressionKind::Literal(self.get(id?).yields)),
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message: "Only generators can be resumed".to_owned(),
@@ -4539,10 +4601,14 @@ impl<'db> Collector<'db> {
         }
 
         let function = arguments.remove(0);
-        let _context = arguments.remove(0);
+        let context = arguments.remove(0);
 
         let obj = function;
-        Some(ExpressionKind::Literal(self.callable(obj, &arguments)?))
+        Some(ExpressionKind::Literal(self.callable(
+            context.typ,
+            obj,
+            &arguments,
+        )?))
     }
 
     fn parenthesised_expression(&mut self, expr: &ParenthesisedExpression) -> NullableExprKind {
@@ -4558,6 +4624,154 @@ impl<'db> Collector<'db> {
     fn lambda_expression(&mut self, expr: &LambdaExpression) -> ExpressionKind {
         let id = self.collect_function(expr);
         ExpressionKind::Literal(Type::Function(Some(id)))
+    }
+
+    fn include_script(&mut self, arguments: &[TypeWithRange]) {
+        let Some(path_string) = arguments.first() else {
+            // Case with no path will be handled in call_type
+            return;
+        };
+
+        let Type::String { literal: str, .. } = path_string.typ else {
+            // Same as above
+            return;
+        };
+
+        let Some(id) = str else {
+            self.diagnostics.push(Diagnostic {
+                message: "Could not resolve the path statically, symbols will not be included"
+                    .to_owned(),
+                range: path_string.range,
+                severity: DiagnosticSeverity::Information,
+            });
+            return;
+        };
+
+        let path = PathBuf::from(self.get(id).text.to_string());
+
+        let file = match self.db.get_script(path) {
+            Ok(file) => file,
+            Err(ScriptResolutionError::AbsolutePath) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "The path must be relative".to_owned(),
+                    range: path_string.range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+                return;
+            }
+            Err(ScriptResolutionError::DoesntExist) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "Could not find the path".to_owned(),
+                    range: path_string.range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+                return;
+            }
+            Err(ScriptResolutionError::NoRootAssigned) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "TF2 Installation folder is not set, the symbols will not be included"
+                        .to_owned(),
+                    range: path_string.range,
+                    severity: DiagnosticSeverity::Information,
+                });
+                return;
+            }
+            Err(ScriptResolutionError::WrongExtension) => {
+                self.diagnostics.push(Diagnostic {
+                    message: "The path must have none or '.nut' extension".to_owned(),
+                    range: path_string.range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+                return;
+            }
+        };
+
+        let target = match arguments.get(1) {
+            Some(expr) => {
+                // if expr.typ == Type::Unknown {
+                //     match self.execution_container() {
+                //         Container::Table(id) => ImportTarget::Table(id),
+                //         Container::Class(id) => ImportTarget::Class(id),
+                //         Container::Instance(id) => ImportTarget::Class(id),
+                //         Container::Enum(_) => {
+                //             self.diagnostics.push(Diagnostic {
+                //                 message: format!("Type 'enum' cannot receive new members"),
+                //                 range: expr.range,
+                //                 severity: DiagnosticSeverity::Warning,
+                //             });
+                //             return;
+                //         }
+                //     }
+                // } else {
+                let Ok(target) = ImportTarget::try_from(expr.typ) else {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!(
+                            "Type '{}' cannot receive new members",
+                            self.type_to_str(expr.typ)
+                        ),
+                        range: expr.range,
+                        severity: DiagnosticSeverity::Warning,
+                    });
+                    return;
+                };
+                target
+                // }
+            }
+
+            None => match self.execution_container() {
+                Container::Table(id) => ImportTarget::Table(id),
+                Container::Class(id) | Container::Instance(id) => ImportTarget::Class(id),
+                Container::Enum(_) => return,
+            },
+        };
+
+        self.imports
+            .entry(target)
+            .and_modify(|e| e.push(file))
+            .or_insert_with(|| vec![file]);
+    }
+
+    fn set_delegate(&mut self, context: Type, arguments: &[TypeWithRange]) {
+        let Some(first) = arguments.first() else {
+            return;
+        };
+
+        let Type::Table(delegate) = first.typ else {
+            return;
+        };
+
+        let Type::Table(Some(for_table)) = context else {
+            return;
+        };
+
+        if let Some(table) = self.get_mut(for_table) {
+            table.delegate = delegate;
+        }
+    }
+
+    fn bindenv(&mut self, context: Type, arguments: &[TypeWithRange]) -> Type {
+        let Some(first) = arguments.first() else {
+            return context;
+        };
+
+        let Ok(container) = Container::try_from(first.typ) else {
+            return context;
+        };
+
+        let Type::Function(Some(function_id)) = context else {
+            return context;
+        };
+
+        let old = self.get(function_id);
+        let new = FunctionId::new(
+            self.file,
+            self.arena.alloc(FunctionData {
+                container,
+                ..old.clone()
+            }),
+        );
+
+        Type::Function(Some(new))
     }
 
     fn unused_variables_diagnostics(&mut self) {

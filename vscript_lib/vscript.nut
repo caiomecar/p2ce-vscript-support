@@ -49,7 +49,7 @@ class CBaseEntity {
 
     /**
      * Generate a synchronous I/O event. Unlike `EntFireByHandle`, this is processed immediately.
-     * @param {string} input
+     * @param {input} input
      * @param {string|null} param
      * @param {CBaseEntity|null} activator
      * @param {CBaseEntity|null} caller
@@ -1308,7 +1308,7 @@ class CTFWeaponBase extends CBaseCombatWeapon {
     /**
      * Add an attribute to the entity. Set duration to 0 or lower for infinite duration.
      * Note: For players use AddCustomAttribute instead.
-     * @param {string} name
+     * @param {attribute} name
      * @param {float} value
      * @param {float} duration
      */
@@ -1316,7 +1316,7 @@ class CTFWeaponBase extends CBaseCombatWeapon {
 
     /**
      * Get an attribute float from the entity. Returns default_value if not found.
-     * @param {string} name
+     * @param {attribute} name
      * @param {float} default_value
      * @returns {float}
      */
@@ -1325,7 +1325,7 @@ class CTFWeaponBase extends CBaseCombatWeapon {
     /**
      * Remove an attribute from the entity.
      * Note: Static attributes cannot be removed with this method.
-     * @param {string} name
+     * @param {attribute} name
      */
     function RemoveAttribute(name);
 
@@ -1450,8 +1450,9 @@ class CBasePlayer extends CBaseCombatCharacter {
 class CEconEntity extends CBaseAnimating {
     /**
      * Add an attribute to the entity. Set duration to 0 or lower for infinite duration.
+     *
      * Note: For players use AddCustomAttribute instead.
-     * @param {string} name
+     * @param {attribute} name
      * @param {float} value
      * @param {float} duration
      */
@@ -1459,7 +1460,7 @@ class CEconEntity extends CBaseAnimating {
 
     /**
      * Get an attribute float from the entity. Returns default_value if not found.
-     * @param {string} name
+     * @param {attribute} name
      * @param {float} default_value
      * @returns {float}
      */
@@ -1468,7 +1469,7 @@ class CEconEntity extends CBaseAnimating {
     /**
      * Remove an attribute from the entity.
      * Note: Static attributes cannot be removed with this method.
-     * @param {string} name
+     * @param {attribute} name
      */
     function RemoveAttribute(name);
 
@@ -1508,7 +1509,7 @@ class CTFPlayer extends CBasePlayer {
     /**
      * Add a custom attribute to the player. Set duration to 0 or lower for infinite.
      * Note: Does not work when applied in the player_spawn event.
-     * @param {string} name
+     * @param {attribute} name
      * @param {float} value
      * @param {float} duration
      */
@@ -1701,7 +1702,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Get an attribute float from the player. Returns default_value if not found.
-     * @param {string} name
+     * @param {attribute} name
      * @param {float} default_value
      * @returns {float}
      */
@@ -2073,7 +2074,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Remove a custom attribute from the player.
-     * @param {string} name
+     * @param {attribute} name
      */
     function RemoveCustomAttribute(name);
 
@@ -2856,7 +2857,7 @@ class Convars {
 class CEntities {
     /**
      * Creates an entity by classname. Returns null if no entity type could be inferred.
-     * @param {string} classname
+     * @param {classname} classname
      * @returns {CBaseEntity|null}
      */
     function CreateByClassname(classname);
@@ -2870,14 +2871,14 @@ class CEntities {
     /**
      * Find entities by classname. Pass null to start, or previous entity to continue.
      * @param {CBaseEntity|null} previous
-     * @param {string} classname
+     * @param {classname} classname
      * @returns {CBaseEntity|null}
      */
     function FindByClassname(previous, classname);
 
     /**
      * Find entities by classname nearest to a point within a radius.
-     * @param {string} classname
+     * @param {classname} classname
      * @param {Vector} center
      * @param {float} radius
      * @returns {CBaseEntity|null}
@@ -2887,7 +2888,7 @@ class CEntities {
     /**
      * Find entities by classname within a radius. Pass null to start, or previous to continue.
      * @param {CBaseEntity|null} previous
-     * @param {string} classname
+     * @param {classname} classname
      * @param {Vector} center
      * @param {float} radius
      * @returns {CBaseEntity|null}
@@ -3526,7 +3527,7 @@ class CNetPropManager {
     /**
      * Returns the size of a netprop array, or -1.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {array_property} property_name
      * @returns {integer}
      */
     function GetPropArraySize(entity, property_name);
@@ -3534,7 +3535,7 @@ class CNetPropManager {
     /**
      * Reads an EHANDLE-valued netprop. Returns null if property is not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {entity_property} property_name
      * @returns {CBaseEntity|null}
      */
     function GetPropEntity(entity, property_name);
@@ -3542,7 +3543,7 @@ class CNetPropManager {
     /**
      * Reads an EHANDLE-valued netprop from an array. Returns null if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {entity_property_array} property_name
      * @param {integer} array_element
      * @returns {CBaseEntity|null}
      */
@@ -3551,7 +3552,7 @@ class CNetPropManager {
     /**
      * Reads a boolean-valued netprop. Returns false if property is not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {bool_property} property_name
      * @returns {bool}
      */
     function GetPropBool(entity, property_name);
@@ -3559,7 +3560,7 @@ class CNetPropManager {
     /**
      * Reads a boolean-valued netprop from an array. Returns false if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {bool_array_property} property_name
      * @param {integer} array_element
      * @returns {bool}
      */
@@ -3568,7 +3569,7 @@ class CNetPropManager {
     /**
      * Reads a float-valued netprop. Returns -1.0 if property is not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {float_property} property_name
      * @returns {float}
      */
     function GetPropFloat(entity, property_name);
@@ -3576,7 +3577,7 @@ class CNetPropManager {
     /**
      * Reads a float-valued netprop from an array. Returns -1.0 if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {float_array_property} property_name
      * @param {integer} array_element
      * @returns {float}
      */
@@ -3585,7 +3586,7 @@ class CNetPropManager {
     /**
      * Fills in a passed table with property info for the provided entity.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {property} property_name
      * @param {integer} array_element
      * @param {table} result
      * @returns {bool}
@@ -3595,7 +3596,7 @@ class CNetPropManager {
     /**
      * Reads an integer-valued netprop. Returns -1 if property is not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {integer_property} property_name
      * @returns {integer}
      */
     function GetPropInt(entity, property_name);
@@ -3603,7 +3604,7 @@ class CNetPropManager {
     /**
      * Reads an integer-valued netprop from an array. Returns -1 if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {integer_array_property} property_name
      * @param {integer} array_element
      * @returns {integer}
      */
@@ -3612,7 +3613,7 @@ class CNetPropManager {
     /**
      * Reads a string-valued netprop. Returns empty string if property is not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {string_property} property_name
      * @returns {string}
      */
     function GetPropString(entity, property_name);
@@ -3620,7 +3621,7 @@ class CNetPropManager {
     /**
      * Reads a string-valued netprop from an array. Returns empty string if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {string_array_property} property_name
      * @param {integer} array_element
      * @returns {string}
      */
@@ -3629,7 +3630,7 @@ class CNetPropManager {
     /**
      * Returns the name of the netprop type as a string. Returns null if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {property} property_name
      * @returns {string|null}
      */
     function GetPropType(entity, property_name);
@@ -3637,7 +3638,7 @@ class CNetPropManager {
     /**
      * Reads a 3D vector-valued netprop. Returns empty vector if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {vector_property} property_name
      * @returns {Vector}
      */
     function GetPropVector(entity, property_name);
@@ -3645,16 +3646,16 @@ class CNetPropManager {
     /**
      * Reads a 3D vector-valued netprop from an array. Returns empty vector if not found.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {vector_array_property} property_name
      * @param {integer} array_element
      * @returns {Vector}
      */
     function GetPropVectorArray(entity, property_name, array_element);
 
     /**
-     * Fills in a passed table with all props of a specified type (0=SendTable, 1=DataMap).
+     * Fills in a passed table with all props of a specified type
      * @param {CBaseEntity} entity
-     * @param {integer} prop_type
+     * @param {integer} prop_type (0: SendTable, 1: DataMap).
      * @param {table} result
      */
     function GetTable(entity, prop_type, result);
@@ -3662,7 +3663,7 @@ class CNetPropManager {
     /**
      * Checks if a netprop exists.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {property} property_name
      * @returns {bool}
      */
     function HasProp(entity, property_name);
@@ -3670,7 +3671,7 @@ class CNetPropManager {
     /**
      * Sets a netprop to the specified boolean.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {bool_property} property_name
      * @param {bool} value
      */
     function SetPropBool(entity, property_name, value);
@@ -3678,7 +3679,7 @@ class CNetPropManager {
     /**
      * Sets a netprop from an array to the specified boolean.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {bool_array_property} property_name
      * @param {bool} value
      * @param {integer} array_element
      */
@@ -3687,7 +3688,7 @@ class CNetPropManager {
     /**
      * Sets an EHANDLE-valued netprop to reference the specified entity.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {entity_property} property_name
      * @param {CBaseEntity|null} value
      */
     function SetPropEntity(entity, property_name, value);
@@ -3695,7 +3696,7 @@ class CNetPropManager {
     /**
      * Sets an EHANDLE-valued netprop from an array to reference the specified entity.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {entity_array_property} property_name
      * @param {CBaseEntity|null} value
      * @param {integer} array_element
      */
@@ -3704,7 +3705,7 @@ class CNetPropManager {
     /**
      * Sets a netprop to the specified float.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {float_property} property_name
      * @param {float} value
      */
     function SetPropFloat(entity, property_name, value);
@@ -3712,7 +3713,7 @@ class CNetPropManager {
     /**
      * Sets a netprop from an array to the specified float.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {float_array_property} property_name
      * @param {float} value
      * @param {integer} array_element
      */
@@ -3720,9 +3721,10 @@ class CNetPropManager {
 
     /**
      * Sets a netprop to the specified integer.
+     *
      * Warning: Do not override m_iTeamNum netprops on players or Engineer buildings permanently.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {integer_property} property_name
      * @param {integer} value
      */
     function SetPropInt(entity, property_name, value);
@@ -3730,7 +3732,7 @@ class CNetPropManager {
     /**
      * Sets a netprop from an array to the specified integer.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {integer_array_property} property_name
      * @param {integer} value
      * @param {integer} array_element
      */
@@ -3739,7 +3741,7 @@ class CNetPropManager {
     /**
      * Sets a netprop to the specified string.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {string_property} property_name
      * @param {string|null} value
      */
     function SetPropString(entity, property_name, value);
@@ -3747,7 +3749,7 @@ class CNetPropManager {
     /**
      * Sets a netprop from an array to the specified string.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {string_array_property} property_name
      * @param {string|null} value
      * @param {integer} array_element
      */
@@ -3756,7 +3758,7 @@ class CNetPropManager {
     /**
      * Sets a netprop to the specified vector.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {vector_property} property_name
      * @param {Vector} value
      */
     function SetPropVector(entity, property_name, value);
@@ -3764,7 +3766,7 @@ class CNetPropManager {
     /**
      * Sets a netprop from an array to the specified vector.
      * @param {CBaseEntity} entity
-     * @param {string} property_name
+     * @param {vector_array_property} property_name
      * @param {Vector} value
      * @param {integer} array_element
      */
@@ -3784,7 +3786,7 @@ class CScriptEntityOutputs {
      * @param {CBaseEntity} entity
      * @param {string} output_name
      * @param {string} targetname
-     * @param {string} input_name
+     * @param {output} input_name
      * @param {string|null} parameter
      * @param {float} delay
      * @param {integer} times_to_fire
@@ -3794,7 +3796,7 @@ class CScriptEntityOutputs {
     /**
      * Returns the number of array elements.
      * @param {CBaseEntity} entity
-     * @param {string} output_name
+     * @param {output} output_name
      * @returns {integer}
      */
     function GetNumElements(entity, output_name);
@@ -3802,7 +3804,7 @@ class CScriptEntityOutputs {
     /**
      * Fills the passed table with output information.
      * @param {CBaseEntity} entity
-     * @param {string} output_name
+     * @param {output} output_name
      * @param {table} result
      * @param {integer} array_element
      */
@@ -3811,7 +3813,7 @@ class CScriptEntityOutputs {
     /**
      * Returns true if an action exists for the output.
      * @param {CBaseEntity} entity
-     * @param {string} output_name
+     * @param {output} output_name
      * @returns {bool}
      */
     function HasAction(entity, output_name);
@@ -3819,7 +3821,7 @@ class CScriptEntityOutputs {
     /**
      * Returns true if the output exists.
      * @param {CBaseEntity} entity
-     * @param {string} output_name
+     * @param {output} output_name
      * @returns {bool}
      */
     function HasOutput(entity, output_name);
@@ -3829,7 +3831,7 @@ class CScriptEntityOutputs {
      * @param {CBaseEntity} entity
      * @param {string} output_name
      * @param {string} targetname
-     * @param {string} input_name
+     * @param {output} input_name
      * @param {string|null} parameter
      */
     function RemoveOutput(entity, output_name, targetname, input_name, parameter);
@@ -5038,7 +5040,7 @@ function ClearGameEventCallbacks();
 
 /**
  * Create a prop.
- * @param {string} classname
+ * @param {classname} classname
  * @param {Vector} origin
  * @param {string} model_name
  * @param {integer} activity
@@ -5154,7 +5156,7 @@ function EmitSoundOnClient(sound_script, player);
 /**
  * Wrapper for DoEntFire() that sets activator to null. Negative delays are clamped to 0.
  * @param {string} target
- * @param {string} action
+ * @param {input} action
  * @param {string|null} value
  * @param {float} delay
  * @param {CBaseEntity|null} activator
@@ -5166,7 +5168,7 @@ function EntFire(target, action, value = null, delay = 0.0, activator = null);
  *
  * Note: With 0 delay, processed at end of frame. Use AcceptInput for instant/synchronous I/O.
  * @param {CBaseEntity} entity
- * @param {string} action
+ * @param {input} action
  * @param {string|null} value
  * @param {float} delay
  * @param {CBaseEntity|null} activator
@@ -5475,7 +5477,7 @@ function SetSkyboxTexture(texture);
 
 /**
  * Spawn entity from KeyValues in table.
- * @param {string} name - Entity classname
+ * @param {classname} name
  * @param {table} keyvalues
  * @returns {CBaseEntity|null}
  */
