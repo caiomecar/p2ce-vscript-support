@@ -226,9 +226,14 @@ impl StringKind {
         static OUTPUT: [&StringLiteralValues; 1] = [&sl::OUTPUTS];
         static CLASSNAME: [&StringLiteralValues; 1] = [&sl::CLASSNAMES];
         static CONVAR: [&StringLiteralValues; 1] = [&sl::CONVARS];
-        static PROP_INT: [&StringLiteralValues; 2] =
-            [&sl::PROPERTY_INTEGER, &sl::PROPERTY_INTEGER_ARRAY];
-        static PROP_INT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_INTEGER_ARRAY];
+        static PROP_INT: [&StringLiteralValues; 4] = [
+            &sl::PROPERTY_INTEGER,
+            &sl::PROPERTY_INTEGER_ARRAY,
+            &sl::PROPERTY_BOOL,
+            &sl::PROPERTY_BOOL_ARRAY,
+        ];
+        static PROP_INT_ARRAY: [&StringLiteralValues; 2] =
+            [&sl::PROPERTY_INTEGER_ARRAY, &sl::PROPERTY_BOOL_ARRAY];
         static PROP_FLOAT: [&StringLiteralValues; 2] =
             [&sl::PROPERTY_FLOAT, &sl::PROPERTY_FLOAT_ARRAY];
         static PROP_FLOAT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_FLOAT_ARRAY];
