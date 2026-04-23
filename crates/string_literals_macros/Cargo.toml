@@ -1,5 +1,5 @@
 [package]
-name = "file-to-phf"
+name = "string_literals_macros"
 version = "0.1.0"
 edition = "2024"
 authors.workspace = true

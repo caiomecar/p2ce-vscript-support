@@ -140,6 +140,8 @@ pub enum StringKind {
     Output,
     Classname,
 
+    Convar,
+
     PropInt,
     PropIntArray,
     PropFloat,
@@ -165,6 +167,7 @@ impl std::fmt::Display for StringKind {
             Self::Input => write!(f, "input"),
             Self::Output => write!(f, "output"),
             Self::Classname => write!(f, "classname"),
+            Self::Convar => write!(f, "convar"),
             Self::PropInt => write!(f, "integer_property"),
             Self::PropIntArray => write!(f, "integer_array_property"),
             Self::PropFloat => write!(f, "float_property"),
@@ -194,6 +197,7 @@ impl std::str::FromStr for StringKind {
             "input" => Self::Input,
             "output" => Self::Output,
             "classname" => Self::Classname,
+            "convar" => Self::Convar,
             "integer_property" => Self::PropInt,
             "integer_array_property" => Self::PropIntArray,
             "float_property" => Self::PropFloat,
@@ -222,6 +226,7 @@ impl StringKind {
         static INPUT: [&StringLiteralValues; 1] = [&sl::INPUTS];
         static OUTPUT: [&StringLiteralValues; 1] = [&sl::OUTPUTS];
         static CLASSNAME: [&StringLiteralValues; 1] = [&sl::CLASSNAMES];
+        static CONVAR: [&StringLiteralValues; 1] = [&sl::CONVARS];
         static PROP_INT: [&StringLiteralValues; 2] =
             [&sl::PROPERTY_INTEGER, &sl::PROPERTY_INTEGER_ARRAY];
         static PROP_INT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_INTEGER_ARRAY];
@@ -269,6 +274,7 @@ impl StringKind {
             Self::Input => &INPUT,
             Self::Output => &OUTPUT,
             Self::Classname => &CLASSNAME,
+            Self::Convar => &CONVAR,
             Self::PropInt => &PROP_INT,
             Self::PropIntArray => &PROP_INT_ARRAY,
             Self::PropFloat => &PROP_FLOAT,
@@ -288,7 +294,10 @@ impl StringKind {
 
     #[must_use]
     pub const fn is_case_sensetive(self) -> bool {
-        !matches!(self, Self::Input | Self::Output | Self::Classname)
+        !matches!(
+            self,
+            Self::Input | Self::Output | Self::Classname | Self::Convar
+        )
     }
 }
 

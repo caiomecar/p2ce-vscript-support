@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 phf = { workspace = true }
-file-to-phf = { path = "../file-to-phf" }
+string_literals_macros = { path = "../string_literals_macros" }
 
 [lints]
 workspace = true

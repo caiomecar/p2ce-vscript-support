@@ -123,16 +123,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
-name = "file-to-phf"
-version = "0.1.0"
-dependencies = [
- "phf_codegen",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -769,8 +759,18 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "string_literals"
 version = "0.1.0"
 dependencies = [
- "file-to-phf",
  "phf",
+ "string_literals_macros",
+]
+
+[[package]]
+name = "string_literals_macros"
+version = "0.1.0"
+dependencies = [
+ "phf_codegen",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
