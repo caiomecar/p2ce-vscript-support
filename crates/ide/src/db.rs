@@ -117,7 +117,7 @@ impl Db for Database {
 
         self.get_file(&full_path).map_or_else(
             || {
-                self.open_file(full_path)
+                self.open_file(&full_path)
                     .ok_or_else(|| "Couldn't open file".to_owned())
             },
             Ok,
@@ -169,13 +169,13 @@ impl Database {
     pub fn new(config: DbConfig) -> Self {
         let mut this = Self::default();
         if let Some(builtins_path) = config.builtins_path {
-            this.init_builtins(builtins_path);
+            this.init_builtins(&builtins_path);
         }
         if let Some(squirrel_lib_path) = config.squirrel_lib_path {
-            this.init_squirrel_lib(squirrel_lib_path);
+            this.init_squirrel_lib(&squirrel_lib_path);
         }
         if let Some(vscript_lib_path) = config.vscript_lib_path {
-            this.init_vscript_lib(vscript_lib_path);
+            this.init_vscript_lib(&vscript_lib_path);
         }
         this.tf2_root = config.tf2_root_path;
         this.load_all_scripts();
@@ -183,7 +183,10 @@ impl Database {
         this
     }
 
-    pub fn open_file(&self, path: PathBuf) -> Option<File> {
+    pub fn open_file(&self, path: &Path) -> Option<File> {
+        let path = path.canonicalize().ok()?;
+        dbg!(&path);
+
         let text = std::fs::read_to_string(path.clone()).ok()?;
         Some(self.open_file_with_text(path, text))
     }
@@ -235,11 +238,11 @@ impl Database {
             .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().and_then(|e| e.to_str()) == Some("nut"))
         {
-            self.open_file(entry.into_path());
+            self.open_file(&entry.into_path());
         }
     }
 
-    fn init_builtins(&mut self, path: PathBuf) {
+    fn init_builtins(&mut self, path: &Path) {
         let Some(builtins) = self.open_file(path) else {
             return;
         };
@@ -301,7 +304,7 @@ impl Database {
         }
     }
 
-    fn init_squirrel_lib(&mut self, path: PathBuf) {
+    fn init_squirrel_lib(&mut self, path: &Path) {
         let Some(lib) = self.open_file(path) else {
             return;
         };
@@ -331,7 +334,7 @@ impl Database {
         self.squirrel_lib = Some(lib);
     }
 
-    fn init_vscript_lib(&mut self, path: PathBuf) {
+    fn init_vscript_lib(&mut self, path: &Path) {
         let Some(lib) = self.open_file(path) else {
             return;
         };

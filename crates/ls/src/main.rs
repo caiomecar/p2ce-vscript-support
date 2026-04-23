@@ -202,7 +202,11 @@ fn handle_notification(
             let Ok(path) = p.text_document.uri.to_file_path() else {
                 return Ok(()); // ignore untitled files
             };
-            let file = db.open_file_with_text(path, p.text_document.text);
+
+            let file = db
+                .get_file(&path)
+                .unwrap_or_else(|| db.open_file_with_text(path, p.text_document.text));
+
             publish_diagnostics(db, conn, file)?;
         }
         DidChangeTextDocument::METHOD => {
