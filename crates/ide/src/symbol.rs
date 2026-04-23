@@ -191,7 +191,6 @@ impl std::str::FromStr for StringKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
-            "arbitrary" => Self::Arbitrary,
             "script" => Self::Script,
             "attribute" => Self::Attribute,
             "input" => Self::Input,

@@ -816,7 +816,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sq-3-parser",
- "string_literals",
 ]
 
 [[package]]

@@ -42,7 +42,7 @@ pub struct Database {
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
     base_entity_class: Option<ClassId>,
-    special_functions: FxHashMap<FunctionId, SpecialFunction>,
+    native_functions: FxHashMap<FunctionId, SpecialFunction>,
 }
 
 pub struct Builtin {
@@ -76,60 +76,71 @@ pub enum SpecialFunction {
     DoIncludeScript,
 }
 
-#[derive(Debug)]
-pub enum ScriptResolutionError {
-    WrongExtension,
-    AbsolutePath,
-    NoRootAssigned,
-    DoesntExist,
-}
-
 #[salsa::db]
 pub trait Db: salsa::Database {
     fn builtins(&self) -> Option<&Builtins>;
-    fn get_script(&self, path: PathBuf) -> Result<File, ScriptResolutionError>;
+    fn get_script(&self, path: PathBuf) -> Result<File, String>;
+    fn script_literals(&self) -> Vec<String>;
     fn squirrel_lib(&self) -> Option<File>;
     fn vscript_lib(&self) -> Option<File>;
     fn base_entity_class(&self) -> Option<ClassId>;
-    fn check_special(&self, id: FunctionId) -> Option<SpecialFunction>;
+    fn check_native(&self, id: FunctionId) -> Option<SpecialFunction>;
 }
 
 impl salsa::Database for Database {}
 #[salsa::db]
 impl Db for Database {
-    fn get_script(&self, mut path: PathBuf) -> Result<File, ScriptResolutionError> {
+    fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
+        let scripts = self.scripts_dir()?;
+
         if path.extension().is_none() {
             path.set_extension("nut");
         } else {
             // Validate extension
             if path.extension().and_then(|e| e.to_str()) != Some("nut") {
-                return Err(ScriptResolutionError::WrongExtension);
+                return Err("Script path must either have no or '.nut' extension".to_owned());
             }
         }
 
         if path.is_absolute() {
-            return Err(ScriptResolutionError::AbsolutePath);
+            return Err(format!(
+                "Script path must be relative to '{}'",
+                scripts.display()
+            ));
         }
-
-        let Some(root) = &self.tf2_root else {
-            return Err(ScriptResolutionError::NoRootAssigned);
-        };
-
-        let scripts = root.join(PathBuf::from("tf/scripts/vscripts"));
 
         let full_path = scripts.join(&path);
 
         if !full_path.exists() {
-            return Err(ScriptResolutionError::DoesntExist);
+            return Err("Couldn't resolve path".to_owned());
         }
 
         self.get_file(&full_path).map_or_else(
             || {
                 self.open_file(full_path)
-                    .ok_or(ScriptResolutionError::DoesntExist)
+                    .ok_or_else(|| "Couldn't open file".to_owned())
             },
             Ok,
         )
+    }
+
+    fn script_literals(&self) -> Vec<String> {
+        let Ok(scripts) = self.scripts_dir() else {
+            return Vec::new();
+        };
+
+        self.all_files()
+            .into_iter()
+            .filter_map(|(_, path)| {
+                let rel_path = path.strip_prefix(&scripts).ok()?;
+
+                if rel_path.extension().and_then(|e| e.to_str()) != Some("nut") {
+                    return None;
+                }
+
+                Some(rel_path.with_extension("").to_string_lossy().into_owned())
+            })
+            .collect()
     }
 
     fn builtins(&self) -> Option<&Builtins> {
@@ -148,8 +159,8 @@ impl Db for Database {
         self.base_entity_class
     }
 
-    fn check_special(&self, id: FunctionId) -> Option<SpecialFunction> {
-        self.special_functions.get(&id).copied()
+    fn check_native(&self, id: FunctionId) -> Option<SpecialFunction> {
+        self.native_functions.get(&id).copied()
     }
 }
 
@@ -201,9 +212,23 @@ impl Database {
         self.file_to_path.borrow().get(&file).cloned()
     }
 
-    fn load_all_scripts(&self) {
-        let Some(root) = &self.tf2_root else { return };
+    fn scripts_dir(&self) -> Result<PathBuf, &'static str> {
+        let Some(root) = &self.tf2_root else {
+            return Err("Couldn't resolve path: TF2 installation path is not set");
+        };
+
         let scripts = root.join("tf/scripts/vscripts");
+        if scripts.exists() {
+            Ok(scripts)
+        } else {
+            Err("Couldn't resolve path: TF2 installation path contains no 'tf/scripts/vscripts'")
+        }
+    }
+
+    fn load_all_scripts(&self) {
+        let Ok(scripts) = self.scripts_dir() else {
+            return;
+        };
 
         for entry in walkdir::WalkDir::new(scripts)
             .into_iter()
@@ -240,7 +265,7 @@ impl Database {
                 continue;
             };
 
-            self.special_functions.insert(function_id, special_function);
+            self.native_functions.insert(function_id, special_function);
         }
 
         self.builtins = Some(Builtins {
@@ -300,7 +325,7 @@ impl Database {
                 continue;
             };
 
-            self.special_functions.insert(function_id, special_function);
+            self.native_functions.insert(function_id, special_function);
         }
 
         self.squirrel_lib = Some(lib);
@@ -330,7 +355,7 @@ impl Database {
                 continue;
             };
 
-            self.special_functions.insert(function_id, special_function);
+            self.native_functions.insert(function_id, special_function);
         }
 
         if let Some(symbol) = self.find_symbol(lib, &["CBaseEntity"]) {

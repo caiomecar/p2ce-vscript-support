@@ -207,7 +207,7 @@ class array {
 
     /**
      * Applies a filter function to the array's items, storing the results in a new array.
-     * @param {function} condition - function(int index, any value) : bool
+     * @param {function} condition \@(index: integer, value: any) -> bool
      * @returns {array}
      */
     function filter(condition);

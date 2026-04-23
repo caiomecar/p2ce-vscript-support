@@ -31,7 +31,7 @@ use crate::{
         StringLiteralData, StringLiteralId, SymbolId, TableData, TableId, TypeConversionError,
         UnionData, UnionId,
     },
-    db::{Db, ScriptResolutionError, SpecialFunction},
+    db::{Db, SpecialFunction},
     symbol::{
         LocalKind, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type,
         TypeKind, TypeSet, TypeState, insert_symbol,
@@ -979,13 +979,25 @@ impl<'db> Collector<'db> {
             text.to_lowercase()
         };
 
-        let should_error = kind
-            .values()
-            .is_some_and(|sets| !sets.iter().any(|set| set.0.contains(&text)));
+        let message = match kind {
+            StringKind::Script => self.db().get_script(PathBuf::from(text)).err(),
+            _ => {
+                if kind
+                    .values()
+                    .is_some_and(|values| !values.iter().any(|set| set.0.contains(&text)))
+                {
+                    Some(format!(
+                        "Text of string literal is not suitable for the kind '{kind}'"
+                    ))
+                } else {
+                    None
+                }
+            }
+        };
 
-        if should_error {
+        if let Some(message) = message {
             self.diagnostics.push(Diagnostic {
-                message: format!("Text of string literal is not suitable for the type '{kind}'"),
+                message,
                 range: error_range,
                 severity: DiagnosticSeverity::Warning,
             });
@@ -1213,7 +1225,11 @@ impl<'db> Collector<'db> {
     ) -> Option<Type> {
         match callable.typ {
             Type::Table(id) => {
-                let table = self.get(id?);
+                let Some(id) = id else {
+                    return Some(Type::Unknown);
+                };
+
+                let table = self.get(id);
                 let Some(delegate_idx) = table.delegate else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
@@ -1261,8 +1277,12 @@ impl<'db> Collector<'db> {
                 )?)
             }
             Type::Instance(id) => {
+                let Some(id) = id else {
+                    return Some(Type::Unknown);
+                };
+
                 let Some(member) =
-                    self.find_member(Container::Instance(id?), metamethod, callable.range.start())
+                    self.find_member(Container::Instance(id), metamethod, callable.range.start())
                 else {
                     match errors {
                         MetamethodErrors::Yes { keyword }
@@ -1598,7 +1618,9 @@ impl<'db> Collector<'db> {
     ) -> Option<Type> {
         match callable.typ {
             Type::Function(id) => {
-                let id = id?;
+                let Some(id) = id else {
+                    return Some(Type::Unknown);
+                };
 
                 let data = self.deferred_entry(id);
                 if let Some(ref data) = data {
@@ -1685,7 +1707,7 @@ impl<'db> Collector<'db> {
                     self.resolve_deferred_function_entry(&data);
                 }
 
-                match self.db.check_special(id) {
+                match self.db.check_native(id) {
                     Some(SpecialFunction::IncludeScript | SpecialFunction::DoIncludeScript) => {
                         self.include_script(arguments);
                     }
@@ -4649,41 +4671,8 @@ impl<'db> Collector<'db> {
 
         let path = PathBuf::from(self.get(id).text.to_string());
 
-        let file = match self.db.get_script(path) {
-            Ok(file) => file,
-            Err(ScriptResolutionError::AbsolutePath) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "The path must be relative".to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Warning,
-                });
-                return;
-            }
-            Err(ScriptResolutionError::DoesntExist) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "Could not find the path".to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Warning,
-                });
-                return;
-            }
-            Err(ScriptResolutionError::NoRootAssigned) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "TF2 Installation folder is not set, the symbols will not be included"
-                        .to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Information,
-                });
-                return;
-            }
-            Err(ScriptResolutionError::WrongExtension) => {
-                self.diagnostics.push(Diagnostic {
-                    message: "The path must have none or '.nut' extension".to_owned(),
-                    range: path_string.range,
-                    severity: DiagnosticSeverity::Warning,
-                });
-                return;
-            }
+        let Ok(file) = self.db.get_script(path) else {
+            return;
         };
 
         let target = match arguments.get(1) {

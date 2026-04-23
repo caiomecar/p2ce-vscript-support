@@ -68,7 +68,7 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
             Some(ContextCompletions::InsideString {
                 kind,
                 replace_range,
-            }) => completions_inside_string(line_idx, kind, replace_range),
+            }) => completions_inside_string(line_idx, &finished_file, kind, replace_range),
             Some(ContextCompletions::Root) => completions_root(offset, &finished_file, scope),
             Some(ContextCompletions::AfterLocal | ContextCompletions::Table) => {
                 let keywords = [Keyword("function", KeywordPostfix::Space)];
@@ -1050,16 +1050,19 @@ fn completions_from_object_as_string(
 
 fn completions_inside_string(
     line_idx: &LineIndex,
+    finished_file: &FinishedFile,
     kind: StringKind,
     replace_range: TextRange,
 ) -> Vec<CompletionItem> {
     let range = conversions::range(line_idx, replace_range);
 
-    kind.values().map_or(vec![], |sets| {
-        sets.iter()
-            .flat_map(|set| set.1.iter())
+    match kind {
+        StringKind::Script => finished_file
+            .db()
+            .script_literals()
+            .iter()
             .map(|value| CompletionItem {
-                label: String::from(*value),
+                label: value.clone(),
                 kind: Some(CompletionItemKind::VALUE),
                 text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                     range,
@@ -1067,8 +1070,23 @@ fn completions_inside_string(
                 })),
                 ..Default::default()
             })
-            .collect()
-    })
+            .collect(),
+
+        _ => kind.values().map_or(vec![], |sets| {
+            sets.iter()
+                .flat_map(|set| set.1.iter())
+                .map(|value| CompletionItem {
+                    label: (*value).to_string(),
+                    kind: Some(CompletionItemKind::VALUE),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range,
+                        new_text: format!("{value}\""),
+                    })),
+                    ..Default::default()
+                })
+                .collect()
+        }),
+    }
 }
 
 fn completions_root(
@@ -1155,7 +1173,29 @@ fn completions_doc_type(offset: TextSize, finished_file: &FinishedFile<'_>) -> V
         "generator",
         "thread",
         "weakref",
+        // string literals
+        "script",
+        "attribute",
+        "input",
+        "output",
+        "classname",
+        "convar",
+        "integer_property",
+        "integer_array_property",
+        "float_property",
+        "float_array_property",
+        "entity_property",
+        "entity_array_property",
+        "bool_property",
+        "bool_array_property",
+        "string_property",
+        "string_array_property",
+        "vector_property",
+        "vector_array_property",
+        "property",
+        "property_array",
     ];
+
     let symbols = finished_file.symbols_at(offset, true);
 
     tags.into_iter()
