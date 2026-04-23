@@ -2793,14 +2793,14 @@ class CTFBaseBoss extends NextBotCombatCharacter {
 class Convars {
     /**
      * Returns the convar as a bool. May return null if no such convar.
-     * @param {string} name
+     * @param {convar} name
      * @returns {bool|null}
      */
     function GetBool(name);
 
     /**
      * Returns the convar value for the entindex as a string. Only works on FCVAR_USERINFO convars.
-     * @param {string} name
+     * @param {convar} name
      * @param {integer} entindex
      * @returns {string}
      */
@@ -2808,31 +2808,34 @@ class Convars {
 
     /**
      * Returns the convar as an int. May return null if no such convar.
+     *
      * Warning: The entire convar list is searched each time (slow). Cache results if used often.
-     * @param {string} name
+     * @param {convar} name
      * @returns {integer|null}
      */
     function GetInt(name);
 
     /**
      * Returns the convar as a string. May return null if no such convar.
-     * Warning: See GetInt warning.
-     * @param {string} name
+     *
+     * Warning: The entire convar list is searched each time (slow). Cache results if used often.
+     * @param {convar} name
      * @returns {string|null}
      */
     function GetStr(name);
 
     /**
      * Returns the convar as a float. May return null if no such convar.
-     * Warning: See GetInt warning.
-     * @param {string} name
+     *
+     * Warning: The entire convar list is searched each time (slow). Cache results if used often.
+     * @param {convar} name
      * @returns {float|null}
      */
     function GetFloat(name);
 
     /**
      * Checks if the convar is allowed to be used (in cfg/vscript_convar_allowlist.txt).
-     * @param {string} name
+     * @param {convar} name
      * @returns {bool}
      */
     function IsConVarOnAllowList(name);
@@ -2840,7 +2843,7 @@ class Convars {
     /**
      * Sets the value of the convar. The convar must be in cfg/vscript_convar_allowlist.txt.
      * The original value is saved and reset on map change.
-     * @param {string} name
+     * @param {convar} name
      * @param {any} value
      */
     function SetValue(name, value);
@@ -5464,7 +5467,7 @@ function SendToConsoleServer(command);
 /**
  * Sets a USERINFO client ConVar for a fakeclient.
  * @param {CTFBot} bot
- * @param {string} cvar
+ * @param {convar} cvar
  * @param {string} value
  */
 function SetFakeClientConVarValue(bot, cvar, value);
