@@ -17,18 +17,6 @@
       }
     },
     {
-      "name": "constant.language.boolean.true.squirrel",
-      "match": "(?<![_A-Za-z])true\\b"
-    },
-    {
-      "name": "constant.language.boolean.false.squirrel",
-      "match": "(?<![_A-Za-z])false\\b"
-    },
-    {
-      "name": "constant.language.null.squirrel",
-      "match": "(?<![_A-Za-z])null\\b"
-    },
-    {
       "name": "constant.numeric.integer.octal.squirrel",
       "match": "0[0-7](\\d*)",
       "captures": {
@@ -143,15 +131,12 @@
       "match": "(?<![_A-Za-z])global\\b"
     },
     {
-      "match": "(\\w+)\\s*\\??:\\s*(\\w+)(?:\\s*\\|\\s*(\\w+))*",
+      "match": "(\\w+)\\s*\\??:\\s*((?:\\w+\\s*\\|\\s*)*\\w+)",
       "captures": {
         "1": {
           "name": "variable.other.squirrel"
         },
         "2": {
-          "name": "support.type.squirrel"
-        },
-        "3": {
           "name": "support.type.squirrel"
         }
       }
@@ -166,6 +151,18 @@
           "name": "support.type.squirrel"
         }
       }
+    },
+    {
+      "name": "constant.language.boolean.true.squirrel",
+      "match": "(?<![_A-Za-z])true\\b"
+    },
+    {
+      "name": "constant.language.boolean.false.squirrel",
+      "match": "(?<![_A-Za-z])false\\b"
+    },
+    {
+      "name": "constant.language.null.squirrel",
+      "match": "(?<![_A-Za-z])null\\b"
     },
     {
       "match": "\\(|\\)",

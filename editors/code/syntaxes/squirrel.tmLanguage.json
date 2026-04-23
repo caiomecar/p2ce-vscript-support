@@ -1556,7 +1556,7 @@
           "name": "storage.type.class.squirrel"
         },
         {
-          "match": "(?<![_A-Za-z])(enum)\\s+([_A-Za-z]\\w*)\\b",
+          "match": "(?<![_A-Za-z])(enum)(?:\\s+([_A-Za-z]\\w*))?\\b",
           "captures": {
             "0": {
               "name": "meta.enum.squirrel"
@@ -1568,17 +1568,13 @@
               "name": "entity.name.type.enum.squirrel"
             }
           }
-        },
-        {
-          "match": "(?<![_A-Za-z])enum\\b",
-          "name": "storage.type.enum.squirrel"
         }
       ]
     },
     "functions": {
       "patterns": [
         {
-          "match": "(?<![_A-Za-z])(function)\\s+((?:[_A-Za-z]\\w*::)*)([_A-Za-z]\\w*)\\b",
+          "match": "(?<![_A-Za-z])(function)\\s+((?:[_A-Za-z]\\w*\\s*(?:::|\\.)\\s*)*)(?:([_A-Za-z]\\w*)(?!\\s*(?:::|\\.)))?\\b",
           "captures": {
             "1": {
               "name": "storage.type.function.squirrel"
@@ -1586,8 +1582,8 @@
             "2": {
               "patterns": [
                 {
-                  "name": "punctuation.separator.namespace.access.squirrel",
-                  "match": "::"
+                  "match": "::|\\.",
+                  "name": "punctuation.separator.namespace.access.squirrel"
                 },
                 {
                   "include": "#identifiers"
@@ -1705,7 +1701,20 @@
       ]
     },
     "identifiers": {
-      "patterns": []
+      "patterns": [
+        {
+          "name": "variable.other.squirrel",
+          "match": "(?<![_A-Za-z])_\\b"
+        },
+        {
+          "name": "variable.other.constant.squirrel",
+          "match": "(?<![_A-Za-z])[_A-Z][_A-Z0-9]*\\b"
+        },
+        {
+          "name": "variable.other.squirrel",
+          "match": "(?<![_A-Za-z])[_A-Za-z]\\w*\\b"
+        }
+      ]
     }
   },
   "scopeName": "source.squirrel"
