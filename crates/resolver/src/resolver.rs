@@ -962,9 +962,15 @@ impl<'db> Resolver<'db> {
         }
     }
 
-    fn check_string_literal(&mut self, left: Type, right: Type, error_range: TextRange) -> Type {
+    fn check_string_literal(
+        &mut self,
+        left: Type,
+        right: Type,
+        error_range: TextRange,
+        can_modify_left: bool,
+    ) -> Option<Type> {
         let Type::String { kind, .. } = left else {
-            return left;
+            return None;
         };
 
         let Type::String {
@@ -972,7 +978,7 @@ impl<'db> Resolver<'db> {
             ..
         } = right
         else {
-            return left;
+            return None;
         };
 
         let text = &self.get(literal).text;
@@ -1007,6 +1013,10 @@ impl<'db> Resolver<'db> {
             });
         }
 
+        if !can_modify_left {
+            return None;
+        }
+
         let typ = Type::String {
             kind,
             literal: Some(literal),
@@ -1017,7 +1027,7 @@ impl<'db> Resolver<'db> {
                 .insert(self.get(literal).range, ExpressionKind::Literal(typ));
         }
 
-        typ
+        Some(typ)
     }
 
     fn check_type(
@@ -1026,9 +1036,10 @@ impl<'db> Resolver<'db> {
         right: Type,
         source: CheckTypeSource,
         error_range: TextRange,
+        can_modify_left: bool,
     ) -> Option<Type> {
         if self.is_type_suitable(left, right) {
-            return Some(self.check_string_literal(left, right, error_range));
+            return self.check_string_literal(left, right, error_range, can_modify_left);
         }
 
         self.diagnostics.push(Diagnostic {
@@ -1082,12 +1093,14 @@ impl<'db> Resolver<'db> {
             TypeState::Inferred => match new {
                 NewType::NotExplicit(new) => Some(self.merge_or_union(current, new.typ)),
                 NewType::Explicit { typ, value_range } => {
-                    self.check_type(typ, current, source, value_range)
+                    self.check_type(typ, current, source, value_range, true)
                 }
             },
             TypeState::Explicit => match new {
                 NewType::Explicit { typ, .. } => Some(typ),
-                NewType::NotExplicit(new) => self.check_type(current, new.typ, source, new.range),
+                NewType::NotExplicit(new) => {
+                    self.check_type(current, new.typ, source, new.range, false)
+                }
             },
         }
     }
@@ -2534,6 +2547,7 @@ impl<'db> Resolver<'db> {
             kind: SymbolKind::Constant,
             name_range: name.text_range(),
             range: stmt.syntax().text_range(),
+            type_state: TypeState::Inferred,
             ..Default::default()
         });
 
