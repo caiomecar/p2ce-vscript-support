@@ -1,5 +1,6 @@
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 use resolver::{Database, FinishedFile, Source, line_index, parse, token_name_range};
+use sq_3_parser::SyntaxKind;
 
 use crate::conversions;
 
@@ -18,15 +19,19 @@ pub fn handle_hover(db: &Database, params: HoverParams) -> Option<Hover> {
     let range = token_name_range(&token);
 
     let finished_file = FinishedFile::new(db, file);
-    let id = finished_file.symbol_at(range)?;
-
-    let content = finished_file.symbol_markdown(id);
+    let content = if let Some(id) = finished_file.symbol_at(range) {
+        finished_file.symbol_markdown(id)
+    } else if token.kind() == SyntaxKind::Identifier {
+        format!("```sqDoc\n{}: unknown\n```", token.text())
+    } else {
+        return None;
+    };
 
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
             value: content,
         }),
-        range: None,
+        range: Some(conversions::range(line_idx, range)),
     })
 }
