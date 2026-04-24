@@ -813,6 +813,7 @@ impl<'db> Resolver<'db> {
 
     fn merge_or_union(&mut self, left: Type, right: Type) -> Type {
         match (left, right) {
+            (Type::Any, _) | (_, Type::Any) => Type::Any,
             (Type::Union(left_id), Type::Union(right_id)) => {
                 let mut result = Vec::new();
                 let mut right_used = vec![false; self.get(right_id).types.len()];
@@ -967,10 +968,10 @@ impl<'db> Resolver<'db> {
         left: Type,
         right: Type,
         error_range: TextRange,
-        can_modify_left: bool,
+        can_modify: bool,
     ) -> Option<Type> {
         let Type::String { kind, .. } = left else {
-            return None;
+            return Some(left);
         };
 
         let Type::String {
@@ -978,7 +979,7 @@ impl<'db> Resolver<'db> {
             ..
         } = right
         else {
-            return None;
+            return Some(right);
         };
 
         let text = &self.get(literal).text;
@@ -1013,7 +1014,7 @@ impl<'db> Resolver<'db> {
             });
         }
 
-        if !can_modify_left {
+        if !can_modify {
             return None;
         }
 

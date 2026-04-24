@@ -127,11 +127,7 @@
       }
     },
     {
-      "name": "storage.modifier.global.squirrel",
-      "match": "(?<![_A-Za-z])global\\b"
-    },
-    {
-      "match": "(\\w+)\\s*\\??:\\s*((?:\\w+\\s*\\|\\s*)*\\w+)",
+      "match": "(\\w+)\\s*\\??:\\s*(\\w+(?:\\s*\\|\\s*\\w+)*)",
       "captures": {
         "1": {
           "name": "variable.other.squirrel"
@@ -142,15 +138,8 @@
       }
     },
     {
-      "match": "(?<=->\\s*)(\\w+)(?:\\s*\\|\\s*(\\w+))*",
-      "captures": {
-        "1": {
-          "name": "support.type.squirrel"
-        },
-        "2": {
-          "name": "support.type.squirrel"
-        }
-      }
+      "match": "(?<=->\\s*)\\w+(?:\\s*\\|\\s*\\w+)*",
+      "name": "support.type.squirrel"
     },
     {
       "name": "constant.language.boolean.true.squirrel",
