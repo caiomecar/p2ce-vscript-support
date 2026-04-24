@@ -1,5 +1,5 @@
-use ide::{Database, FinishedFile, Source, line_index, parse, token_name_range};
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
+use resolver::{Database, FinishedFile, Source, line_index, parse, token_name_range};
 
 use crate::conversions;
 

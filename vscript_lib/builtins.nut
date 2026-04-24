@@ -717,3 +717,5 @@ class weakref {
      */
     function weakref();
 }
+
+class null_ {}

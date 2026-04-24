@@ -12,7 +12,7 @@ use sq_3_parser::Parse;
 use crate::{
     FinishedFile, Source, SourceSymbol, SymbolId, Type,
     arena::{ArenaId, ClassId, FunctionId},
-    collector::Collector,
+    resolver::Resolver,
     symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
@@ -63,6 +63,7 @@ pub struct Builtins {
     pub generator: Builtin,
     pub thread: Builtin,
     pub weakref: Builtin,
+    pub null: Builtin,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -283,6 +284,7 @@ impl Database {
             generator: self.init_builtin(builtins, "generator"),
             thread: self.init_builtin(builtins, "thread"),
             weakref: self.init_builtin(builtins, "weakref"),
+            null: self.init_builtin(builtins, "null_"),
         });
     }
 
@@ -446,7 +448,7 @@ pub fn parse(db: &dyn Db, file: File) -> Parse {
 pub fn source_symbol(db: &dyn Db, file: File) -> SourceSymbol {
     let now = Instant::now();
     let parse = parse(db, file);
-    let source = Collector::symbol_from_source_file(db, file, &parse.source_file());
+    let source = Resolver::symbol_from_source_file(db, file, &parse.source_file());
     eprintln!("Source symbol took {:?}", now.elapsed());
     source
 }

@@ -1,5 +1,5 @@
-use ide::{Database, FinishedFile, Source, SymbolKind, line_index, parse, token_name_range};
 use lsp_types::{Location, ReferenceParams};
+use resolver::{Database, FinishedFile, Source, SymbolKind, line_index, parse, token_name_range};
 
 use crate::conversions;
 

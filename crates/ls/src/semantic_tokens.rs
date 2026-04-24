@@ -1,8 +1,8 @@
-use ide::{
+use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
+use resolver::{
     Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolFlags, SymbolKind, Type,
     line_index,
 };
-use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 
 use crate::conversions;
 

@@ -1,8 +1,8 @@
-use ide::{ArenaId, Database, FinishedFile, Source, line_index, parse, token_name_range};
 use lsp_types::{
     Location,
     request::{GotoTypeDefinitionParams, GotoTypeDefinitionResponse},
 };
+use resolver::{ArenaId, Database, FinishedFile, Source, line_index, parse, token_name_range};
 
 use crate::conversions;
 

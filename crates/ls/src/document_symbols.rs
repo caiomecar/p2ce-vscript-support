@@ -1,10 +1,10 @@
 use crate::conversions;
-use ide::{
-    Database, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind, Type, line_index,
-};
 use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
     SymbolTag,
+};
+use resolver::{
+    Database, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind, Type, line_index,
 };
 
 pub fn handle_document_symbols(

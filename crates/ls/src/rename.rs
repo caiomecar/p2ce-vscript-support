@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use ide::{
+use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
+use resolver::{
     Database, FinishedFile, LocalKind, Source, SymbolKind, line_index, parse, token_name_range,
 };
-use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
 
 use crate::conversions;
 

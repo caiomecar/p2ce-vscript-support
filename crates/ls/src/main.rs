@@ -15,7 +15,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::Result;
-use ide::{Database, DbConfig, File, FinishedFile, Source, line_index, parse};
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::Notification as _; // for METHOD consts
 use lsp_types::request::{
@@ -29,6 +28,7 @@ use lsp_types::{
     SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
     SignatureHelpOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions,
 };
+use resolver::{Database, DbConfig, File, FinishedFile, Source, line_index, parse};
 // for METHOD consts
 use lsp_types::{
     Diagnostic,
@@ -317,14 +317,16 @@ fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<(
         })
         .chain(finished_file.diagnostics().iter().map(|diagnostic| {
             let (severity, tags) = match diagnostic.severity {
-                ide::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
-                ide::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
-                ide::DiagnosticSeverity::Information => (DiagnosticSeverity::INFORMATION, None),
-                ide::DiagnosticSeverity::Unnecessary => (
+                resolver::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
+                resolver::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
+                resolver::DiagnosticSeverity::Information => {
+                    (DiagnosticSeverity::INFORMATION, None)
+                }
+                resolver::DiagnosticSeverity::Unnecessary => (
                     DiagnosticSeverity::WARNING,
                     Some(vec![DiagnosticTag::UNNECESSARY]),
                 ),
-                ide::DiagnosticSeverity::Deprecated => (
+                resolver::DiagnosticSeverity::Deprecated => (
                     DiagnosticSeverity::HINT,
                     Some(vec![DiagnosticTag::DEPRECATED]),
                 ),

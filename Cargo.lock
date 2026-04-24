@@ -251,20 +251,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ide"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.11.0",
- "la-arena",
- "line-index",
- "rustc-hash 2.1.1",
- "salsa",
- "sq-3-parser",
- "string_literals",
- "walkdir",
-]
-
-[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -586,6 +572,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "resolver"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.11.0",
+ "la-arena",
+ "line-index",
+ "rustc-hash 2.1.1",
+ "salsa",
+ "sq-3-parser",
+ "string_literals",
+ "walkdir",
+]
+
+[[package]]
 name = "rowan"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -807,10 +807,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitflags 2.11.0",
- "ide",
  "line-index",
  "lsp-server",
  "lsp-types",
+ "resolver",
  "rustc-hash 2.1.1",
  "salsa",
  "serde",

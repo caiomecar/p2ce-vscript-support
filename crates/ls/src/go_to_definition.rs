@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use ide::{
+use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Range};
+use resolver::{
     ArenaId, Database, ExpressionKind, FinishedFile, Source, StringKind, Type, line_index, parse,
     token_name_range,
 };
-use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Range};
 use sq_3_parser::{TextRange, TextSize};
 
 use crate::conversions;

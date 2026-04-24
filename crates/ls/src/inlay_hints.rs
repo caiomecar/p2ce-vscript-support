@@ -1,7 +1,9 @@
-use ide::{Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, Type, line_index};
 use lsp_types::{
     InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent,
     MarkupKind,
+};
+use resolver::{
+    Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, Type, line_index,
 };
 
 use crate::conversions;

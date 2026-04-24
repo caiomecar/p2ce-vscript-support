@@ -1,9 +1,9 @@
-use ide::{
-    Database, ExpressionKind, FinishedFile, FunctionIdResolution, Source, line_index, parse,
-};
 use lsp_types::{
     Documentation, MarkupContent, MarkupKind, ParameterInformation, ParameterLabel, SignatureHelp,
     SignatureHelpParams, SignatureInformation,
+};
+use resolver::{
+    Database, ExpressionKind, FinishedFile, FunctionIdResolution, Source, line_index, parse,
 };
 use sq_3_parser::{AstNode, ast};
 

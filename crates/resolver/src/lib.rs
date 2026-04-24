@@ -1,6 +1,6 @@
 mod arena;
-mod collector;
 mod db;
+mod resolver;
 mod symbol;
 
 use std::{collections::hash_map::Entry, fmt::Write as _};
@@ -101,6 +101,7 @@ builtin!(weakref_members, weakref_symbol => weakref);
 builtin!(instance_members, instance_symbol => instance);
 builtin!(builtin_table_members, table_symbol => table);
 builtin!(builtin_class_members, class_symbol => class);
+builtin!(null_members, null_symbol => null);
 
 #[derive(Debug, Clone, Copy)]
 pub enum ImportMembers {
@@ -485,7 +486,8 @@ pub trait Source {
             Type::Generator(_) => generator_members(self.db()),
             Type::Thread(_) => thread_members(self.db()),
             Type::Weakref => weakref_members(self.db()),
-            Type::Unknown | Type::Null | Type::Any => FlatSymbolTable::default(),
+            Type::Null => null_members(self.db()),
+            Type::Unknown | Type::Any => FlatSymbolTable::default(),
         }
     }
 
@@ -730,7 +732,8 @@ pub trait Source {
             Type::Generator(_) => generator_symbol(self.db())?,
             Type::Thread(_) => thread_symbol(self.db())?,
             Type::Weakref => weakref_symbol(self.db())?,
-            Type::Unknown | Type::Null | Type::Any | Type::Enum(_) => return None,
+            Type::Null => null_symbol(self.db())?,
+            Type::Unknown | Type::Any | Type::Enum(_) => return None,
         })
     }
 

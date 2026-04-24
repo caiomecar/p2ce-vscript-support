@@ -209,7 +209,7 @@ enum NewType {
     Explicit { typ: Type, value_range: TextRange },
 }
 
-pub struct Collector<'db> {
+pub struct Resolver<'db> {
     db: &'db dyn Db,
     file: File,
 
@@ -241,7 +241,7 @@ pub struct Collector<'db> {
     diagnostics: Vec<Diagnostic>,
 }
 
-impl Source for Collector<'_> {
+impl Source for Resolver<'_> {
     fn file(&self) -> File {
         self.file
     }
@@ -308,7 +308,7 @@ impl Source for Collector<'_> {
     }
 }
 
-impl<'db> Collector<'db> {
+impl<'db> Resolver<'db> {
     pub fn symbol_from_source_file(db: &'db dyn Db, file: File, node: &SourceFile) -> SourceSymbol {
         let mut arena = SourceArena::default();
         // Source table is not always the root table, it depends on which entity
@@ -689,7 +689,7 @@ impl<'db> Collector<'db> {
     fn doc_type_single(&mut self, name: &DocTypeName, offset: TextSize) -> Option<Type> {
         let identifier = name.identifier()?;
         let text = identifier.text();
-        Some(match text {
+        let typ = match text {
             "any" => Type::Any,
             "int" | "integer" => Type::INTEGER,
             "float" => Type::FLOAT,
@@ -706,32 +706,36 @@ impl<'db> Collector<'db> {
             "weakref" => Type::Weakref,
             _ => {
                 if let Ok(kind) = text.parse::<StringKind>() {
-                    return Some(Type::String {
+                    Type::String {
                         kind,
                         literal: None,
-                    });
+                    }
+                } else {
+                    let Some(id) = self.resolve_name(text, offset) else {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!(
+                                "Couldn't find type '{identifier}', defaulting to using 'unknown''"
+                            ),
+                            range: name.syntax().text_range(),
+                            severity: DiagnosticSeverity::Information,
+                        });
+                        return None;
+                    };
+
+                    let Type::Class(id) = self.get(id).typ else {
+                        return None;
+                    };
+
+                    Type::Instance(id)
                 }
-
-                // If we resolve symbols first rather than preset names, the builtins
-                // file is started to break, this is anyways a small enough matter to
-                // care about (don't use the same name as defaults for your classes)
-                let Some(id) = self.resolve_name(text, offset) else {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!(
-                            "Couldn't find type '{identifier}', defaulting to using 'unknown''"
-                        ),
-                        range: name.syntax().text_range(),
-                        severity: DiagnosticSeverity::Information,
-                    });
-                    return None;
-                };
-                let Type::Class(id) = self.get(id).typ else {
-                    return None;
-                };
-
-                Type::Instance(id)
             }
-        })
+        };
+
+        if let Some(symbol) = self.type_to_symbol(typ) {
+            self.new_reference(name.syntax().text_range(), symbol);
+        }
+
+        Some(typ)
     }
 
     fn doc_type(
@@ -2001,6 +2005,8 @@ impl<'db> Collector<'db> {
                         });
                         continue;
                     };
+
+                    self.new_reference(param_name.text_range(), param_id);
 
                     if let Some(param) = self.get_mut(param_id)
                         && let Some(desc) = tag.description()

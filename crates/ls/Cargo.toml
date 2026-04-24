@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ide = { path = "../ide" }
+resolver = { path = "../resolver" }
 sq-3-parser = { path = "../parser" }
 lsp-server = "0.7.9"
 lsp-types = "0.95.1"

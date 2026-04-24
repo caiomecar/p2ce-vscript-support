@@ -1,11 +1,11 @@
 use ::line_index::LineIndex;
-use ide::{
-    Database, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers, ScopeId, Source,
-    StringKind, Symbol, SymbolFlags, SymbolKind, Type, TypeState, line_index, parse,
-};
 use lsp_types::{
     Command, CompletionItem, CompletionItemKind, CompletionItemTag, CompletionParams,
     CompletionResponse, CompletionTextEdit, InsertTextFormat, TextEdit,
+};
+use resolver::{
+    Database, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers, ScopeId, Source,
+    StringKind, Symbol, SymbolFlags, SymbolKind, Type, TypeState, line_index, parse,
 };
 use sq_3_parser::{
     AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize,
