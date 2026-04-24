@@ -15,6 +15,89 @@ use std::fmt::Write as _;
 
 use crate::conversions;
 
+macro_rules! keyword_completion {
+    ($kw:literal) => {
+        CompletionItem {
+            label: $kw.to_owned(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            ..Default::default()
+        }
+    };
+    ($kw:literal, Space) => {
+        CompletionItem {
+            label: $kw.to_owned(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            insert_text: Some(concat!($kw, " ").to_owned()),
+            insert_text_format: None,
+            ..Default::default()
+        }
+    };
+    ($kw:literal, Parentheses) => {
+        CompletionItem {
+            label: $kw.to_owned(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            insert_text: Some(concat!($kw, "($1)").to_owned()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..Default::default()
+        }
+    };
+    ($kw:literal, ParenthesesSpace) => {
+        CompletionItem {
+            label: $kw.to_owned(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            insert_text: Some(concat!($kw, " ($1)").to_owned()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..Default::default()
+        }
+    };
+}
+
+fn statement_keywords() -> Vec<CompletionItem> {
+    vec![
+        keyword_completion!("base"),
+        keyword_completion!("break"),
+        keyword_completion!("class", Space),
+        keyword_completion!("clone", Space),
+        keyword_completion!("const", Space),
+        keyword_completion!("continue"),
+        keyword_completion!("delete", Space),
+        keyword_completion!("do"),
+        keyword_completion!("enum", Space),
+        keyword_completion!("foreach", ParenthesesSpace),
+        keyword_completion!("for", ParenthesesSpace),
+        keyword_completion!("function", Space),
+        keyword_completion!("if", ParenthesesSpace),
+        keyword_completion!("local", Space),
+        keyword_completion!("rawcall", Parentheses),
+        keyword_completion!("resume", Space),
+        keyword_completion!("return"),
+        keyword_completion!("switch", ParenthesesSpace),
+        keyword_completion!("this"),
+        keyword_completion!("throw", Space),
+        keyword_completion!("try"),
+        keyword_completion!("while", ParenthesesSpace),
+        keyword_completion!("yield", Space),
+    ]
+}
+
+fn expression_keywords() -> Vec<CompletionItem> {
+    vec![
+        keyword_completion!("base"),
+        keyword_completion!("class", Space),
+        keyword_completion!("clone", Space),
+        keyword_completion!("delete", Space),
+        keyword_completion!("resume", Space),
+        keyword_completion!("this"),
+        keyword_completion!("function", Parentheses),
+        keyword_completion!("null"),
+        keyword_completion!("false"),
+        keyword_completion!("true"),
+        keyword_completion!("typeof", Space),
+        keyword_completion!("__FILE__"),
+        keyword_completion!("__LINE__"),
+    ]
+}
+
 pub fn handle_completions(db: &Database, params: CompletionParams) -> CompletionResponse {
     let uri = params.text_document_position.text_document.uri;
 
@@ -71,32 +154,35 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
             }) => completions_inside_string(line_idx, &finished_file, kind, replace_range),
             Some(ContextCompletions::Root) => completions_root(offset, &finished_file, scope),
             Some(ContextCompletions::AfterLocal | ContextCompletions::Table) => {
-                let keywords = [Keyword("function", KeywordPostfix::Space)];
-                keywords_to_completion(&keywords)
+                vec![keyword_completion!("function", Space)]
+            }
+            Some(ContextCompletions::AfterForeachValue) => {
+                vec![keyword_completion!("in", Space)]
+            }
+            Some(ContextCompletions::ForInitialiser) => {
+                let mut completions = completions_flat(offset, &finished_file);
+                completions.extend(expression_keywords());
+                completions.push(keyword_completion!("local", Space));
+                completions
             }
             Some(ContextCompletions::Class) => {
-                let keywords = [
-                    Keyword("function", KeywordPostfix::Space),
-                    Keyword("constructor", KeywordPostfix::Parentheses),
-                    Keyword("static", KeywordPostfix::Space),
-                ];
-                keywords_to_completion(&keywords)
+                vec![
+                    keyword_completion!("function", Space),
+                    keyword_completion!("constructor", Parentheses),
+                    keyword_completion!("static", Space),
+                ]
             }
             Some(ContextCompletions::ClassAfterStatic) => {
-                let keywords = [
-                    Keyword("function", KeywordPostfix::Space),
-                    Keyword("constructor", KeywordPostfix::Parentheses),
-                ];
-                keywords_to_completion(&keywords)
+                vec![
+                    keyword_completion!("function", Space),
+                    keyword_completion!("constructor", Parentheses),
+                ]
             }
             Some(ContextCompletions::Switch) => {
                 let mut completions = completions_flat(offset, &finished_file);
                 completions.extend(statement_keywords());
-                let keywords = [
-                    Keyword("case", KeywordPostfix::Space),
-                    Keyword("default", KeywordPostfix::None),
-                ];
-                completions.extend(keywords_to_completion(&keywords));
+                completions.push(keyword_completion!("case", Space));
+                completions.push(keyword_completion!("default"));
                 completions
             }
             Some(ContextCompletions::DocTag { replace_range }) => {
@@ -135,6 +221,8 @@ enum ContextCompletions {
         replace_range: TextRange,
     },
     AfterLocal,
+    AfterForeachValue,
+    ForInitialiser,
     Table,
     Class,
     ClassAfterStatic,
@@ -385,10 +473,6 @@ fn context_completions(
         | SyntaxKind::FileKeyword
         | SyntaxKind::LineKeyword
         | SyntaxKind::Identifier => {
-            if !touching {
-                return Some(ContextCompletions::Expression);
-            }
-
             if doc_trigger(trigger_char) {
                 return None;
             }
@@ -396,6 +480,13 @@ fn context_completions(
             let mut parent = token.parent()?;
             if matches!(parent.kind(), SyntaxKind::Name | SyntaxKind::Error) {
                 parent = parent.parent()?;
+            }
+
+            if !touching {
+                if ast::ForEachValue::can_cast(parent.kind()) {
+                    return Some(ContextCompletions::AfterForeachValue);
+                }
+                return Some(ContextCompletions::Expression);
             }
 
             // local a = {
@@ -422,7 +513,8 @@ fn context_completions(
             // }
             if matches!(
                 parent.kind(),
-                |SyntaxKind::LocalFunctionDeclaration| SyntaxKind::Method
+                SyntaxKind::LocalFunctionDeclaration
+                    | SyntaxKind::Method
                     | SyntaxKind::Constructor
                     | SyntaxKind::ForeachKey
                     | SyntaxKind::ForeachValue
@@ -487,17 +579,18 @@ fn context_completions(
                 });
             }
 
+            if ast::ForInitialiser::can_cast(parent.kind()) {
+                return Some(ContextCompletions::ForInitialiser);
+            }
+
             if ast::Stmt::can_cast(parent.kind()) {
-                if let Some(parent) = parent.parent()
-                    && matches!(
-                        parent.kind(),
-                        //no default clause because no clauses below it make sense?
-                        SyntaxKind::SwitchStatement | SyntaxKind::CaseClause // | SyntaxKind::DefaultClause
-                    )
-                {
-                    return Some(ContextCompletions::Switch);
-                }
-                return Some(ContextCompletions::Statement);
+                return Some(match parent.parent().map(|p| p.kind()) {
+                    Some(SyntaxKind::SwitchStatement | SyntaxKind::CaseClause) => {
+                        ContextCompletions::Switch
+                    }
+                    // Some(SyntaxKind::ForInitialiser) => ContextCompletions::ForInitialiser,
+                    _ => ContextCompletions::Statement,
+                });
             }
 
             // Member access also wraps it in 'member' node
@@ -544,13 +637,28 @@ fn context_completions(
                 SyntaxKind::ClassStatement | SyntaxKind::ClassExpression => {
                     Some(ContextCompletions::Class)
                 }
+                SyntaxKind::ForEachStatement => Some(ContextCompletions::AfterForeachValue),
                 SyntaxKind::ParameterList
                 | SyntaxKind::LocalVariableDeclaration
-                | SyntaxKind::ForEachStatement
                 | SyntaxKind::EnumStatement => None,
                 _ => Some(ContextCompletions::Expression),
             }
         }
+
+        SyntaxKind::OpenParenthesis => {
+            if doc_trigger(trigger_char) {
+                return None;
+            }
+
+            match token.parent()?.kind() {
+                // for (|)
+                SyntaxKind::ForStatement => Some(ContextCompletions::ForInitialiser),
+                // function a(|)
+                SyntaxKind::ParameterList => None,
+                _ => Some(ContextCompletions::Expression),
+            }
+        }
+
         SyntaxKind::LineFeed | SyntaxKind::Semicolon => {
             if doc_trigger(trigger_char) {
                 return None;
@@ -564,7 +672,9 @@ fn context_completions(
                 //no default clause because no clauses below it make sense?
                 SyntaxKind::SwitchStatement | SyntaxKind::CaseClause // | SyntaxKind::DefaultClause
                     => Some(ContextCompletions::Switch),
+                SyntaxKind::ForEachStatement => Some(ContextCompletions::AfterForeachValue),
                 SyntaxKind::EnumStatement => None,
+                SyntaxKind::ForStatement => Some(ContextCompletions::Expression),
                 _ => Some(ContextCompletions::Statement),
             }
         }
@@ -786,93 +896,6 @@ const fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
             SymbolKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
         },
     }
-}
-
-enum KeywordPostfix {
-    None,
-    Space,
-    Parentheses,
-    ParenthesesSpace,
-}
-
-struct Keyword(&'static str, KeywordPostfix);
-
-fn keywords_to_completion(keywords: &[Keyword]) -> Vec<CompletionItem> {
-    keywords
-        .iter()
-        .map(|keyword| {
-            let label = keyword.0.to_owned();
-            let (insert_text, insert_text_format) = match keyword.1 {
-                KeywordPostfix::None => (None, None),
-                KeywordPostfix::Space => (Some(format!("{} ", keyword.0)), None),
-                KeywordPostfix::Parentheses => (
-                    Some(format!("{}($1)", keyword.0)),
-                    Some(InsertTextFormat::SNIPPET),
-                ),
-                KeywordPostfix::ParenthesesSpace => (
-                    Some(format!("{} ($1)", keyword.0)),
-                    Some(InsertTextFormat::SNIPPET),
-                ),
-            };
-            CompletionItem {
-                label,
-                kind: Some(CompletionItemKind::KEYWORD),
-                insert_text,
-                insert_text_format,
-                ..Default::default()
-            }
-        })
-        .collect()
-}
-
-fn statement_keywords() -> Vec<CompletionItem> {
-    let keywords = [
-        Keyword("base", KeywordPostfix::None),
-        Keyword("break", KeywordPostfix::None),
-        Keyword("class", KeywordPostfix::Space),
-        Keyword("clone", KeywordPostfix::Space),
-        Keyword("const", KeywordPostfix::Space),
-        Keyword("continue", KeywordPostfix::None),
-        Keyword("delete", KeywordPostfix::Space),
-        Keyword("do", KeywordPostfix::None),
-        Keyword("enum", KeywordPostfix::Space),
-        Keyword("foreach", KeywordPostfix::ParenthesesSpace),
-        Keyword("for", KeywordPostfix::ParenthesesSpace),
-        Keyword("function", KeywordPostfix::Space),
-        Keyword("if", KeywordPostfix::ParenthesesSpace),
-        Keyword("local", KeywordPostfix::Space),
-        Keyword("rawcall", KeywordPostfix::Parentheses),
-        Keyword("resume", KeywordPostfix::Space),
-        Keyword("return", KeywordPostfix::None),
-        Keyword("switch", KeywordPostfix::ParenthesesSpace),
-        Keyword("this", KeywordPostfix::None),
-        Keyword("throw", KeywordPostfix::Space),
-        Keyword("try", KeywordPostfix::None),
-        Keyword("while", KeywordPostfix::ParenthesesSpace),
-        Keyword("yield", KeywordPostfix::Space),
-    ];
-
-    keywords_to_completion(&keywords)
-}
-
-fn expression_keywords() -> Vec<CompletionItem> {
-    let keywords = [
-        Keyword("base", KeywordPostfix::None),
-        Keyword("class", KeywordPostfix::Space),
-        Keyword("clone", KeywordPostfix::Space),
-        Keyword("delete", KeywordPostfix::Space),
-        Keyword("resume", KeywordPostfix::Space),
-        Keyword("this", KeywordPostfix::None),
-        Keyword("function", KeywordPostfix::Parentheses),
-        Keyword("null", KeywordPostfix::None),
-        Keyword("false", KeywordPostfix::None),
-        Keyword("true", KeywordPostfix::None),
-        Keyword("typeof", KeywordPostfix::Space),
-        Keyword("__FILE__", KeywordPostfix::None),
-        Keyword("__LINE__", KeywordPostfix::None),
-    ];
-
-    keywords_to_completion(&keywords)
 }
 
 fn completions_flat(offset: TextSize, finished_file: &FinishedFile<'_>) -> Vec<CompletionItem> {
