@@ -7,7 +7,7 @@ use std::{collections::hash_map::Entry, fmt::Write as _};
 
 use la_arena::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
-use sq_3_parser::{SyntaxKind, SyntaxNode, SyntaxToken, TextRange, TextSize};
+use sq_3_parser::{SyntaxKind, SyntaxToken, TextRange, TextSize};
 
 use crate::{
     arena::{ClassId, Container, EnumId, ImportTarget, SourceArena, TableData, TableId},
@@ -15,14 +15,14 @@ use crate::{
         Db, top_const_members, top_root_members, top_source_and_const_members,
         top_source_and_root_members, top_source_members,
     },
-    symbol::{FlatSymbolTable, TypeSet, to_flat_symbol_table},
+    symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
 pub use arena::{ArenaId, FunctionData, FunctionId, ParamsState, ScopeId, SymbolId};
 pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
 pub use symbol::{
-    LocalKind, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type,
-    TypeState,
+    LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable,
+    Type, TypeFlags, TypeState,
 };
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -42,7 +42,7 @@ pub enum DiagnosticSeverity {
     Deprecated,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     // L value
     Literal(Type),
@@ -52,25 +52,10 @@ pub enum ExpressionKind {
 
 pub type NullableExprKind = Option<ExpressionKind>;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct TypeWithRange {
-    typ: Type,
+    kind: Type,
     range: TextRange,
-}
-
-impl TypeWithRange {
-    fn at_node(node: &SyntaxNode) -> Self {
-        Self {
-            typ: Type::Unknown,
-            range: node.text_range(),
-        }
-    }
-    fn at_node_end(node: &SyntaxNode) -> Self {
-        Self {
-            typ: Type::Unknown,
-            range: TextRange::empty(node.text_range().end()),
-        }
-    }
 }
 
 macro_rules! builtin {
@@ -214,32 +199,32 @@ pub trait Source {
         self.arena().all_symbols()
     }
 
-    fn to_function_id(&self, typ: Type, offset: TextSize) -> Option<FunctionIdResolution> {
-        match typ {
-            Type::Class(id) => {
+    fn to_function_id(&self, typ: &Type, offset: TextSize) -> Option<FunctionIdResolution> {
+        typ.find(|p| match p {
+            Primitive::Class(id) => {
                 let Some(member) = self.find_member(Container::Class(id?), "constructor", offset)
                 else {
                     return Some(FunctionIdResolution::DefaultConstructor);
                 };
 
-                self.to_function_id(member.typ, offset)
+                self.to_function_id(&member.typ, offset)
             }
-            Type::Function(id) => Some(FunctionIdResolution::Function(id?)),
-            Type::Table(id) => {
+            Primitive::Function(id) => Some(FunctionIdResolution::Function(id?)),
+            Primitive::Table(id) => {
                 let table = self.get(id?);
                 let delegate_idx = table.delegate?;
 
                 let member = self.find_member(Container::Table(delegate_idx), "_call", offset)?;
 
-                self.to_function_id(member.typ, offset)
+                self.to_function_id(&member.typ, offset)
             }
-            Type::Instance(id) => {
+            Primitive::Instance(id) => {
                 let member = self.find_member(Container::Instance(id?), "_call", offset)?;
 
-                self.to_function_id(member.typ, offset)
+                self.to_function_id(&member.typ, offset)
             }
             _ => None,
-        }
+        })
     }
 
     fn local_members(&self, offset: TextSize) -> FlatSymbolTable {
@@ -430,21 +415,21 @@ pub trait Source {
         items
     }
 
-    fn members_of_type(
+    fn members_of_primitive(
         &self,
-        typ: Type,
+        primitive: Primitive,
         settings: FindSymbol,
         hide_unnecessary: bool,
     ) -> FlatSymbolTable {
-        match typ {
-            Type::Table(id) => {
+        match primitive {
+            Primitive::Table(id) => {
                 let Some(id) = id else {
                     return builtin_table_members(self.db());
                 };
 
                 self.members_of_table(id, settings, ImportMembers::Target(ImportTarget::Table(id)))
             }
-            Type::Class(id) => {
+            Primitive::Class(id) => {
                 let Some(id) = id else {
                     return builtin_class_members(self.db());
                 };
@@ -457,7 +442,7 @@ pub trait Source {
                     hide_unnecessary,
                 )
             }
-            Type::Instance(id) => {
+            Primitive::Instance(id) => {
                 let Some(id) = id else {
                     return instance_members(self.db());
                 };
@@ -470,24 +455,35 @@ pub trait Source {
                     hide_unnecessary,
                 )
             }
-            Type::Union(id) => self
-                .get(id)
-                .types
-                .iter()
-                .flat_map(|typ| self.members_of_type(*typ, settings, hide_unnecessary))
-                .collect(),
+            Primitive::Integer(_) => integer_members(self.db()),
+            Primitive::Float(_) => float_members(self.db()),
+            Primitive::String { .. } => string_members(self.db()),
+            Primitive::Bool(_) => boolean_members(self.db()),
+            Primitive::Array(_) => array_members(self.db()),
+            Primitive::Function(_) => function_members(self.db()),
+            Primitive::Generator(_) => generator_members(self.db()),
+            Primitive::Thread(_) => thread_members(self.db()),
+            Primitive::Weakref => weakref_members(self.db()),
+            Primitive::Null => null_members(self.db()),
+            Primitive::Unknown => FlatSymbolTable::default(),
+        }
+    }
+
+    fn members_of_type(
+        &self,
+        typ: Type,
+        settings: FindSymbol,
+        hide_unnecessary: bool,
+    ) -> FlatSymbolTable {
+        match typ {
+            Type::Any => FlatSymbolTable::default(),
             Type::Enum(id) => self.enum_members(id),
-            Type::Integer(_) => integer_members(self.db()),
-            Type::Float(_) => float_members(self.db()),
-            Type::String { .. } => string_members(self.db()),
-            Type::Boolean(_) => boolean_members(self.db()),
-            Type::Array(_) => array_members(self.db()),
-            Type::Function(_) => function_members(self.db()),
-            Type::Generator(_) => generator_members(self.db()),
-            Type::Thread(_) => thread_members(self.db()),
-            Type::Weakref => weakref_members(self.db()),
-            Type::Null => null_members(self.db()),
-            Type::Unknown | Type::Any => FlatSymbolTable::default(),
+            Type::Primitive(prim) => self.members_of_primitive(prim, settings, hide_unnecessary),
+            Type::Union(union) => union
+                .primitives
+                .iter()
+                .flat_map(|prim| self.members_of_primitive(*prim, settings, hide_unnecessary))
+                .collect(),
         }
     }
 
@@ -698,82 +694,67 @@ pub trait Source {
         last
     }
 
-    fn type_to_symbol(&self, typ: Type) -> Option<SymbolId> {
-        Some(match typ {
-            Type::Instance(id) => {
-                if let Some(id) = id
-                    && let Some(class_id) = self.get(id).symbol
-                {
-                    class_id
-                } else {
-                    instance_symbol(self.db())?
-                }
-            }
-            Type::Union(id) => {
-                let types = &self.get(id).types;
-                if types.len() == 2 {
-                    if types[0] == Type::Null {
-                        return self.type_to_symbol(types[1]);
+    fn type_to_symbol(&self, typ: &Type) -> Option<SymbolId> {
+        typ.find_with_filter(
+            |prim| {
+                Some(match prim {
+                    Primitive::Instance(id) => {
+                        if let Some(id) = id
+                            && let Some(class_id) = self.get(id).symbol
+                        {
+                            class_id
+                        } else {
+                            instance_symbol(self.db())?
+                        }
                     }
-                    if types[1] == Type::Null {
-                        return self.type_to_symbol(types[0]);
-                    }
-                }
-                return None;
-            }
-            Type::Integer(_) => integer_symbol(self.db())?,
-            Type::Float(_) => float_symbol(self.db())?,
-            Type::String { .. } => string_symbol(self.db())?,
-            Type::Boolean(_) => boolean_symbol(self.db())?,
-            Type::Array(_) => array_symbol(self.db())?,
-            Type::Table(_) => table_symbol(self.db())?,
-            Type::Class(_) => class_symbol(self.db())?,
-            Type::Function(_) => function_symbol(self.db())?,
-            Type::Generator(_) => generator_symbol(self.db())?,
-            Type::Thread(_) => thread_symbol(self.db())?,
-            Type::Weakref => weakref_symbol(self.db())?,
-            Type::Null => null_symbol(self.db())?,
-            Type::Unknown | Type::Any | Type::Enum(_) => return None,
-        })
+                    Primitive::Integer(_) => integer_symbol(self.db())?,
+                    Primitive::Float(_) => float_symbol(self.db())?,
+                    Primitive::String { .. } => string_symbol(self.db())?,
+                    Primitive::Bool(_) => boolean_symbol(self.db())?,
+                    Primitive::Array(_) => array_symbol(self.db())?,
+                    Primitive::Table(_) => table_symbol(self.db())?,
+                    Primitive::Class(_) => class_symbol(self.db())?,
+                    Primitive::Function(_) => function_symbol(self.db())?,
+                    Primitive::Generator(_) => generator_symbol(self.db())?,
+                    Primitive::Thread(_) => thread_symbol(self.db())?,
+                    Primitive::Weakref => weakref_symbol(self.db())?,
+                    Primitive::Null => null_symbol(self.db())?,
+                    Primitive::Unknown => return None,
+                })
+            },
+            |prim| prim != Primitive::Null,
+        )
     }
 
-    fn expr_kind_to_type(&self, maybe_kind: NullableExprKind) -> Type {
+    fn expr_kind_to_type(&self, maybe_kind: Option<&ExpressionKind>) -> Type {
         match maybe_kind {
-            Some(ExpressionKind::Literal(typ)) => typ,
-            Some(ExpressionKind::Symbol(symbol)) => self.get(symbol).typ,
-            None => Type::Unknown,
+            Some(ExpressionKind::Literal(typ)) => typ.clone(),
+            Some(ExpressionKind::Symbol(symbol)) => self.get(*symbol).typ.clone(),
+            None => Type::default(),
         }
     }
 
-    fn expr_kind_at(&self, range: TextRange) -> NullableExprKind {
-        self.range_to_expr().get(&range).copied()
+    fn expr_kind_at(&self, range: TextRange) -> Option<&ExpressionKind> {
+        self.range_to_expr().get(&range)
     }
 
     fn symbol_at(&self, range: TextRange) -> Option<SymbolId> {
         self.range_to_symbol().get(&range).copied()
     }
 
-    fn to_type_set(&self, typ: Type) -> TypeSet {
-        match typ {
-            Type::Union(id) => self.get(id).type_set,
-            _ => TypeSet::from_kind(typ.into()),
-        }
-    }
-
     fn type_at(&self, text_range: TextRange) -> Type {
         self.expr_kind_to_type(self.expr_kind_at(text_range))
     }
 
-    fn type_to_str(&self, typ: Type) -> Box<str> {
-        match typ {
-            Type::Unknown => "unknown".into(),
-            Type::Any => "any".into(),
-            Type::Integer(_) => "integer".into(),
-            Type::Float(_) => "float".into(),
-            Type::String { .. } => "string".into(),
-            Type::Boolean(_) => "bool".into(),
-            Type::Null => "null".into(),
-            Type::Instance(id) => {
+    fn primitive_to_str(&self, primitive: Primitive) -> Box<str> {
+        match primitive {
+            Primitive::Unknown => "unknown".into(),
+            Primitive::Integer(_) => "integer".into(),
+            Primitive::Float(_) => "float".into(),
+            Primitive::String { .. } => "string".into(),
+            Primitive::Bool(_) => "bool".into(),
+            Primitive::Null => "null".into(),
+            Primitive::Instance(id) => {
                 if let Some(id) = id
                     && let Some(symbol) = self.get(id).symbol
                 {
@@ -782,29 +763,30 @@ pub trait Source {
                     "instance".into()
                 }
             }
-            Type::Union(id) => self
-                .get(id)
-                .types
+
+            Primitive::Array(_) => "array".into(),
+            Primitive::Table(_) => "table".into(),
+            Primitive::Class(_) => "class".into(),
+            Primitive::Function(_) => "function".into(),
+            Primitive::Generator(_) => "generator".into(),
+            Primitive::Thread(_) => "thread".into(),
+            Primitive::Weakref => "weakref".into(),
+        }
+    }
+
+    fn type_to_str(&self, typ: &Type) -> Box<str> {
+        match typ {
+            Type::Any => "any".into(),
+            Type::Enum(_) => "enum".into(),
+            Type::Primitive(prim) => self.primitive_to_str(*prim),
+            Type::Union(id) => id
+                .primitives
                 .iter()
-                .copied()
-                .filter_map(|typ| {
-                    if typ == Type::Unknown {
-                        None
-                    } else {
-                        Some(self.type_to_str(typ))
-                    }
-                })
+                .filter(|prim| **prim != Primitive::Unknown)
+                .map(|prim| self.primitive_to_str(*prim))
                 .collect::<Vec<_>>()
                 .join("|")
                 .into_boxed_str(),
-            Type::Array(_) => "array".into(),
-            Type::Table(_) => "table".into(),
-            Type::Class(_) => "class".into(),
-            Type::Enum(_) => "enum".into(),
-            Type::Function(_) => "function".into(),
-            Type::Generator(_) => "generator".into(),
-            Type::Thread(_) => "thread".into(),
-            Type::Weakref => "weakref".into(),
         }
     }
 
@@ -826,13 +808,13 @@ pub trait Source {
             }
             SymbolKind::Constant | SymbolKind::EnumMember => {
                 let type_text = match s.typ {
-                    Type::Integer(Some(value)) => value.to_string(),
-                    Type::Float(Some(value)) => value.to_string(),
-                    Type::Boolean(Some(value)) => value.to_string(),
-                    Type::String {
+                    Type::Primitive(Primitive::Integer(Some(value))) => value.to_string(),
+                    Type::Primitive(Primitive::Float(Some(value))) => value.to_string(),
+                    Type::Primitive(Primitive::Bool(Some(value))) => value.to_string(),
+                    Type::Primitive(Primitive::String {
                         literal: Some(literal),
                         ..
-                    } => {
+                    }) => {
                         format!("\"{}\"", self.get(literal).text)
                     }
                     _ => {
@@ -849,20 +831,20 @@ pub trait Source {
         }
 
         match s.typ {
-            Type::Function(Some(id)) => {
+            Type::Primitive(Primitive::Function(Some(id))) => {
                 str.push_str("function ");
                 let (signature, _) = self.function_markdown(&s.name, id);
                 str.push_str(&signature);
             }
-            Type::Function(None) => {
+            Type::Primitive(Primitive::Function(None)) => {
                 let _ = write!(&mut str, "function {}()", s.name);
             }
 
-            Type::Class(_) => {
+            Type::Primitive(Primitive::Class(_)) => {
                 let _ = write!(&mut str, "class {}", s.name);
             }
             _ => {
-                let _ = write!(&mut str, "{}: {}", s.name, self.type_to_str(s.typ));
+                let _ = write!(&mut str, "{}: {}", s.name, self.type_to_str(&s.typ));
             }
         }
 
@@ -892,8 +874,8 @@ pub trait Source {
             {
                 label.push('?');
             }
-            if param.typ != Type::Unknown {
-                let _ = write!(&mut label, ": {}", self.type_to_str(param.typ));
+            if param.typ != Type::Primitive(Primitive::Unknown) {
+                let _ = write!(&mut label, ": {}", self.type_to_str(&param.typ));
             }
             let end = label.len();
             param_ranges.push([
@@ -909,10 +891,10 @@ pub trait Source {
             let start = label.len();
             label.push_str("...vargv");
             let symbol = self.get(id);
-            if let Type::Array(Some(id)) = symbol.typ {
+            if let Type::Primitive(Primitive::Array(Some(id))) = symbol.typ {
                 let array = self.get(id);
-                if array.typ != Type::Unknown {
-                    let _ = write!(&mut label, ": {}", self.type_to_str(array.typ));
+                if array.typ != Type::Primitive(Primitive::Unknown) {
+                    let _ = write!(&mut label, ": {}", self.type_to_str(&array.typ));
                 }
             }
             let end = label.len();
@@ -928,8 +910,11 @@ pub trait Source {
             label.push('!');
         }
 
-        if !matches!(func.ret, Type::Unknown | Type::Null) {
-            let _ = write!(&mut label, " -> {}", self.type_to_str(func.ret));
+        if !matches!(
+            func.ret,
+            Type::Primitive(Primitive::Unknown | Primitive::Null)
+        ) {
+            let _ = write!(&mut label, " -> {}", self.type_to_str(&func.ret));
         }
 
         (label, param_ranges)

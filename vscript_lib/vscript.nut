@@ -3,7 +3,6 @@
  * Generated from https://wiki.teamfortress.com/wiki/Team_Fortress_2/Scripting/Script_Functions
  * Only for reference, do not modify
  * @native
- * @entity
  */
 
 // ============================================================

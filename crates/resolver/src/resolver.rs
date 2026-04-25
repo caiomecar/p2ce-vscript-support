@@ -10,14 +10,14 @@ use sq_3_parser::{
         EnumStatement, Expr, ExpressionStatement, ExpressionWrapper, ForEachStatement,
         ForInitialiserKind, ForStatement, FunctionBody, FunctionExpression, FunctionStatement,
         HasBody, HasDescription, HasDoc, HasName, HasOperand, HasType, IfStatement, IsClass,
-        IsClassMember, IsFunction, LambdaExpression, LiteralExpression, LiteralExpressionKind,
-        LocalFunctionDeclaration, LocalVariableDeclaration, Member, MemberAccessExpression,
-        MemberName, Name, Parameter, ParenthesisedExpression, PostfixUpdateExpression,
-        PostfixUpdateOperator, PrefixUnaryExpression, PrefixUnaryOperator, PrefixUpdateExpression,
-        PrefixUpdateOperator, Property, RawCallExpression, ResumeExpression, ReturnStatement,
-        RootAccessExpression, SourceFile, Stmt, StringNameKind, SwitchClause, SwitchStatement,
-        TableLiteralExpression, Tag, ThisExpression, ThrowStatement, TryStatement,
-        TypeOfExpression, VariableDeclaration, WhileStatement, YieldStatement,
+        IsClassMember, IsFunction, IsTag, LambdaExpression, LiteralExpression,
+        LiteralExpressionKind, LocalFunctionDeclaration, LocalVariableDeclaration, Member,
+        MemberAccessExpression, MemberName, Name, Parameter, ParenthesisedExpression,
+        PostfixUpdateExpression, PostfixUpdateOperator, PrefixUnaryExpression, PrefixUnaryOperator,
+        PrefixUpdateExpression, PrefixUpdateOperator, Property, RawCallExpression,
+        ResumeExpression, ReturnStatement, RootAccessExpression, SourceFile, Stmt, StringNameKind,
+        SwitchClause, SwitchStatement, TableLiteralExpression, Tag, ThisExpression, ThrowStatement,
+        TryStatement, TypeOfExpression, VariableDeclaration, WhileStatement, YieldStatement,
     },
 };
 use std::{collections::hash_map::Entry, path::PathBuf};
@@ -29,40 +29,42 @@ use crate::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ImportTarget, ParamsState, Scope, ScopeId, SourceArena,
         StringLiteralData, StringLiteralId, SymbolId, TableData, TableId, TypeConversionError,
-        UnionData, UnionId,
     },
     db::{Db, SpecialFunction},
     symbol::{
-        LocalKind, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable, Type,
-        TypeKind, TypeSet, TypeState, insert_symbol,
+        LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
+        SymbolTable, ToPrimitiveError, Type, TypeFlags, TypeState, insert_symbol, merge_types,
     },
 };
 
 macro_rules! dispatch_union {
     // For methods returning Option<T>
-    ($self:ident, $operand:expr, $error_msg:expr, $single_method:ident $(, $extra:expr)*) => {{
-        let operand = $operand;
-        if let Type::Union(id) = operand.typ {
-            let types = $self.get(id).types.clone();
-            for typ in types {
-                if let Some(result) = $self.$single_method(
-                    TypeWithRange { typ, ..operand },
-                    $($extra,)*
-                    false,
-                ) {
-                    return Some(result);
+    ($self:ident, $operand:expr, $error_keyword:expr, $single_method:ident $(, $extra:expr)*) => {{
+        match &$operand.kind {
+            Type::Any => None,
+            Type::Enum(_) => {
+                $self.no_support("enum", $error_keyword, $operand.range);
+                None
+            }
+            Type::Primitive(prim) => $self.$single_method( *prim, $operand.range, $($extra,)* true),
+            Type::Union(union) =>  {
+                let primitives = union.primitives.clone();
+                for prim in primitives {
+                    if let Some(result) = $self.$single_method(
+                        prim,
+                        $operand.range,
+                        $($extra,)*
+                        false,
+                    ) {
+                        return Some(result);
+                    }
                 }
+                if !union.flags.intersects(TypeFlags::UNKNOWN) {
+                    $self.no_support(&$self.type_to_str(&$operand.kind), $error_keyword, $operand.range);
+                }
+                return None;
             }
-            if !$self.get(id).type_set.contains(TypeSet::ANY) {
-                $self.diagnostics.push(Diagnostic {
-                    message: format!($error_msg, $self.type_to_str(operand.typ)),
-                    range: operand.range,
-                    severity: DiagnosticSeverity::Error,
-                });
-            }
-            return None;
         }
-        $self.$single_method(operand, $($extra,)* true)
     }};
 }
 
@@ -96,13 +98,13 @@ const fn to_operand_and_arguments(
     argument: TypeWithRange,
 ) -> (TypeWithRange, [TypeWithRange; 2]) {
     let operand = TypeWithRange {
-        typ: parent,
+        kind: parent,
         range: expr_range,
     };
 
     let arguments = [
         TypeWithRange {
-            typ: Type::STRING,
+            kind: Type::STRING,
             range: name_range,
         },
         argument,
@@ -121,14 +123,14 @@ fn lhs_container(lhs: Option<&AssignmentLeftHandSide>) -> Option<Container> {
         Some(AssignmentLeftHandSide::Invalid(_)) | None => return None,
     };
 
-    Container::try_from(*parent).ok()
+    parent.find(|prim| Container::try_from(prim).ok())
 }
 
 impl From<&AssignmentLeftHandSide> for NullableExprKind {
     fn from(value: &AssignmentLeftHandSide) -> Self {
         match value {
             AssignmentLeftHandSide::Exists { symbol, .. } => Some(ExpressionKind::Symbol(*symbol)),
-            AssignmentLeftHandSide::Invalid(key) => *key,
+            AssignmentLeftHandSide::Invalid(key) => key.clone(),
             AssignmentLeftHandSide::CanCreate { .. }
             | AssignmentLeftHandSide::NonStringName { .. } => None,
         }
@@ -160,20 +162,8 @@ impl TryFrom<AssignmentLeftHandSide> for Container {
 
     fn try_from(value: AssignmentLeftHandSide) -> Result<Self, Self::Error> {
         let typ = Type::try_from(value).map_err(|()| TypeConversionError::WrongType)?;
-        Self::try_from(typ)
+        Self::try_from(&typ)
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum MetamethodErrors {
-    No,
-    Yes {
-        keyword: &'static str,
-    },
-    YesBinary {
-        keyword: &'static str,
-        right: TypeWithRange,
-    },
 }
 
 struct DeferredFunctionTrace {
@@ -203,7 +193,7 @@ enum NewSlotResult {
     NotAllowed,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum NewType {
     NotExplicit(TypeWithRange),
     Explicit { typ: Type, value_range: TextRange },
@@ -371,15 +361,15 @@ impl<'db> Resolver<'db> {
             for tag in doc.tags() {
                 match tag {
                     Tag::Native(_) => is_native = true,
-                    Tag::Entity(_) => {
+                    Tag::Entity(t) => {
                         let base_entity = db.base_entity_class();
                         let id = collector.symbol(Symbol {
                             name: "self".into(),
-                            typ: Type::Instance(base_entity),
+                            typ: Type::Primitive(Primitive::Instance(base_entity)),
                             type_state: TypeState::Explicit,
                             kind: SymbolKind::Property(PropertyKind::Embedded),
-                            name_range: tag.syntax().text_range(),
-                            range: tag.syntax().text_range(),
+                            name_range: t.tag_item().expect("").syntax().text_range(),
+                            range: t.tag_item().expect("").syntax().text_range(),
                             ..Default::default()
                         });
 
@@ -458,17 +448,18 @@ impl<'db> Resolver<'db> {
         let expr = class.extends().and_then(|e| e.expression());
 
         let inherits = if let Some(expr) = expr {
-            match self.expr_to_type(&expr) {
-                Type::Class(id) => id,
-                Type::Unknown | Type::Any => None,
-                typ => {
+            let typ = self.expr_to_type(&expr);
+            match typ.to_class() {
+                Ok(id) => Some(id),
+                Err(ToPrimitiveError::WrongType) => {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to inherit from '{}'", self.type_to_str(typ)),
+                        message: format!("Trying to inherit from '{}'", self.type_to_str(&typ)),
                         range: expr.syntax().text_range(),
                         ..Default::default()
                     });
                     None
                 }
+                Err(ToPrimitiveError::NotSpecific) => None,
             }
         } else {
             None
@@ -527,20 +518,6 @@ impl<'db> Resolver<'db> {
                 unquoted_range,
             }),
         )
-    }
-
-    fn clone_type(&mut self, typ: Type) -> Type {
-        match typ {
-            Type::Table(Some(id)) => {
-                let new = TableId::new(self.file, self.arena.alloc(self.get(id).clone()));
-                Type::Table(Some(new))
-            }
-            Type::Class(Some(id)) => {
-                let new = ClassId::new(self.file, self.arena.alloc(self.get(id).clone()));
-                Type::Class(Some(new))
-            }
-            _ => typ,
-        }
     }
 
     fn current_scope(&mut self) -> &mut Scope {
@@ -617,26 +594,26 @@ impl<'db> Resolver<'db> {
         }
     }
 
-    fn no_member_error(&mut self, obj: Type, member_name: &str, error_range: TextRange) {
-        if TypeSet::CAN_HAVE_UNKNOWN_MEMBERS.contains(self.to_type_set(obj)) {
+    fn no_member_error(&mut self, obj: &Type, member_name: &str, error_range: TextRange) {
+        if obj.type_flags().intersects(TypeFlags::HAS_MEMBERS_OR_ANY) {
             return;
         }
 
-        self.diagnostics.push(Diagnostic {
-            message: match obj {
-                Type::Enum(id) => {
-                    let Some(name) = self.get(id).symbol.map(|s| &self.get(s).name) else {
-                        return;
-                    };
+        let message = if let Type::Enum(id) = obj
+            && let Some(symbol) = self.get(*id).symbol
+        {
+            let name = &self.get(symbol).name;
+            format!("enum '{name}' has no member named '{member_name}'")
+        } else {
+            format!(
+                "'{}' has no member named '{}'",
+                self.type_to_str(obj),
+                member_name
+            )
+        };
 
-                    format!("enum '{name}' has no member named '{member_name}'")
-                }
-                _ => format!(
-                    "'{}' has no member named '{}'",
-                    self.type_to_str(obj),
-                    member_name
-                ),
-            },
+        self.diagnostics.push(Diagnostic {
+            message,
             range: error_range,
             ..Default::default()
         });
@@ -694,8 +671,8 @@ impl<'db> Resolver<'db> {
             "int" | "integer" => Type::INTEGER,
             "float" => Type::FLOAT,
             "string" => Type::STRING,
-            "bool" | "boolean" => Type::BOOLEAN,
-            "null" => Type::Null,
+            "bool" | "boolean" => Type::BOOL,
+            "null" => Type::NULL,
             "instance" => Type::INSTANCE,
             "array" => Type::ARRAY,
             "table" => Type::TABLE,
@@ -703,13 +680,13 @@ impl<'db> Resolver<'db> {
             "function" => Type::FUNCTION,
             "generator" => Type::GENERATOR,
             "thread" => Type::THREAD,
-            "weakref" => Type::Weakref,
+            "weakref" => Type::WEAKREF,
             _ => {
                 if let Ok(kind) = text.parse::<StringKind>() {
-                    Type::String {
+                    Type::Primitive(Primitive::String {
                         kind,
                         literal: None,
-                    }
+                    })
                 } else {
                     let Some(id) = self.resolve_name(text, offset) else {
                         self.diagnostics.push(Diagnostic {
@@ -722,16 +699,16 @@ impl<'db> Resolver<'db> {
                         return None;
                     };
 
-                    let Type::Class(id) = self.get(id).typ else {
+                    let Type::Primitive(Primitive::Class(id)) = self.get(id).typ else {
                         return None;
                     };
 
-                    Type::Instance(id)
+                    Type::Primitive(Primitive::Instance(id))
                 }
             }
         };
 
-        if let Some(symbol) = self.type_to_symbol(typ) {
+        if let Some(symbol) = self.type_to_symbol(&typ) {
             self.new_reference(name.syntax().text_range(), symbol);
         }
 
@@ -752,7 +729,7 @@ impl<'db> Resolver<'db> {
             };
 
             if let Some(typ) = last_type {
-                last_type = Some(self.merge_or_union(typ, next_type));
+                last_type = Some(merge_types(&typ, &next_type));
             } else {
                 last_type = Some(next_type);
             }
@@ -761,228 +738,25 @@ impl<'db> Resolver<'db> {
         last_type
     }
 
-    fn merge_types(&self, left: Type, right: Type) -> Option<Type> {
-        if left == right {
-            return Some(left);
-        }
-
-        Some(match (left, right) {
-            (Type::Any, _) | (_, Type::Any) => Type::Any,
-            (Type::Integer(_), Type::Integer(_)) => Type::INTEGER,
-            (Type::Float(_), Type::Float(_)) => Type::FLOAT,
-            (Type::Boolean(_), Type::Boolean(_)) => Type::BOOLEAN,
-            (Type::String { .. }, Type::String { .. }) => Type::STRING,
-
-            (Type::Instance(Some(left_id)), Type::Instance(Some(right_id))) => {
-                if left_id == right_id {
-                    return Some(left);
-                }
-
-                let mut class_id = left_id;
-                while let Some(inherits) = self.get(class_id).inherits {
-                    if inherits == right_id {
-                        return Some(Type::Instance(Some(inherits)));
-                    }
-                    class_id = inherits;
-                }
-
-                class_id = right_id;
-                while let Some(inherits) = self.get(class_id).inherits {
-                    if inherits == left_id {
-                        return Some(Type::Instance(Some(inherits)));
-                    }
-                    class_id = inherits;
-                }
-                return None;
-            }
-            (Type::Instance(_), Type::Instance(_)) => Type::INSTANCE,
-            (Type::Table(_), Type::Table(_)) => Type::TABLE,
-            (Type::Class(_), Type::Class(_)) => Type::CLASS,
-            (Type::Array(_), Type::Array(_)) => Type::ARRAY,
-            (Type::Function(_), Type::Function(_)) => Type::FUNCTION,
-            (Type::Generator(_), Type::Generator(_)) => Type::GENERATOR,
-            (Type::Thread(_), Type::Thread(_)) => Type::THREAD,
-            (Type::Union(_), _) | (_, Type::Union(_)) => {
-                panic!("Union type should not be passed into 'merge_types'")
-            }
-            (_, _) => {
-                return None;
-            }
-        })
-    }
-
-    fn merge_or_union(&mut self, left: Type, right: Type) -> Type {
-        match (left, right) {
-            (Type::Any, _) | (_, Type::Any) => Type::Any,
-            (Type::Union(left_id), Type::Union(right_id)) => {
-                let mut result = Vec::new();
-                let mut right_used = vec![false; self.get(right_id).types.len()];
-
-                let left_types = self.get(left_id).types.clone();
-                let right_types = self.get(right_id).types.clone();
-
-                for left in left_types {
-                    let mut merged = false;
-
-                    for (i, right) in right_types.iter().enumerate() {
-                        if right_used[i] {
-                            continue;
-                        }
-
-                        if let Some(new_type) = self.merge_types(left, *right) {
-                            result.push(new_type);
-                            right_used[i] = true;
-                            merged = true;
-                            break;
-                        }
-                    }
-
-                    if !merged {
-                        result.push(left);
-                    }
-                }
-
-                // Add remaining right-side types
-                for (i, right) in right_types.iter().enumerate() {
-                    if !right_used[i] {
-                        result.push(*right);
-                    }
-                }
-
-                Type::Union(UnionId::new(
-                    self.file,
-                    self.arena.alloc(UnionData {
-                        types: result,
-                        type_set: self
-                            .get(left_id)
-                            .type_set
-                            .union(self.get(right_id).type_set),
-                    }),
-                ))
-            }
-
-            (other, Type::Union(union_id)) | (Type::Union(union_id), other) => {
-                let mut types = Vec::new();
-                let mut iter = self.get(union_id).types.iter();
-                let type_set = self
-                    .get(union_id)
-                    .type_set
-                    .union(TypeSet::from_kind(other.into()));
-
-                while let Some(typ) = iter.next() {
-                    let Some(merged_type) = self.merge_types(*typ, other) else {
-                        types.push(*typ);
-                        continue;
-                    };
-
-                    types.push(merged_type);
-                    // After we've successfully merged the required type just extend the list
-                    // with the remaining types from the iterator
-                    types.extend(iter);
-                    return Type::Union(UnionId::new(
-                        self.file,
-                        self.arena.alloc(UnionData { type_set, types }),
-                    ));
-                }
-                // No merge was successful -> just add a new type to the end of the list
-                types.push(other);
-                Type::Union(UnionId::new(
-                    self.file,
-                    self.arena.alloc(UnionData { type_set, types }),
-                ))
-            }
-            (left, right) => {
-                if let Some(typ) = self.merge_types(left, right) {
-                    return typ;
-                }
-
-                let types = vec![left, right];
-                let type_set = TypeSet::new(&[left.into(), right.into()]);
-
-                Type::Union(UnionId::new(
-                    self.file,
-                    self.arena.alloc(UnionData { type_set, types }),
-                ))
-            }
-        }
-    }
-
-    fn is_type_suitable(&self, left: Type, right: Type) -> bool {
-        match (left, right) {
-            (Type::Float(_), Type::Integer(_))
-            | (Type::Any | Type::Unknown, _)
-            | (_, Type::Any | Type::Unknown) => true,
-
-            (Type::Instance(Some(left_id)), Type::Instance(Some(right_id))) => {
-                if left_id == right_id {
-                    return true;
-                }
-
-                let mut class_id = left_id;
-                while let Some(inherits) = self.get(class_id).inherits {
-                    if inherits == right_id {
-                        return true;
-                    }
-                    class_id = inherits;
-                }
-
-                class_id = right_id;
-                while let Some(inherits) = self.get(class_id).inherits {
-                    if inherits == left_id {
-                        return true;
-                    }
-                    class_id = inherits;
-                }
-                false
-            }
-
-            (Type::Union(left_id), Type::Union(right_id)) => {
-                let right_types = &self.get(right_id).types;
-                for left_type in &self.get(left_id).types {
-                    for right_type in right_types {
-                        if self.is_type_suitable(*left_type, *right_type) {
-                            return true;
-                        }
-                    }
-                }
-
-                false
-            }
-
-            (other, Type::Union(union_id)) | (Type::Union(union_id), other) => {
-                for typ in &self.get(union_id).types {
-                    if self.is_type_suitable(*typ, other) {
-                        return true;
-                    }
-                }
-
-                false
-            }
-
-            (_, _) => TypeKind::from(left) == right.into(),
-        }
-    }
-
     fn check_string_literal(
         &mut self,
-        left: Type,
-        right: Type,
+        doc_type: &Type,
+        other: &Type,
         error_range: TextRange,
-        can_modify: bool,
     ) -> Option<Type> {
-        let Type::String { kind, .. } = left else {
-            return Some(left);
+        let Type::Primitive(Primitive::String { kind, .. }) = doc_type else {
+            return None;
         };
 
-        let Type::String {
+        let Type::Primitive(Primitive::String {
             literal: Some(literal),
             ..
-        } = right
+        }) = other
         else {
-            return Some(right);
+            return None;
         };
 
-        let text = &self.get(literal).text;
+        let text = &self.get(*literal).text;
 
         let text = if kind.is_case_sensetive() {
             text.to_string()
@@ -1014,18 +788,16 @@ impl<'db> Resolver<'db> {
             });
         }
 
-        if !can_modify {
-            return None;
-        }
-
-        let typ = Type::String {
-            kind,
-            literal: Some(literal),
-        };
+        let typ = Type::Primitive(Primitive::String {
+            kind: *kind,
+            literal: Some(*literal),
+        });
 
         if literal.file() == self.file {
-            self.range_to_expr
-                .insert(self.get(literal).range, ExpressionKind::Literal(typ));
+            self.range_to_expr.insert(
+                self.get(*literal).range,
+                ExpressionKind::Literal(typ.clone()),
+            );
         }
 
         Some(typ)
@@ -1033,43 +805,47 @@ impl<'db> Resolver<'db> {
 
     fn check_type(
         &mut self,
-        left: Type,
-        right: Type,
+        doc_type: &Type,
+        other: &Type,
         source: CheckTypeSource,
         error_range: TextRange,
-        can_modify_left: bool,
     ) -> Option<Type> {
-        if self.is_type_suitable(left, right) {
-            return self.check_string_literal(left, right, error_range, can_modify_left);
+        let flags = other.type_flags();
+        if doc_type.type_flags().intersects(flags) {
+            return self.check_string_literal(doc_type, other, error_range);
+        }
+
+        if flags.intersects(TypeFlags::UNKNOWN) {
+            return None;
         }
 
         self.diagnostics.push(Diagnostic {
             message: match source {
                 CheckTypeSource::Variable => format!(
                     "Trying to assign a variable of type '{}' to '{}'",
-                    self.type_to_str(left),
-                    self.type_to_str(right)
+                    self.type_to_str(doc_type),
+                    self.type_to_str(other)
                 ),
                 CheckTypeSource::VarArgs |
                 CheckTypeSource::Parameter => format!(
                     "Expected parameter of type '{}', but got '{}'",
-                    self.type_to_str(left),
-                    self.type_to_str(right)
+                    self.type_to_str(doc_type),
+                    self.type_to_str(other)
                 ),
                 CheckTypeSource::Return => format!(
                     "Trying to return a value of type '{}' in a function with declared return type of '{}'",
-                    self.type_to_str(left),
-                    self.type_to_str(right),
+                    self.type_to_str(doc_type),
+                    self.type_to_str(other),
                 ),
                 CheckTypeSource::Throw => format!(
                     "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
-                    self.type_to_str(left),
-                    self.type_to_str(right),
+                    self.type_to_str(doc_type),
+                    self.type_to_str(other),
                 ),
                 CheckTypeSource::Yield => format!(
                     "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
-                    self.type_to_str(left),
-                    self.type_to_str(right),
+                    self.type_to_str(doc_type),
+                    self.type_to_str(other),
                 ),
             },
             range: error_range,
@@ -1081,7 +857,7 @@ impl<'db> Resolver<'db> {
 
     fn check_or_update_type(
         &mut self,
-        current: Type,
+        current: &Type,
         current_state: TypeState,
         new: NewType,
         source: CheckTypeSource,
@@ -1089,19 +865,18 @@ impl<'db> Resolver<'db> {
         match current_state {
             TypeState::NotAssigned => Some(match new {
                 NewType::Explicit { typ, .. } => typ,
-                NewType::NotExplicit(new) => new.typ,
+                NewType::NotExplicit(new) => new.kind,
             }),
             TypeState::Inferred => match new {
-                NewType::NotExplicit(new) => Some(self.merge_or_union(current, new.typ)),
-                NewType::Explicit { typ, value_range } => {
-                    self.check_type(typ, current, source, value_range, true)
-                }
+                NewType::NotExplicit(new) => Some(merge_types(current, &new.kind)),
+                NewType::Explicit { typ, value_range } => Some(
+                    self.check_type(&typ, current, source, value_range)
+                        .unwrap_or(typ),
+                ),
             },
             TypeState::Explicit => match new {
                 NewType::Explicit { typ, .. } => Some(typ),
-                NewType::NotExplicit(new) => {
-                    self.check_type(current, new.typ, source, new.range, false)
-                }
+                NewType::NotExplicit(new) => self.check_type(current, &new.kind, source, new.range),
             },
         }
     }
@@ -1149,7 +924,7 @@ impl<'db> Resolver<'db> {
 
                         let symbol = self.symbol(Symbol {
                             name: name.text().into(),
-                            typ: Type::Unknown,
+                            typ: Type::UNKNOWN,
                             kind: SymbolKind::Local(LocalKind::Parameter),
                             name_range: name.text_range(),
                             range: var.syntax().text_range(),
@@ -1197,10 +972,10 @@ impl<'db> Resolver<'db> {
                 }
                 Parameter::Ellipsis(var_args) => match params_state {
                     ParamsState::NoDefault => {
-                        let vargv_array = self.array(ArrayData { typ: Type::Unknown });
+                        let vargv_array = self.array(ArrayData { typ: Type::UNKNOWN });
                         let symbol = self.symbol(Symbol {
                             name: "vargv".into(),
-                            typ: Type::Array(Some(vargv_array)),
+                            typ: Type::Primitive(Primitive::Array(Some(vargv_array))),
                             kind: SymbolKind::Local(LocalKind::VariedArgs),
                             name_range: var_args.syntax().text_range(),
                             range: var_args.syntax().text_range(),
@@ -1234,286 +1009,297 @@ impl<'db> Resolver<'db> {
         self.arena[idx].params_state = params_state;
     }
 
-    fn call_metamethod(
+    fn call_metamethod_primitive(
         &mut self,
-        callable: TypeWithRange,
+        callable: Primitive,
+        range: TextRange,
         metamethod: &str,
         arguments: &[TypeWithRange],
-        errors: MetamethodErrors,
+        error_keyword: Option<&str>,
     ) -> Option<Type> {
-        match callable.typ {
-            Type::Table(id) => {
+        match callable {
+            Primitive::Table(id) => {
                 let Some(id) = id else {
-                    return Some(Type::Unknown);
+                    return Some(Type::UNKNOWN);
                 };
 
                 let table = self.get(id);
                 let Some(delegate_idx) = table.delegate else {
-                    match errors {
-                        MetamethodErrors::Yes { keyword }
-                        | MetamethodErrors::YesBinary { keyword, .. } => {
-                            self.diagnostics.push(Diagnostic {
-                                message: format!(
-                                    "'table' does not support {keyword}: no delegate assigned"
-                                ),
-                                range: callable.range,
-                                ..Default::default()
-                            });
-                        }
-                        MetamethodErrors::No => {}
+                    if let Some(keyword) = error_keyword {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!(
+                                "'table' does not support {keyword}: no delegate assigned"
+                            ),
+                            range,
+                            ..Default::default()
+                        });
                     }
                     return None;
                 };
 
                 // possibly change error_range.start() to the real offset parameter?
-                let Some(member) = self.find_member(
-                    Container::Table(delegate_idx),
-                    metamethod,
-                    callable.range.start(),
-                ) else {
-                    match errors {
-                        MetamethodErrors::Yes { keyword }
-                        | MetamethodErrors::YesBinary { keyword, .. } => {
-                            self.diagnostics.push(Diagnostic {
-                                message: format!("'table' does not support {keyword}: delegate has no '{metamethod}' metamethod"),
-                                range: callable.range,
-                                ..Default::default()
-                            });
-                        }
-                        MetamethodErrors::No => {}
-                    }
-                    return None;
-                };
-
-                Some(self.callable(
-                    callable.typ,
-                    TypeWithRange {
-                        typ: member.typ,
-                        range: callable.range,
-                    },
-                    arguments,
-                )?)
-            }
-            Type::Instance(id) => {
-                let Some(id) = id else {
-                    return Some(Type::Unknown);
-                };
-
                 let Some(member) =
-                    self.find_member(Container::Instance(id), metamethod, callable.range.start())
+                    self.find_member(Container::Table(delegate_idx), metamethod, range.start())
                 else {
-                    match errors {
-                        MetamethodErrors::Yes { keyword }
-                        | MetamethodErrors::YesBinary { keyword, .. } => {
-                            self.diagnostics.push(Diagnostic {
-                                message: format!("'instance' does not support {keyword}: class has no '{metamethod}' metamethod"),
-                                range: callable.range,
-                                ..Default::default()
-                            });
-                        }
-                        MetamethodErrors::No => {}
-                    }
-                    return None;
-                };
-
-                Some(self.callable(
-                    callable.typ,
-                    TypeWithRange {
-                        typ: member.typ,
-                        range: callable.range,
-                    },
-                    arguments,
-                )?)
-            }
-            Type::Unknown | Type::Any => None,
-            _ => {
-                match errors {
-                    MetamethodErrors::Yes { keyword } => {
+                    if let Some(keyword) = error_keyword {
                         self.diagnostics.push(Diagnostic {
-                            message: format!(
-                                "'{}' does not support {}",
-                                self.type_to_str(callable.typ),
-                                keyword
-                            ),
-                            range: callable.range,
+                            message: format!("'table' does not support {keyword}: delegate has no '{metamethod}' metamethod"),
+                            range,
                             ..Default::default()
                         });
                     }
-                    MetamethodErrors::YesBinary { keyword, right } => {
-                        if !matches!(right.typ, Type::Unknown | Type::Any) {
-                            self.diagnostics.push(Diagnostic {
-                                message: format!(
-                                    "'{}' does not support {} with '{}'",
-                                    self.type_to_str(callable.typ),
-                                    keyword,
-                                    self.type_to_str(right.typ)
-                                ),
-                                range: right.range,
-                                ..Default::default()
-                            });
-                        }
+                    return None;
+                };
+
+                self.callable(
+                    &Type::Primitive(callable),
+                    &TypeWithRange {
+                        kind: member.typ.clone(),
+                        range,
+                    },
+                    arguments,
+                )
+            }
+            Primitive::Instance(id) => {
+                let Some(id) = id else {
+                    return Some(Type::UNKNOWN);
+                };
+
+                let Some(member) =
+                    self.find_member(Container::Instance(id), metamethod, range.start())
+                else {
+                    if let Some(keyword) = error_keyword {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!("'instance' does not support {keyword}: class has no '{metamethod}' metamethod"),
+                            range,
+                            ..Default::default()
+                        });
                     }
-                    MetamethodErrors::No => {}
+
+                    return None;
+                };
+
+                self.callable(
+                    &Type::Primitive(callable),
+                    &TypeWithRange {
+                        kind: member.typ.clone(),
+                        range,
+                    },
+                    arguments,
+                )
+            }
+            Primitive::Unknown => None,
+            _ => {
+                if let Some(keyword) = error_keyword {
+                    self.no_support(&self.primitive_to_str(callable), keyword, range);
                 }
                 None
             }
         }
     }
 
-    fn new_slot_single(
+    fn call_metamethod(
         &mut self,
-        operand: TypeWithRange,
+        operand: &TypeWithRange,
+        metamethod: &str,
+        arguments: &[TypeWithRange],
+        tolerance: TypeFlags,
+        error_keyword: &str,
+    ) -> Option<Type> {
+        match &operand.kind {
+            Type::Any => None,
+            Type::Enum(_) => {
+                self.no_support("enum", error_keyword, operand.range);
+                None
+            }
+            Type::Primitive(prim) => self.call_metamethod_primitive(
+                *prim,
+                operand.range,
+                metamethod,
+                arguments,
+                Some(error_keyword),
+            ),
+            Type::Union(union) => {
+                let primitives = union.primitives.clone();
+                for prim in primitives {
+                    if let Some(result) = self.call_metamethod_primitive(
+                        prim,
+                        operand.range,
+                        metamethod,
+                        arguments,
+                        None,
+                    ) {
+                        return Some(result);
+                    }
+                }
+                if !union.flags.intersects(tolerance) {
+                    self.no_support(
+                        &self.type_to_str(&operand.kind),
+                        error_keyword,
+                        operand.range,
+                    );
+                }
+                None
+            }
+        }
+    }
+
+    fn new_slot_primitive(
+        &mut self,
+        operand: Primitive,
+        range: TextRange,
         arguments: &[TypeWithRange],
         should_error: bool,
     ) -> NewSlotResult {
-        match operand.typ {
-            Type::Class(id) => {
+        match operand {
+            Primitive::Class(id) => {
                 let Some(id) = id else {
                     return NewSlotResult::Allowed;
                 };
                 NewSlotResult::CanAdd(Container::Class(id))
             }
-            Type::Table(id) => {
+            Primitive::Table(id) => {
                 let Some(id) = id else {
                     return NewSlotResult::Allowed;
                 };
-                self.call_metamethod(operand, "_newslot", arguments, MetamethodErrors::No);
+                self.call_metamethod_primitive(operand, range, "_newslot", arguments, None);
                 NewSlotResult::CanAdd(Container::Table(id))
             }
             _ => {
                 if self
-                    .call_metamethod(
+                    .call_metamethod_primitive(
                         operand,
+                        range,
                         "_newslot",
                         arguments,
-                        if should_error {
-                            MetamethodErrors::Yes {
-                                keyword: "new slot operator",
-                            }
-                        } else {
-                            MetamethodErrors::No
-                        },
+                        should_error.then_some("new slot operator"),
                     )
                     .is_none()
                 {
                     return NewSlotResult::NotAllowed;
                 }
 
-                NewSlotResult::CanAdd(Container::try_from(operand.typ).expect(
+                NewSlotResult::CanAdd(Container::try_from(operand).expect(
                     "Type that did not fail `_newslot` metamethod call has to be a container",
                 ))
             }
         }
     }
 
-    fn new_slot(&mut self, operand: TypeWithRange, arguments: &[TypeWithRange]) -> NewSlotResult {
-        if let Type::Union(id) = operand.typ {
-            let types = self.get(id).types.clone();
-            for typ in types {
-                if matches!(
-                    self.new_slot_single(TypeWithRange { typ, ..operand }, arguments, false),
-                    NewSlotResult::NotAllowed
-                ) {
-                    continue;
+    fn new_slot(&mut self, operand: &TypeWithRange, arguments: &[TypeWithRange]) -> NewSlotResult {
+        match &operand.kind {
+            Type::Any => NewSlotResult::Allowed,
+            Type::Enum(_) => {
+                self.no_support("enum", "new slot operator", operand.range);
+                NewSlotResult::NotAllowed
+            }
+            Type::Primitive(prim) => self.new_slot_primitive(*prim, operand.range, arguments, true),
+            Type::Union(union) => {
+                let types = union.primitives.clone();
+                let mut allowed = false;
+                for prim in types {
+                    match self.new_slot_primitive(prim, operand.range, arguments, false) {
+                        NewSlotResult::Allowed => allowed = true,
+                        NewSlotResult::CanAdd(id) => return NewSlotResult::CanAdd(id),
+                        NewSlotResult::NotAllowed => {}
+                    }
                 }
 
-                return NewSlotResult::Allowed;
+                if allowed {
+                    return NewSlotResult::Allowed;
+                }
+
+                if !union.flags.intersects(TypeFlags::UNKNOWN) {
+                    self.no_support(
+                        &self.type_to_str(&operand.kind),
+                        "new slot operator",
+                        operand.range,
+                    );
+                }
+                NewSlotResult::NotAllowed
             }
-            if self.get(id).type_set.contains(TypeSet::ANY) {
-                self.diagnostics.push(Diagnostic {
-                    message: format!(
-                        "'{}' does not support new slot operator",
-                        self.type_to_str(operand.typ)
-                    ),
-                    range: operand.range,
-                    severity: DiagnosticSeverity::Error,
-                });
-            }
-            return NewSlotResult::NotAllowed;
         }
-        self.new_slot_single(operand, arguments, true)
     }
 
-    fn delete_single(
+    fn delete_primitive(
         &mut self,
-        operand: TypeWithRange,
+        operand: Primitive,
+        range: TextRange,
         index: TypeWithRange,
         should_error: bool,
     ) -> Option<Type> {
-        match operand.typ {
-            Type::Class(_) => Some(Type::Unknown),
-            Type::Table(_) => {
-                self.call_metamethod(operand, "_delslot", &[index], MetamethodErrors::No)
+        match operand {
+            Primitive::Class(_) => Some(Type::default()),
+            Primitive::Table(_) => {
+                self.call_metamethod_primitive(operand, range, "_delslot", &[index], None)
             }
-            _ => self.call_metamethod(
+            _ => self.call_metamethod_primitive(
                 operand,
+                range,
                 "_delslot",
                 &[index],
-                if should_error {
-                    MetamethodErrors::Yes {
-                        keyword: "delete operator",
-                    }
-                } else {
-                    MetamethodErrors::No
-                },
+                should_error.then_some("delete operator"),
             ),
         }
     }
 
-    fn delete(&mut self, operand: TypeWithRange, index: TypeWithRange) -> Option<Type> {
+    fn delete(&mut self, operand: &TypeWithRange, index: &TypeWithRange) -> Option<Type> {
         dispatch_union!(
             self,
             operand,
-            "'{}' does not support equals operator",
-            delete_single,
-            index
+            "delete operator",
+            delete_primitive,
+            index.clone()
         )
     }
 
     fn set_single(
         &mut self,
-        operand: TypeWithRange,
+        operand: Primitive,
+        range: TextRange,
         arguments: &[TypeWithRange],
         should_error: bool,
     ) -> Option<Type> {
-        match operand.typ {
-            Type::Array(_) | Type::Class(_) => Some(arguments.last()?.typ),
-            Type::Table(_) | Type::Instance(_) => Some(
-                self.call_metamethod(operand, "_set", arguments, MetamethodErrors::No)
-                    .unwrap_or(arguments.last()?.typ),
+        match operand {
+            Primitive::Array(_) | Primitive::Class(_) => Some(arguments.last()?.kind.clone()),
+            Primitive::Table(_) | Primitive::Instance(_) => Some(
+                self.call_metamethod_primitive(operand, range, "_set", arguments, None)
+                    .unwrap_or(arguments.last()?.kind.clone()),
             ),
-            _ => self.call_metamethod(
+            _ => self.call_metamethod_primitive(
                 operand,
+                range,
                 "_set",
                 arguments,
-                if should_error {
-                    MetamethodErrors::Yes {
-                        keyword: "equals operator",
-                    }
-                } else {
-                    MetamethodErrors::No
-                },
+                should_error.then_some("equals operator"),
             ),
         }
     }
 
-    fn set(&mut self, operand: TypeWithRange, arguments: &[TypeWithRange]) -> Option<Type> {
-        dispatch_union!(
-            self,
-            operand,
-            "'{}' does not support equals operator",
-            set_single,
-            arguments
-        )
+    fn set(&mut self, operand: &TypeWithRange, arguments: &[TypeWithRange]) -> Option<Type> {
+        dispatch_union!(self, operand, "equals operator", set_single, arguments)
     }
 
-    fn arithmetic_single(
+    fn no_support(&mut self, repr: &str, keyword: &str, range: TextRange) {
+        self.diagnostics.push(Diagnostic {
+            message: format!("'{repr}' does not support {keyword}",),
+            range,
+            severity: DiagnosticSeverity::Error,
+        });
+    }
+
+    fn arithmetic_primitive(
         &mut self,
-        operand: TypeWithRange,
-        with: TypeWithRange,
+        operand: Primitive,
+        range: TextRange,
+        with: &TypeWithRange,
         operator: BinaryOperator,
         should_error: bool,
     ) -> Option<Type> {
+        if matches!(with.kind, Type::Any) {
+            return Some(Type::Any);
+        }
+
         let (metamethod, keyword) = match operator {
             BinaryOperator::Add | BinaryOperator::AddAssign => ("_add", "adding"),
             BinaryOperator::Subtract | BinaryOperator::SubtractAssign => ("_sub", "subtracting"),
@@ -1523,129 +1309,141 @@ impl<'db> Resolver<'db> {
             _ => unreachable!(),
         };
 
-        let operand_set = self.to_type_set(operand.typ);
-        let with_set = self.to_type_set(with.typ);
+        let operand_flags = operand.type_flags();
+        let with_flags = with.kind.type_flags();
 
         if (operator == BinaryOperator::Add || operator == BinaryOperator::AddAssign)
-            && (TypeSet::STRING.contains(operand_set) || TypeSet::STRING.contains(with_set))
+            && (operand_flags.intersects(TypeFlags::STRING)
+                || with_flags.intersects(TypeFlags::STRING))
         {
-            return Some(Type::STRING);
+            return Some(Type::Primitive(Primitive::String {
+                kind: StringKind::Arbitrary,
+                literal: None,
+            }));
         }
 
-        if TypeSet::INTEGER.contains(operand_set) && TypeSet::INTEGER.contains(with_set) {
-            return Some(Type::INTEGER);
-        }
+        if !operand_flags.intersects(TypeFlags::ARITHMETIC) {
+            if !operand_flags.intersects(TypeFlags::UNKNOWN) {
+                self.no_support(&self.primitive_to_str(operand), keyword, range);
+            }
 
-        if TypeSet::are_both_numbers(operand_set, with_set) {
-            return Some(Type::FLOAT);
-        }
-
-        self.call_metamethod(
-            operand,
-            metamethod,
-            &[with],
-            if should_error {
-                MetamethodErrors::YesBinary {
-                    keyword,
-                    right: with,
+            if !with_flags.intersects(TypeFlags::ARITHMETIC) {
+                if !with_flags.intersects(TypeFlags::UNKNOWN) {
+                    self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
                 }
-            } else {
-                MetamethodErrors::No
-            },
-        )
+                return None;
+            }
+            return Some(with.kind.clone());
+        }
+
+        if operand_flags.intersects(TypeFlags::INTEGER) && with_flags.intersects(TypeFlags::INTEGER)
+        {
+            return Some(Type::Primitive(Primitive::Integer(None)));
+        }
+
+        if operand_flags.intersects(TypeFlags::NUMBER) && with_flags.intersects(TypeFlags::NUMBER) {
+            return Some(Type::Primitive(Primitive::Float(None)));
+        }
+
+        if operand_flags.intersects(TypeFlags::TABLE_OR_INSTANCE) {
+            self.call_metamethod_primitive(
+                operand,
+                range,
+                metamethod,
+                std::slice::from_ref(with),
+                should_error.then_some(keyword),
+            )
+        } else {
+            if !with_flags.intersects(TypeFlags::UNKNOWN) {
+                self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
+            }
+            Some(Type::Primitive(operand))
+        }
     }
 
     fn arithmetic(
         &mut self,
-        operand: TypeWithRange,
-        with: TypeWithRange,
+        operand: &TypeWithRange,
+        with: &TypeWithRange,
         operator: BinaryOperator,
     ) -> Option<Type> {
         dispatch_union!(
             self,
             operand,
-            "'{}' does not support arithmetic operations",
-            arithmetic_single,
+            "arithmetic operations",
+            arithmetic_primitive,
             with,
             operator
         )
     }
 
-    fn iterable_single(
+    fn iterable_primitive(
         &mut self,
-        iterable: TypeWithRange,
+        iterable: Primitive,
+        range: TextRange,
         should_error: bool,
     ) -> Option<(Type, Type)> {
-        match iterable.typ {
-            Type::Table(_) => {
+        match iterable {
+            Primitive::Table(_) => {
                 let arguments = [TypeWithRange {
-                    typ: Type::Null,
-                    ..iterable
+                    kind: Type::NULL,
+                    range,
                 }];
-                self.call_metamethod(iterable, "_nexti", &arguments, MetamethodErrors::No);
-                Some((Type::Unknown, Type::Unknown))
+                self.call_metamethod_primitive(iterable, range, "_nexti", &arguments, None);
+                Some((Type::UNKNOWN, Type::UNKNOWN))
             }
-            Type::Array(id) => {
-                let typ = id.map_or(Type::Unknown, |id| self.get(id).typ);
+            Primitive::Array(id) => {
+                let typ = id.map_or(Type::UNKNOWN, |id| self.get(id).typ.clone());
                 Some((Type::INTEGER, typ))
             }
-            Type::Generator(id) => {
-                let typ = id.map_or(Type::Unknown, |id| self.get(id).yields);
+            Primitive::Generator(id) => {
+                let typ = id.map_or(Type::UNKNOWN, |id| self.get(id).yields.clone());
 
                 Some((Type::INTEGER, typ))
             }
-            Type::Class(_) => Some((Type::Unknown, Type::Unknown)),
+            Primitive::Class(_) => Some((Type::UNKNOWN, Type::UNKNOWN)),
             _ => {
                 let arguments = [TypeWithRange {
-                    typ: Type::Null,
-                    ..iterable
+                    kind: Type::NULL,
+                    range,
                 }];
 
-                self.call_metamethod(
+                self.call_metamethod_primitive(
                     iterable,
+                    range,
                     "_nexti",
                     &arguments,
-                    if should_error {
-                        MetamethodErrors::Yes {
-                            keyword: "iterating",
-                        }
-                    } else {
-                        MetamethodErrors::No
-                    },
+                    should_error.then_some("iterating"),
                 )
-                .map(|typ| (Type::Unknown, typ))
+                .map(|typ| (Type::UNKNOWN, typ))
             }
         }
     }
 
-    fn iterable(&mut self, iterable: TypeWithRange) -> Option<(Type, Type)> {
-        dispatch_union!(
-            self,
-            iterable,
-            "'{}' does not support iterating",
-            iterable_single
-        )
+    fn iterable(&mut self, iterable: &TypeWithRange) -> Option<(Type, Type)> {
+        dispatch_union!(self, iterable, "iterating", iterable_primitive)
     }
 
-    fn callable_single(
+    fn callable_primitive(
         &mut self,
-        callable: TypeWithRange,
-        context: Type,
+        callable: Primitive,
+        range: TextRange,
+        context: &Type,
         arguments: &[TypeWithRange],
         should_error: bool,
     ) -> Option<Type> {
-        match callable.typ {
-            Type::Function(id) => {
+        match callable {
+            Primitive::Function(id) => {
                 let Some(id) = id else {
-                    return Some(Type::Unknown);
+                    return Some(Type::UNKNOWN);
                 };
 
                 let data = self.deferred_entry(id);
                 if let Some(ref data) = data {
-                    self.resolve_function_doc(data, callable.range.end());
+                    self.resolve_function_doc(data, range.end());
                 }
 
-                for (count, argument) in arguments.iter().copied().enumerate() {
+                for (count, argument) in arguments.iter().cloned().enumerate() {
                     let Some(&param) = self.get(id).params.get(count) else {
                         let ParamsState::VarArgs(_, vargv) = self.get(id).params_state else {
                             self.diagnostics.push(Diagnostic {
@@ -1660,14 +1458,14 @@ impl<'db> Resolver<'db> {
                             continue;
                         };
 
-                        let typ = self.get(vargv).typ;
+                        let typ = self.get(vargv).typ.clone();
 
-                        let Type::Array(Some(id)) = typ else {
+                        let Type::Primitive(Primitive::Array(Some(id))) = typ else {
                             continue;
                         };
 
                         let Some(new_typ) = self.check_or_update_type(
-                            typ,
+                            &typ,
                             self.get(vargv).type_state,
                             NewType::NotExplicit(argument),
                             CheckTypeSource::VarArgs,
@@ -1686,7 +1484,7 @@ impl<'db> Resolver<'db> {
                     };
 
                     let Some(new) = self.check_or_update_type(
-                        self.get(param).typ,
+                        &self.get(param).typ.clone(),
                         self.get(param).type_state,
                         NewType::NotExplicit(argument),
                         CheckTypeSource::Parameter,
@@ -1712,7 +1510,7 @@ impl<'db> Resolver<'db> {
                             arguments.len(),
                             least_params_required
                         ),
-                        range: callable.range,
+                        range,
                         ..Default::default()
                     });
                 }
@@ -1731,23 +1529,23 @@ impl<'db> Resolver<'db> {
                     }
                     Some(SpecialFunction::GetRootTable) => {
                         // Overrides return
-                        return Some(Type::Table(Some(self.root_table())));
+                        return Some(Type::Primitive(Primitive::Table(Some(self.root_table()))));
                     }
                     Some(SpecialFunction::GetConstTable) => {
                         // Overrides return
-                        return Some(Type::Table(Some(self.const_table())));
+                        return Some(Type::Primitive(Primitive::Table(Some(self.const_table()))));
                     }
                     Some(SpecialFunction::NewThread) => {
                         if let Some(first) = arguments.first()
-                            && let Type::Function(func) = first.typ
+                            && let Ok(id) = first.kind.to_function()
                         {
-                            return Some(Type::Thread(func));
+                            return Some(Type::Primitive(Primitive::Thread(Some(id))));
                         }
                         return Some(Type::THREAD);
                     }
                     Some(SpecialFunction::SetDelegate) => {
                         self.set_delegate(context, arguments);
-                        return Some(context);
+                        return Some(context.clone());
                     }
                     Some(SpecialFunction::Bindenv) => {
                         return Some(self.bindenv(context, arguments));
@@ -1756,72 +1554,73 @@ impl<'db> Resolver<'db> {
                 }
 
                 Some(if self.get(id).yields_state == TypeState::NotAssigned {
-                    self.clone_type(self.get(id).ret)
+                    self.get(id).ret.clone()
                 } else {
-                    Type::Generator(Some(id))
+                    Type::Primitive(Primitive::Generator(Some(id)))
                 })
             }
-            Type::Class(id) => {
+            Primitive::Class(id) => {
+                let Some(id) = id else {
+                    return Some(Type::INSTANCE);
+                };
+
                 if let Some(symbol) =
-                    self.find_member(Container::Class(id?), "constructor", callable.range.start())
+                    self.find_member(Container::Class(id), "constructor", range.start())
                 {
                     self.callable(
                         context,
-                        TypeWithRange {
-                            typ: symbol.typ,
-                            ..callable
+                        &TypeWithRange {
+                            kind: symbol.typ.clone(),
+                            range,
                         },
                         arguments,
                     );
                 } else if !arguments.is_empty() {
                     self.diagnostics.push(Diagnostic {
                         message: "Default constructor should have no parameters".to_owned(),
-                        range: callable.range,
+                        range,
                         ..Default::default()
                     });
                 }
 
-                Some(Type::Instance(id))
+                Some(Type::Primitive(Primitive::Instance(Some(id))))
             }
-            _ => self.call_metamethod(
+            _ => self.call_metamethod_primitive(
                 callable,
+                range,
                 "_call",
                 arguments,
-                if should_error {
-                    MetamethodErrors::Yes { keyword: "calling" }
-                } else {
-                    MetamethodErrors::No
-                },
+                should_error.then_some("calling"),
             ),
         }
     }
 
     fn callable(
         &mut self,
-        context: Type,
-        callable: TypeWithRange,
+        context: &Type,
+        callable: &TypeWithRange,
         arguments: &[TypeWithRange],
     ) -> Option<Type> {
         dispatch_union!(
             self,
             callable,
-            "'{}' does not support calling",
-            callable_single,
+            "calling",
+            callable_primitive,
             context,
             arguments
         )
     }
 
-    fn check_constant(&mut self, expr: NullableExprKind, range: TextRange) {
+    fn check_constant(&mut self, expr: Option<&ExpressionKind>, range: TextRange) {
         match expr {
-            Some(ExpressionKind::Literal(
-                Type::Integer(Some(_))
-                | Type::Float(Some(_))
-                | Type::Boolean(Some(_))
-                | Type::String {
+            Some(ExpressionKind::Literal(Type::Primitive(
+                Primitive::Integer(Some(_))
+                | Primitive::Float(Some(_))
+                | Primitive::Bool(Some(_))
+                | Primitive::String {
                     literal: Some(_), ..
                 },
-            )) => {}
+            ))) => {}
             _ => {
                 self.diagnostics.push(Diagnostic {
                     message:
@@ -1843,14 +1642,14 @@ impl<'db> Resolver<'db> {
             .and_then(|e| e.expression())
             .map(|env| (env.syntax().text_range(), self.expr_to_type(&env)))
             .and_then(|(range, typ)| {
-                if let Ok(container) = Container::try_from(typ) {
+                if let Ok(container) = Container::try_from(&typ) {
                     Some(container)
                 } else {
-                    if !matches!(typ, Type::Unknown | Type::Any) {
+                    if !typ.type_flags().intersects(TypeFlags::UNKNOWN) {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
-                                self.type_to_str(typ)
+                                self.type_to_str(&typ)
                             ),
                             range,
                             severity: DiagnosticSeverity::Warning,
@@ -1875,11 +1674,11 @@ impl<'db> Resolver<'db> {
                 bindenv,
                 params: Vec::new(),
                 params_state: ParamsState::NoDefault,
-                ret: Type::Unknown,
+                ret: Type::UNKNOWN,
                 ret_state: TypeState::NotAssigned,
-                throws: Type::Unknown,
+                throws: Type::UNKNOWN,
                 throws_state: TypeState::NotAssigned,
-                yields: Type::Unknown,
+                yields: Type::UNKNOWN,
                 yields_state: TypeState::NotAssigned,
             }),
         );
@@ -1932,7 +1731,7 @@ impl<'db> Resolver<'db> {
                     };
 
                     if let Some(typ) = self.check_or_update_type(
-                        self.get(symbol).typ,
+                        &self.get(symbol).typ.clone(),
                         self.get(symbol).type_state,
                         NewType::Explicit {
                             typ: doc_type,
@@ -2036,24 +1835,17 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    // Default parameters are resolved in 'collect_function' since they're evaluated immediately
-                    // after seeing it, and since the doc comment is resolved here we match the type of the default
-                    // parameter with our annotated type
-                    let current_type = self.get(param_id).typ;
-                    if !self.is_type_suitable(doc_type, current_type) {
-                        self.diagnostics.push(Diagnostic {
-                            message: format!(
-                                "Trying to assign a default value of type '{}' to a variable of type '{}'",
-                                self.type_to_str(current_type),
-                                self.type_to_str(doc_type)
-                            ),
-                            range: self.get(param_id).range,
-                            severity: DiagnosticSeverity::Warning
-                        });
-                    }
-
-                    if let Some(param) = self.get_mut(param_id) {
-                        param.typ = doc_type;
+                    if let Some(typ) = self.check_or_update_type(
+                        &self.get(param_id).typ.clone(),
+                        self.get(param_id).type_state,
+                        NewType::Explicit {
+                            typ: doc_type,
+                            value_range: self.get(param_id).range,
+                        },
+                        CheckTypeSource::Variable,
+                    ) && let Some(param) = self.get_mut(param_id)
+                    {
+                        param.typ = typ;
                         param.type_state = TypeState::Explicit;
                     }
                 }
@@ -2098,7 +1890,7 @@ impl<'db> Resolver<'db> {
 
                     let array_id = self.array(ArrayData { typ });
                     if let Some(symbol) = self.get_mut(id) {
-                        symbol.typ = Type::Array(Some(array_id));
+                        symbol.typ = Type::Primitive(Primitive::Array(Some(array_id)));
                         symbol.type_state = TypeState::Explicit;
                     }
                 }
@@ -2133,7 +1925,7 @@ impl<'db> Resolver<'db> {
                 let new_ret = self.expr_to_type_with_range(&expr);
 
                 if let Some(new) = self.check_or_update_type(
-                    self.arena[entry.idx].ret,
+                    &self.arena[entry.idx].ret.clone(),
                     self.arena[entry.idx].ret_state,
                     NewType::NotExplicit(new_ret),
                     CheckTypeSource::Return,
@@ -2146,7 +1938,7 @@ impl<'db> Resolver<'db> {
                 self.collect_stmt(&stmt);
 
                 if self.arena[entry.idx].ret_state == TypeState::NotAssigned {
-                    self.arena[entry.idx].ret = Type::Null;
+                    self.arena[entry.idx].ret = Type::NULL;
                     self.arena[entry.idx].ret_state = TypeState::Inferred;
                 }
             }
@@ -2186,11 +1978,22 @@ impl<'db> Resolver<'db> {
                 Some((s.unquoted_range, s.text.clone()))
             }
             MemberName::Computed(n) => {
-                let kind = self.collect_expr(&n.expression()?);
-                let Some(ExpressionKind::Literal(Type::String {
+                let expr = n.expression()?;
+                let kind = self.collect_expr(&expr);
+
+                if self.expr_kind_to_type(kind.as_ref()) == Type::NULL {
+                    self.diagnostics.push(Diagnostic {
+                        message: "'null' cannot be a name".to_owned(),
+                        range: expr.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    });
+                    return None;
+                }
+
+                let Some(ExpressionKind::Literal(Type::Primitive(Primitive::String {
                     literal: Some(literal),
                     ..
-                })) = kind
+                }))) = kind
                 else {
                     return None;
                 };
@@ -2212,7 +2015,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::Function(Some(id)),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     name_range: name.text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
@@ -2235,7 +2038,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
-                    typ: Type::Function(Some(id)),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
@@ -2265,7 +2068,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::Function(Some(id)),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     kind: SymbolKind::Property(statik),
                     name_range: name.text_range(),
                     range: method.syntax().text_range(),
@@ -2290,7 +2093,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
-                    typ: Type::Function(Some(id)),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     kind: SymbolKind::Property(statik),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
@@ -2311,7 +2114,7 @@ impl<'db> Resolver<'db> {
     fn collect_table_property(&mut self, property: &Property) {
         let typ = property
             .value()
-            .map_or(Type::Unknown, |v| self.expr_to_type(&v));
+            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
 
         let Some(name) = property.name() else {
             return;
@@ -2321,16 +2124,18 @@ impl<'db> Resolver<'db> {
             return;
         };
 
+        let type_state = if typ == Type::NULL {
+            TypeState::NotAssigned
+        } else {
+            TypeState::Inferred
+        };
+
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ,
             name_range,
             range: property.syntax().text_range(),
-            type_state: if typ == Type::Null {
-                TypeState::NotAssigned
-            } else {
-                TypeState::Inferred
-            },
+            type_state,
             ..Default::default()
         });
 
@@ -2342,15 +2147,9 @@ impl<'db> Resolver<'db> {
     fn collect_class_property(&mut self, property: &Property) {
         let typ = property
             .value()
-            .map_or(Type::Unknown, |v| self.expr_to_type(&v));
+            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
 
-        let statik = self.try_swap_to_instance(
-            property,
-            match typ {
-                Type::Function(id) => id,
-                _ => None,
-            },
-        );
+        let statik = self.try_swap_to_instance(property, typ.to_function().ok());
 
         let Some(name) = property.name() else {
             return;
@@ -2360,17 +2159,19 @@ impl<'db> Resolver<'db> {
             return;
         };
 
+        let type_state = if typ == Type::NULL {
+            TypeState::NotAssigned
+        } else {
+            TypeState::Inferred
+        };
+
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ,
+            type_state,
             kind: SymbolKind::Property(statik),
             name_range,
             range: property.syntax().text_range(),
-            type_state: if typ == Type::Null {
-                TypeState::NotAssigned
-            } else {
-                TypeState::Inferred
-            },
             ..Default::default()
         });
 
@@ -2381,14 +2182,17 @@ impl<'db> Resolver<'db> {
 
     /// returns whether the value was assigned via '=' (used to increment the internal auto assign counter)
     fn collect_enum_property(&mut self, property: &Property, default_value: i32) -> bool {
-        let (has_value, typ) =
-            property
-                .value()
-                .map_or((false, Type::Integer(Some(default_value))), |expr| {
-                    let value = self.collect_expr(&expr);
-                    self.check_constant(value, expr.syntax().text_range());
-                    (true, self.expr_kind_to_type(value))
-                });
+        let (has_value, typ) = property.value().map_or(
+            (
+                false,
+                Type::Primitive(Primitive::Integer(Some(default_value))),
+            ),
+            |expr| {
+                let value = self.collect_expr(&expr);
+                self.check_constant(value.as_ref(), expr.syntax().text_range());
+                (true, self.expr_kind_to_type(value.as_ref()))
+            },
+        );
 
         let Some(name) = property.name() else {
             return has_value;
@@ -2462,7 +2266,7 @@ impl<'db> Resolver<'db> {
             let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                 let id = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::Null,
+                    typ: Type::NULL,
                     kind: SymbolKind::Local(LocalKind::Variable),
                     name_range: name.text_range(),
                     range: var.syntax().text_range(),
@@ -2504,7 +2308,7 @@ impl<'db> Resolver<'db> {
 
         let symbol = self.symbol(Symbol {
             name: name.text().into(),
-            typ: Type::Function(Some(id)),
+            typ: Type::Primitive(Primitive::Function(Some(id))),
             kind: SymbolKind::Local(LocalKind::Function),
             name_range: name.text_range(),
             range: decl.syntax().text_range(),
@@ -2532,10 +2336,10 @@ impl<'db> Resolver<'db> {
         let typ = stmt
             .value()
             .and_then(|v| v.expression())
-            .map_or(Type::Unknown, |expr| {
+            .map_or(Type::UNKNOWN, |expr| {
                 let value = self.collect_expr(&expr);
-                self.check_constant(value, expr.syntax().text_range());
-                self.expr_kind_to_type(value)
+                self.check_constant(value.as_ref(), expr.syntax().text_range());
+                self.expr_kind_to_type(value.as_ref())
             });
 
         let Some(name) = get_name(stmt) else {
@@ -2573,9 +2377,10 @@ impl<'db> Resolver<'db> {
 
         let (key_type, value_type) =
             stmt.iterable()
-                .map_or((Type::Unknown, Type::Unknown), |iterable| {
+                .map_or((Type::UNKNOWN, Type::UNKNOWN), |iterable| {
                     let typ = self.expr_to_type_with_range(&iterable);
-                    self.iterable(typ).unwrap_or((Type::Unknown, Type::Unknown))
+                    self.iterable(&typ)
+                        .unwrap_or((Type::UNKNOWN, Type::UNKNOWN))
                 });
 
         if let Some(key) = stmt.key()
@@ -2650,7 +2455,7 @@ impl<'db> Resolver<'db> {
             None,
             name,
             TypeWithRange {
-                typ: Type::Class(Some(class)),
+                kind: Type::Primitive(Primitive::Class(Some(class))),
                 range: stmt.syntax().text_range(),
             },
             PropertyKind::NoSupport,
@@ -2683,7 +2488,7 @@ impl<'db> Resolver<'db> {
             // Plain `function abc()`: declare in current container
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
-                typ: Type::Function(Some(id)),
+                typ: Type::Primitive(Primitive::Function(Some(id))),
                 name_range: name.text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()
@@ -2752,7 +2557,7 @@ impl<'db> Resolver<'db> {
         };
 
         let mut typ = TypeWithRange {
-            typ: self.get(symbol_id).typ,
+            kind: self.get(symbol_id).typ.clone(),
             range,
         };
         self.new_reference(range, symbol_id);
@@ -2760,16 +2565,16 @@ impl<'db> Resolver<'db> {
         for segment in parts {
             let arguments = [
                 TypeWithRange {
-                    typ: Type::STRING,
+                    kind: Type::STRING,
                     range: typ.range,
                 },
                 TypeWithRange {
-                    typ: Type::Unknown,
+                    kind: Type::UNKNOWN,
                     range: segment.syntax().text_range(),
                 },
             ];
 
-            let NewSlotResult::CanAdd(container) = self.new_slot(typ, &arguments) else {
+            let NewSlotResult::CanAdd(container) = self.new_slot(&typ, &arguments) else {
                 return;
             };
 
@@ -2797,7 +2602,7 @@ impl<'db> Resolver<'db> {
 
             let range = name_token.text_range();
             typ = TypeWithRange {
-                typ: self.get(id).typ,
+                kind: self.get(id).typ.clone(),
                 range,
             };
             self.new_reference(range, id);
@@ -2809,22 +2614,22 @@ impl<'db> Resolver<'db> {
 
         let arguments = [
             TypeWithRange {
-                typ: Type::STRING,
+                kind: Type::STRING,
                 range: typ.range,
             },
             TypeWithRange {
-                typ: Type::Function(Some(id)),
+                kind: Type::Primitive(Primitive::Function(Some(id))),
                 range: final_name.text_range(),
             },
         ];
 
-        let NewSlotResult::CanAdd(container) = self.new_slot(typ, &arguments) else {
+        let NewSlotResult::CanAdd(container) = self.new_slot(&typ, &arguments) else {
             return;
         };
 
         let symbol = self.symbol(Symbol {
             name: final_name.text().into(),
-            typ: Type::Function(Some(id)),
+            typ: Type::Primitive(Primitive::Function(Some(id))),
             name_range: final_name.text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
@@ -2936,26 +2741,26 @@ impl<'db> Resolver<'db> {
     fn switch_statement(&mut self, stmt: &SwitchStatement) {
         let typ = if let Some(discriminant) = stmt.discriminant() {
             let disc = self.expr_to_type_with_range(&discriminant);
-            let set = self.to_type_set(disc.typ);
-            // Possibly use
-            // pub const fn fully_contains(self, other: TypeSet) -> bool {
-            //     (self.0 & other.0) == other.o
-            // }
-            // Instead
-            if !TypeSet::VALID_SWITCH_DISCRIMINANT.contains(set) {
+            if !disc
+                .kind
+                .type_flags()
+                .intersects(TypeFlags::VALID_DISCRIMINANT)
+            {
                 self.diagnostics.push(Diagnostic {
                     message: format!(
                         "Discriminant of type '{}' depends on the variable addresses",
-                        self.type_to_str(disc.typ)
+                        self.type_to_str(&disc.kind)
                     ),
                     range: disc.range,
                     severity: DiagnosticSeverity::Warning,
                 });
             }
-            Some(disc.typ)
+            Some(disc.kind)
         } else {
             None
         };
+
+        let discriminant_flags = typ.as_ref().map(Type::type_flags);
 
         let save_break = self.can_break;
         self.can_break = true;
@@ -2964,14 +2769,14 @@ impl<'db> Resolver<'db> {
                 SwitchClause::Case(case) => {
                     if let Some(test) = case.test() {
                         let case_type = self.expr_to_type_with_range(&test);
-                        if let Some(discriminant_typ) = typ {
-                            let case_set = self.to_type_set(case_type.typ);
-                            let discriminant_set = self.to_type_set(discriminant_typ);
-                            if !discriminant_set.contains(case_set)
-                                && !TypeSet::are_both_numbers(case_set, discriminant_set)
+                        if let Some(flags) = discriminant_flags {
+                            let case_flags = case_type.kind.type_flags();
+                            if !(case_flags.intersects(flags)
+                                || case_flags.intersects(TypeFlags::NUMBER)
+                                    && flags.intersects(TypeFlags::NUMBER))
                             {
                                 self.diagnostics.push(Diagnostic {
-                                    message: format!("Case of type '{}' is incompitable with the discriminant of type '{}'", self.type_to_str(case_type.typ), self.type_to_str(discriminant_typ)),
+                                    message: format!("Case of type '{}' is incompitable with the discriminant of type '{}'", self.type_to_str(&case_type.kind), self.type_to_str(typ.as_ref().expect("If we have flags then we must have the type"))),
                                     range: case_type.range,
                                     severity: DiagnosticSeverity::Warning,
                                 });
@@ -2999,7 +2804,10 @@ impl<'db> Resolver<'db> {
 
     fn return_statement(&mut self, stmt: &ReturnStatement) {
         let value = stmt.value().map_or_else(
-            || TypeWithRange::at_node(stmt.syntax()),
+            || TypeWithRange {
+                range: stmt.syntax().text_range(),
+                kind: Type::default(),
+            },
             |v| self.expr_to_type_with_range(&v),
         );
 
@@ -3017,7 +2825,7 @@ impl<'db> Resolver<'db> {
         };
 
         if let Some(new) = self.check_or_update_type(
-            self.arena[function].ret,
+            &self.arena[function].ret.clone(),
             self.arena[function].ret_state,
             NewType::NotExplicit(value),
             CheckTypeSource::Return,
@@ -3029,7 +2837,10 @@ impl<'db> Resolver<'db> {
 
     fn yield_statement(&mut self, stmt: &YieldStatement) {
         let value = stmt.value().map_or_else(
-            || TypeWithRange::at_node(stmt.syntax()),
+            || TypeWithRange {
+                range: stmt.syntax().text_range(),
+                kind: Type::default(),
+            },
             |v| self.expr_to_type_with_range(&v),
         );
 
@@ -3043,7 +2854,7 @@ impl<'db> Resolver<'db> {
         };
 
         if let Some(new) = self.check_or_update_type(
-            self.arena[function].yields,
+            &self.arena[function].yields.clone(),
             self.arena[function].yields_state,
             NewType::NotExplicit(value),
             CheckTypeSource::Yield,
@@ -3119,7 +2930,7 @@ impl<'db> Resolver<'db> {
         // mark current function as exception throwing
         let typ = stmt
             .value()
-            .map_or(Type::Unknown, |v| self.expr_to_type(&v));
+            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
 
         self.dead_code = true;
         let Some(function) = self.function else {
@@ -3127,10 +2938,10 @@ impl<'db> Resolver<'db> {
         };
 
         if let Some(new) = self.check_or_update_type(
-            self.arena[function].throws,
+            &self.arena[function].throws.clone(),
             self.arena[function].throws_state,
             NewType::NotExplicit(TypeWithRange {
-                typ,
+                kind: typ,
                 range: stmt.syntax().text_range(),
             }),
             CheckTypeSource::Throw,
@@ -3142,12 +2953,12 @@ impl<'db> Resolver<'db> {
 
     fn expr_to_type(&mut self, expr: &Expr) -> Type {
         let kind = self.collect_expr(expr);
-        self.expr_kind_to_type(kind)
+        self.expr_kind_to_type(kind.as_ref())
     }
 
     fn expr_to_type_with_range(&mut self, expr: &Expr) -> TypeWithRange {
         TypeWithRange {
-            typ: self.expr_to_type(expr),
+            kind: self.expr_to_type(expr),
             range: expr.syntax().text_range(),
         }
     }
@@ -3182,7 +2993,7 @@ impl<'db> Resolver<'db> {
             Expr::Lambda(expr) => Some(self.lambda_expression(expr)),
         };
 
-        if let Some(kind) = kind {
+        if let Some(kind) = kind.clone() {
             let range = expr.syntax().text_range();
             self.range_to_expr.insert(range, kind);
         }
@@ -3209,21 +3020,21 @@ impl<'db> Resolver<'db> {
                 // This is to not error out
                 let value = text.parse::<i32>().unwrap_or(0);
 
-                ExpressionKind::Literal(Type::Integer(Some(value)))
+                ExpressionKind::Literal(Type::Primitive(Primitive::Integer(Some(value))))
             }
             LiteralExpressionKind::OctalInteger => {
                 let text = token.text();
                 // 0321321
                 let value = i32::from_str_radix(&text[1..], 8).unwrap_or(0);
 
-                ExpressionKind::Literal(Type::Integer(Some(value)))
+                ExpressionKind::Literal(Type::Primitive(Primitive::Integer(Some(value))))
             }
             LiteralExpressionKind::HexInteger => {
                 let text = token.text();
                 //0x12312312
                 let value = i32::from_str_radix(&text[2..], 16).unwrap_or(0);
 
-                ExpressionKind::Literal(Type::Integer(Some(value)))
+                ExpressionKind::Literal(Type::Primitive(Primitive::Integer(Some(value))))
             }
             LiteralExpressionKind::Character => {
                 // let text = token.text();
@@ -3250,33 +3061,37 @@ impl<'db> Resolver<'db> {
                 // }
                 // .unwrap_or(0);
 
-                ExpressionKind::Literal(Type::Integer(Some(0)))
+                ExpressionKind::Literal(Type::Primitive(Primitive::Integer(Some(0))))
             }
             LiteralExpressionKind::Float => {
                 let text = token.text();
                 let value = text.parse::<f32>().unwrap_or(0.0);
 
-                ExpressionKind::Literal(Type::Float(Some(value)))
+                ExpressionKind::Literal(Type::Primitive(Primitive::Float(Some(value))))
             }
             LiteralExpressionKind::String => {
                 let string = self.string(&(StringNameKind::Normal, token));
 
-                ExpressionKind::Literal(Type::String {
+                ExpressionKind::Literal(Type::Primitive(Primitive::String {
                     kind: StringKind::Arbitrary,
                     literal: Some(string),
-                })
+                }))
             }
             LiteralExpressionKind::VerbatimString => {
                 let string = self.string(&(StringNameKind::Verbatim, token));
 
-                ExpressionKind::Literal(Type::String {
+                ExpressionKind::Literal(Type::Primitive(Primitive::String {
                     kind: StringKind::Arbitrary,
                     literal: Some(string),
-                })
+                }))
             }
-            LiteralExpressionKind::Null => ExpressionKind::Literal(Type::Null),
-            LiteralExpressionKind::True => ExpressionKind::Literal(Type::Boolean(Some(true))),
-            LiteralExpressionKind::False => ExpressionKind::Literal(Type::Boolean(Some(false))),
+            LiteralExpressionKind::Null => ExpressionKind::Literal(Type::NULL),
+            LiteralExpressionKind::True => {
+                ExpressionKind::Literal(Type::Primitive(Primitive::Bool(Some(true))))
+            }
+            LiteralExpressionKind::False => {
+                ExpressionKind::Literal(Type::Primitive(Primitive::Bool(Some(false))))
+            }
         })
     }
 
@@ -3289,7 +3104,7 @@ impl<'db> Resolver<'db> {
         }
         self.container = save_symbol;
 
-        ExpressionKind::Literal(Type::Table(Some(table)))
+        ExpressionKind::Literal(Type::Primitive(Primitive::Table(Some(table))))
     }
 
     fn class_expression(&mut self, expr: &ClassExpression) -> ExpressionKind {
@@ -3302,7 +3117,7 @@ impl<'db> Resolver<'db> {
         }
         self.container = save_symbol;
 
-        ExpressionKind::Literal(Type::Class(Some(class)))
+        ExpressionKind::Literal(Type::Primitive(Primitive::Class(Some(class))))
     }
 
     fn array_literal_expression(&mut self, expr: &ArrayLiteralExpression) -> ExpressionKind {
@@ -3312,14 +3127,16 @@ impl<'db> Resolver<'db> {
             .collect();
 
         let Some(mut typ) = types.pop() else {
-            return ExpressionKind::Literal(Type::Array(None));
+            return ExpressionKind::Literal(Type::ARRAY);
         };
 
         for next_type in types {
-            typ = self.merge_or_union(typ, next_type);
+            typ = merge_types(&typ, &next_type);
         }
 
-        ExpressionKind::Literal(Type::Array(Some(self.array(ArrayData { typ }))))
+        ExpressionKind::Literal(Type::Primitive(Primitive::Array(Some(
+            self.array(ArrayData { typ }),
+        ))))
     }
 
     fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
@@ -3373,7 +3190,7 @@ impl<'db> Resolver<'db> {
         if let Container::Class(id) = self.execution_container() {
             let class = self.get(id);
             if let Some(inherits) = class.inherits {
-                ExpressionKind::Literal(Type::Class(Some(inherits)))
+                ExpressionKind::Literal(Type::Primitive(Primitive::Class(Some(inherits))))
             } else {
                 self.diagnostics.push(Diagnostic {
                     message: "Accessing 'base' in a class that doesn't have a superclass"
@@ -3381,7 +3198,7 @@ impl<'db> Resolver<'db> {
                     range: expr.syntax().text_range(),
                     severity: DiagnosticSeverity::Warning,
                 });
-                ExpressionKind::Literal(Type::Null)
+                ExpressionKind::Literal(Type::NULL)
             }
         } else {
             self.diagnostics.push(Diagnostic {
@@ -3389,7 +3206,7 @@ impl<'db> Resolver<'db> {
                 range: expr.syntax().text_range(),
                 severity: DiagnosticSeverity::Warning,
             });
-            ExpressionKind::Literal(Type::Null)
+            ExpressionKind::Literal(Type::NULL)
         }
     }
 
@@ -3402,7 +3219,7 @@ impl<'db> Resolver<'db> {
 
         let result = self
             .members_of_type(
-                from,
+                from.clone(),
                 FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 false,
             )
@@ -3417,7 +3234,7 @@ impl<'db> Resolver<'db> {
             });
 
         if result.is_none() {
-            self.no_member_error(from, name_token.text(), expr.syntax().text_range());
+            self.no_member_error(&from, name_token.text(), expr.syntax().text_range());
         }
         result
     }
@@ -3426,39 +3243,53 @@ impl<'db> Resolver<'db> {
         let from = self.expr_to_type(&expr.object()?);
         let index = expr.index()?.expression()?;
 
-        let Some(ExpressionKind::Literal(Type::String {
-            literal: Some(id), ..
-        })) = self.collect_expr(&index)
-        else {
-            return None;
-        };
+        let expr_kind = self.collect_expr(&index)?;
 
-        let string = self.get(id);
-        let text = string.text.clone();
-        let name_range = string.unquoted_range;
-        let offset = expr.syntax().text_range().end();
+        match self.expr_kind_to_type(Some(&expr_kind)) {
+            Type::Primitive(Primitive::String {
+                literal: Some(id), ..
+            }) => {
+                let string = self.get(id);
+                let text = string.text.clone();
 
-        let result = self
-            .members_of_type(
-                from,
-                FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
-                false,
-            )
-            .into_iter()
-            .find_map(|(name, id)| {
-                if name == text {
-                    self.new_reference(name_range, id);
-                    Some(ExpressionKind::Symbol(id))
-                } else {
-                    None
+                let name_range = matches!(expr_kind, ExpressionKind::Literal(_))
+                    .then_some(string.unquoted_range);
+
+                let offset = expr.syntax().text_range().end();
+
+                let result = self
+                    .members_of_type(
+                        from.clone(),
+                        FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
+                        false,
+                    )
+                    .into_iter()
+                    .find_map(|(name, id)| {
+                        if name == text {
+                            if let Some(range) = name_range {
+                                self.new_reference(range, id);
+                            }
+                            Some(ExpressionKind::Symbol(id))
+                        } else {
+                            None
+                        }
+                    });
+
+                if result.is_none() {
+                    self.no_member_error(&from, &text, index.syntax().text_range());
                 }
-            });
 
-        if result.is_none() {
-            self.no_member_error(from, &text, index.syntax().text_range());
+                result
+            }
+            typ => {
+                let index = typ.type_flags();
+                if index.intersects(TypeFlags::STRING) {
+                    return None;
+                }
+
+                None
+            }
         }
-
-        result
     }
 
     fn special_context(&self, expr: &CallExpression) -> Option<Type> {
@@ -3473,7 +3304,7 @@ impl<'db> Resolver<'db> {
                 let expr = self.expr_kind_at(object.syntax().text_range())?;
                 Some(self.expr_kind_to_type(Some(expr)))
             }
-            Expr::RootAccess(_) => Some(Type::Table(Some(self.root_table()))),
+            Expr::RootAccess(_) => Some(Type::Primitive(Primitive::Table(Some(self.root_table())))),
             _ => None,
         }
     }
@@ -3491,14 +3322,14 @@ impl<'db> Resolver<'db> {
             .unwrap_or_else(|| self.execution_container().into());
 
         Some(ExpressionKind::Literal(
-            self.callable(context, obj, &arguments)?,
+            self.callable(&context, &obj, &arguments)?,
         ))
     }
 
     fn clone_expression(&mut self, expr: &CloneExpression) -> NullableExprKind {
         let operand = expr.operand()?;
         let typ = self.expr_to_type(&operand);
-        Some(ExpressionKind::Literal(self.clone_type(typ)))
+        Some(ExpressionKind::Literal(typ))
     }
 
     fn extract_lhs_and_rhs(
@@ -3584,7 +3415,7 @@ impl<'db> Resolver<'db> {
 
                 if let Some(symbol) = root {
                     return Some(AssignmentLeftHandSide::Exists {
-                        parent: Some(Type::Table(Some(self.root_table()))),
+                        parent: Some(Type::Primitive(Primitive::Table(Some(self.root_table())))),
                         symbol,
                         name_range: expr_range,
                         expr_range,
@@ -3609,7 +3440,7 @@ impl<'db> Resolver<'db> {
 
                 Some(
                     self.members_of_type(
-                        obj,
+                        obj.clone(),
                         FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                         false,
                     )
@@ -3623,13 +3454,13 @@ impl<'db> Resolver<'db> {
                     })
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
-                            parent: obj,
+                            parent: obj.clone(),
                             new_key: name_token.text().into(),
                             name_range,
                             expr_range,
                         },
                         |id| AssignmentLeftHandSide::Exists {
-                            parent: Some(obj),
+                            parent: Some(obj.clone()),
                             symbol: id,
                             name_range,
                             expr_range,
@@ -3642,14 +3473,15 @@ impl<'db> Resolver<'db> {
                 let index = expr.index()?.expression()?;
                 let expr_range = expr.syntax().text_range();
                 let kind = self.collect_expr(&index);
-                let Some(ExpressionKind::Literal(Type::String {
-                    literal: Some(id), ..
-                })) = kind
+                let Some(ExpressionKind::Literal(Type::Primitive(Primitive::String {
+                    literal: Some(id),
+                    ..
+                }))) = kind
                 else {
                     return Some(AssignmentLeftHandSide::NonStringName {
                         parent: obj,
                         name: TypeWithRange {
-                            typ: self.expr_kind_to_type(kind),
+                            kind: self.expr_kind_to_type(kind.as_ref()),
                             range: index.syntax().text_range(),
                         },
                         expr_range,
@@ -3663,7 +3495,7 @@ impl<'db> Resolver<'db> {
 
                 Some(
                     self.members_of_type(
-                        obj,
+                        obj.clone(),
                         FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                         false,
                     )
@@ -3671,13 +3503,13 @@ impl<'db> Resolver<'db> {
                     .find_map(|(name, id)| if name == text { Some(id) } else { None })
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
-                            parent: obj,
+                            parent: obj.clone(),
                             new_key: text,
                             name_range,
                             expr_range,
                         },
                         |id| AssignmentLeftHandSide::Exists {
-                            parent: Some(obj),
+                            parent: Some(obj.clone()),
                             symbol: id,
                             name_range,
                             expr_range,
@@ -3708,13 +3540,13 @@ impl<'db> Resolver<'db> {
                     })
                     .map_or_else(
                         || AssignmentLeftHandSide::CanCreate {
-                            parent: Type::Table(Some(root)),
+                            parent: Type::Primitive(Primitive::Table(Some(root))),
                             new_key: name_token.text().into(),
                             name_range,
                             expr_range,
                         },
                         |id| AssignmentLeftHandSide::Exists {
-                            parent: Some(Type::Table(Some(root))),
+                            parent: Some(Type::Primitive(Primitive::Table(Some(root)))),
                             symbol: id,
                             name_range,
                             expr_range,
@@ -3748,7 +3580,7 @@ impl<'db> Resolver<'db> {
                     if operator == BinaryOperator::ThreeWay {
                         Type::INTEGER
                     } else {
-                        Type::BOOLEAN
+                        Type::BOOL
                     },
                 ))
             }
@@ -3782,8 +3614,11 @@ impl<'db> Resolver<'db> {
                 let left = expr.lhs().and_then(|l| self.assignment_lhs(&l));
 
                 Some(ExpressionKind::Literal(self.arithmetic_assign_operator(
-                    left.as_ref(),
-                    right.unwrap_or_else(|| TypeWithRange::at_node_end(expr.syntax())),
+                    left,
+                    right.unwrap_or_else(|| TypeWithRange {
+                        kind: Type::default(),
+                        range: expr.syntax().text_range(),
+                    }),
                     operator,
                 )?))
             }
@@ -3806,23 +3641,23 @@ impl<'db> Resolver<'db> {
                 expr_range,
             }) => {
                 let (operand, arguments) =
-                    to_operand_and_arguments(parent, expr_range, name_range, right);
+                    to_operand_and_arguments(parent, expr_range, name_range, right.clone());
 
-                let result = self.new_slot(operand, &arguments);
+                let result = self.new_slot(&operand, &arguments);
                 if matches!(result, NewSlotResult::NotAllowed) {
                     return None;
                 }
 
                 let symbol = self.symbol(Symbol {
                     name: new_key.clone(),
-                    typ: right.typ,
+                    typ: right.kind.clone(),
                     kind: SymbolKind::Property(property_kind),
                     name_range,
                     range: whole_expr_range.unwrap_or(expr_range),
                     ..Default::default()
                 });
 
-                if let Type::Class(Some(id)) = right.typ
+                if let Ok(id) = right.kind.to_class()
                     && let Some(class) = self.get_mut(id)
                     && class.symbol.is_none()
                 {
@@ -3832,7 +3667,7 @@ impl<'db> Resolver<'db> {
                 if let NewSlotResult::CanAdd(container) = result {
                     self.add_container_member(container, new_key, symbol);
 
-                    if let Type::Function(Some(id)) = right.typ
+                    if let Ok(id) = right.kind.to_function()
                         && let Some(function) = self.get_mut(id)
                     {
                         function.container = container;
@@ -3866,9 +3701,9 @@ impl<'db> Resolver<'db> {
                     };
 
                     let (operand, arguments) =
-                        to_operand_and_arguments(parent, expr_range, name_range, right);
+                        to_operand_and_arguments(parent, expr_range, name_range, right.clone());
 
-                    let result = self.new_slot(operand, &arguments);
+                    let result = self.new_slot(&operand, &arguments);
                     if matches!(result, NewSlotResult::NotAllowed) {
                         return None;
                     }
@@ -3877,14 +3712,14 @@ impl<'db> Resolver<'db> {
 
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
-                        typ: right.typ,
+                        typ: right.kind.clone(),
                         kind: SymbolKind::Property(property_kind),
                         name_range,
                         range: whole_expr_range.unwrap_or(expr_range),
                         ..Default::default()
                     });
 
-                    if let Type::Class(Some(id)) = right.typ
+                    if let Ok(id) = right.kind.to_class()
                         && let Some(class) = self.get_mut(id)
                         && class.symbol.is_none()
                     {
@@ -3894,7 +3729,7 @@ impl<'db> Resolver<'db> {
                     if let NewSlotResult::CanAdd(container) = result {
                         self.add_container_member(container, name, symbol);
 
-                        if let Type::Function(Some(id)) = right.typ
+                        if let Ok(id) = right.kind.to_function()
                             && let Some(function) = self.get_mut(id)
                         {
                             function.container = container;
@@ -3923,15 +3758,18 @@ impl<'db> Resolver<'db> {
                 name: key,
                 expr_range,
             }) => {
+                let container = Container::try_from(&parent);
+                let id = right.kind.to_function();
+
                 let arguments = [key, right];
                 let operand = TypeWithRange {
-                    typ: parent,
+                    kind: parent,
                     range: expr_range,
                 };
-                self.new_slot(operand, &arguments);
+                self.new_slot(&operand, &arguments);
 
-                if let Ok(container) = Container::try_from(parent)
-                    && let Type::Function(Some(id)) = right.typ
+                if let Ok(container) = container
+                    && let Ok(id) = id
                     && let Some(function) = self.get_mut(id)
                 {
                     function.container = container;
@@ -3946,10 +3784,13 @@ impl<'db> Resolver<'db> {
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
         let left = expr.lhs().and_then(|l| self.assignment_lhs(&l));
 
-        let right = right_kind.map_or_else(
-            || TypeWithRange::at_node_end(expr.syntax()),
+        let right = right_kind.as_ref().map_or_else(
+            || TypeWithRange {
+                kind: Type::default(),
+                range: expr.syntax().text_range(),
+            },
             |r| TypeWithRange {
-                typ: self.expr_kind_to_type(Some(r)),
+                kind: self.expr_kind_to_type(Some(r)),
                 range: expr
                     .rhs()
                     .expect(
@@ -3976,10 +3817,13 @@ impl<'db> Resolver<'db> {
         let right_kind = expr.rhs().and_then(|r| self.collect_expr(&r));
         let left = expr.lhs().and_then(|l| self.assignment_lhs(&l));
 
-        let right = right_kind.map_or_else(
-            || TypeWithRange::at_node_end(expr.syntax()),
+        let right = right_kind.as_ref().map_or_else(
+            || TypeWithRange {
+                kind: Type::default(),
+                range: expr.syntax().text_range(),
+            },
             |r| TypeWithRange {
-                typ: self.expr_kind_to_type(Some(r)),
+                kind: self.expr_kind_to_type(Some(r)),
                 range: expr
                     .rhs()
                     .expect(
@@ -3991,7 +3835,7 @@ impl<'db> Resolver<'db> {
         );
 
         if let Some(container) = lhs_container(left.as_ref())
-            && let Type::Function(Some(id)) = right.typ
+            && let Ok(id) = right.kind.to_function()
             && let Some(function) = self.get_mut(id)
         {
             function.container = container;
@@ -4007,7 +3851,7 @@ impl<'db> Resolver<'db> {
                 let (operand, arguments) =
                     to_operand_and_arguments(parent, expr_range, name_range, right);
 
-                self.set(operand, &arguments);
+                self.set(&operand, &arguments);
             }
             Some(AssignmentLeftHandSide::Exists {
                 parent,
@@ -4028,8 +3872,8 @@ impl<'db> Resolver<'db> {
 
                 if let Some(parent) = parent {
                     let (operand, arguments) =
-                        to_operand_and_arguments(parent, expr_range, name_range, right);
-                    if self.set(operand, &arguments).is_none() {
+                        to_operand_and_arguments(parent, expr_range, name_range, right.clone());
+                    if self.set(&operand, &arguments).is_none() {
                         return right_kind;
                     }
                 }
@@ -4039,7 +3883,7 @@ impl<'db> Resolver<'db> {
                 }
 
                 if let Some(new) = self.check_or_update_type(
-                    self.get(symbol).typ,
+                    &self.get(symbol).typ.clone(),
                     self.get(symbol).type_state,
                     NewType::NotExplicit(right),
                     CheckTypeSource::Variable,
@@ -4056,10 +3900,10 @@ impl<'db> Resolver<'db> {
             }) => {
                 let arguments = [name, right];
                 let operand = TypeWithRange {
-                    typ: parent,
+                    kind: parent,
                     range: expr_range,
                 };
-                self.set(operand, &arguments);
+                self.set(&operand, &arguments);
             }
 
             _ => {}
@@ -4069,83 +3913,96 @@ impl<'db> Resolver<'db> {
 
     fn comma_operator(&mut self, expr: &BinaryExpression) -> NullableExprKind {
         let (_left, right) = self.extract_lhs_and_rhs(expr);
-        Some(ExpressionKind::Literal(right?.typ))
+        Some(ExpressionKind::Literal(right?.kind))
     }
 
     fn in_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left, Some(right)) = self.extract_lhs_and_rhs(expr) else {
-            return ExpressionKind::Literal(Type::Boolean(None));
+            return ExpressionKind::Literal(Type::BOOL);
         };
 
-        match right.typ {
-            Type::Array(_) => {
-                if let Some(with) = left
-                    && !TypeSet::NUMBER.contains(self.to_type_set(with.typ))
-                {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to index into an array using '{}' (only integers are applicable)", self.type_to_str(with.typ)),
-                        range: with.range,
-                        severity: DiagnosticSeverity::Warning,
-                    });
-                }
-            }
-            typ => {
-                if !TypeSet::VALID_IN_LHS.contains(self.to_type_set(typ)) {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!(
-                            "Indexing into '{}' will always return false",
-                            self.type_to_str(typ)
-                        ),
-                        range: right.range,
-                        severity: DiagnosticSeverity::Warning,
-                    });
-                }
-            }
+        if matches!(right.kind, Type::Any) {
+            return ExpressionKind::Literal(Type::BOOL);
         }
 
-        ExpressionKind::Literal(Type::Boolean(None))
+        let flags = right.kind.type_flags();
+
+        if flags.intersects(TypeFlags::ARRAY_OR_STRING) {
+            if let Some(with) = left
+                && !with
+                    .kind
+                    .type_flags()
+                    .intersects(TypeFlags::NUMBER | TypeFlags::UNKNOWN)
+            {
+                self.diagnostics.push(Diagnostic {
+                    message: format!(
+                        "Trying to index into '{}' using '{}' (only integers are applicable)",
+                        self.type_to_str(&right.kind),
+                        self.type_to_str(&with.kind)
+                    ),
+                    range: with.range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+            }
+        } else if !flags.intersects(TypeFlags::HAS_MEMBERS_OR_ANY) {
+            self.diagnostics.push(Diagnostic {
+                message: format!(
+                    "Indexing into '{}' will always return false",
+                    self.type_to_str(&right.kind)
+                ),
+                range: right.range,
+                severity: DiagnosticSeverity::Warning,
+            });
+        }
+
+        ExpressionKind::Literal(Type::BOOL)
     }
 
     fn instance_of_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left, right) = self.extract_lhs_and_rhs(expr);
         if let Some(left) = left
-            && !TypeSet::VALID_INSTANCE_OF_LHS.contains(self.to_type_set(left.typ))
+            && !left
+                .kind
+                .type_flags()
+                .intersects(TypeFlags::INSTANCE_OR_ANY)
         {
-            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as left-hand side of 'instanceof' operator (only 'instance' is applicable)", self.type_to_str(left.typ)), range: left.range, ..Default::default() });
+            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as left-hand side of 'instanceof' operator (only 'instance' is applicable)", self.type_to_str(&left.kind)), range: left.range, ..Default::default() });
         }
 
         if let Some(right) = right
-            && !TypeSet::VALID_INSTANCE_OF_RHS.contains(self.to_type_set(right.typ))
+            && !right.kind.type_flags().intersects(TypeFlags::CLASS_OR_ANY)
         {
-            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as right-hand side of 'instanceof' operator (only 'class' is applicable)", self.type_to_str(right.typ)), range: right.range, ..Default::default() });
+            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as right-hand side of 'instanceof' operator (only 'class' is applicable)", self.type_to_str(&right.kind)), range: right.range, ..Default::default() });
         }
 
-        ExpressionKind::Literal(Type::Boolean(None))
+        ExpressionKind::Literal(Type::BOOL)
     }
 
     fn equality_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (_left_kind, _right_kind) = self.extract_lhs_and_rhs(expr);
-        ExpressionKind::Literal(Type::Boolean(None))
+        ExpressionKind::Literal(Type::BOOL)
     }
 
-    fn is_comparable(&mut self, comparable: TypeWithRange) -> bool {
-        let set = self.to_type_set(comparable.typ);
-        if TypeSet::ANY.contains(set) {
+    fn is_comparable(&mut self, comparable: &TypeWithRange) -> bool {
+        if matches!(comparable.kind, Type::Any) {
             return false;
         }
 
-        if TypeSet::CAN_COMPARE.contains(set) {
+        let flags = comparable.kind.type_flags();
+        if flags.intersects(TypeFlags::CAN_COMPARE) {
             return true;
         }
 
-        self.diagnostics.push(Diagnostic {
-            message: format!(
-                "'{}' does not support comparison",
-                self.type_to_str(comparable.typ),
-            ),
-            range: comparable.range,
-            ..Default::default()
-        });
+        if !flags.intersects(TypeFlags::UNKNOWN) {
+            self.diagnostics.push(Diagnostic {
+                message: format!(
+                    "'{}' does not support comparison",
+                    self.type_to_str(&comparable.kind),
+                ),
+                range: comparable.range,
+                ..Default::default()
+            });
+        }
 
         false
     }
@@ -4153,18 +4010,18 @@ impl<'db> Resolver<'db> {
     fn comparison_operator(&mut self, expr: &BinaryExpression) {
         let (left, right) = match self.extract_lhs_and_rhs(expr) {
             (Some(left), Some(right)) => {
-                let produce_right = self.is_comparable(right);
-                if !self.is_comparable(left) {
+                let produce_right = self.is_comparable(&right);
+                if !self.is_comparable(&left) {
                     return;
                 }
                 (left, if produce_right { Some(right) } else { None })
             }
             (None, Some(right)) => {
-                self.is_comparable(right);
+                self.is_comparable(&right);
                 return;
             }
             (Some(left), None) => {
-                if !self.is_comparable(left) {
+                if !self.is_comparable(&left) {
                     return;
                 }
                 (left, None)
@@ -4172,14 +4029,18 @@ impl<'db> Resolver<'db> {
             (None, None) => return,
         };
 
-        let left_set = self.to_type_set(left.typ);
+        let left_flags = left.kind.type_flags();
 
-        if TypeSet::TABLE_OR_INSTANCE.contains(left_set) {
-            let arguments = [right.unwrap_or_else(|| TypeWithRange::at_node_end(expr.syntax()))];
+        if left_flags.intersects(TypeFlags::TABLE_OR_INSTANCE) {
+            let arguments = [right.clone().unwrap_or_else(|| TypeWithRange {
+                kind: Type::default(),
+                range: expr.syntax().text_range(),
+            })];
 
-            if let Some(ret) = self.call_metamethod(left, "_cmp", &arguments, MetamethodErrors::No)
+            if let Some(ret) =
+                self.call_metamethod(&left, "_cmp", &arguments, TypeFlags::UNKNOWN, "comparison")
             {
-                if !TypeSet::NUMBER.contains(self.to_type_set(ret)) {
+                if ret.type_flags().intersects(TypeFlags::NUMBER) {
                     self.diagnostics.push(Diagnostic {
                         message: "'_cmp' must return an integer".to_owned(),
                         range: left.range,
@@ -4188,7 +4049,7 @@ impl<'db> Resolver<'db> {
                 }
             } else {
                 self.diagnostics.push(Diagnostic {
-                    message: if TypeSet::TABLE.contains(left_set) {
+                    message: if left_flags.intersects(TypeFlags::TABLE) {
                         "Comparing table with no '_cmp' delegate metamethod defined. The result is undetermenistic".to_owned()
                     } else {
                         "Comparing instance with no '_cmp' class metamethod defined. The result is undetermenistic".to_owned()
@@ -4203,49 +4064,52 @@ impl<'db> Resolver<'db> {
             return;
         };
 
-        let right_set = self.to_type_set(right.typ);
-        if TypeSet::NULL.contains(left_set) || TypeSet::NULL.contains(right_set) {
+        let right_flags = right.kind.type_flags();
+        if left_flags.intersects(TypeFlags::NULL) || right_flags.intersects(TypeFlags::NULL) {
             return;
         }
 
-        if TypeSet::are_both_numbers(left_set, right_set) {
+        if left_flags.intersects(TypeFlags::NUMBER) || right_flags.intersects(TypeFlags::NUMBER) {
             return;
         }
 
-        let intersect = left_set.intersect(right_set);
-        if TypeSet::CAN_COMPARE.contains(intersect) {
+        let intersect = left_flags.intersection(right_flags);
+        if intersect.intersects(TypeFlags::CAN_COMPARE) {
             return;
         }
 
         self.diagnostics.push(Diagnostic {
             message: format!(
                 "'{}' does not support comparison with '{}'",
-                self.type_to_str(left.typ),
-                self.type_to_str(right.typ)
+                self.type_to_str(&left.kind),
+                self.type_to_str(&right.kind)
             ),
             range: right.range,
             ..Default::default()
         });
     }
 
-    fn has_bitwise_operations(&mut self, operand: TypeWithRange) -> bool {
-        let set = self.to_type_set(operand.typ);
-        if TypeSet::ANY.contains(set) {
+    fn has_bitwise_operations(&mut self, operand: &TypeWithRange) -> bool {
+        if matches!(operand.kind, Type::Any) {
             return false;
         }
 
-        if TypeSet::INTEGER.contains(set) {
+        let flags = operand.kind.type_flags();
+
+        if flags.intersects(TypeFlags::INTEGER) {
             return true;
         }
 
-        self.diagnostics.push(Diagnostic {
-            message: format!(
-                "'{}' does not support bitwise operations",
-                self.type_to_str(operand.typ),
-            ),
-            range: operand.range,
-            ..Default::default()
-        });
+        if !flags.intersects(TypeFlags::UNKNOWN) {
+            self.diagnostics.push(Diagnostic {
+                message: format!(
+                    "'{}' does not support bitwise operations",
+                    self.type_to_str(&operand.kind),
+                ),
+                range: operand.range,
+                ..Default::default()
+            });
+        }
 
         false
     }
@@ -4253,20 +4117,20 @@ impl<'db> Resolver<'db> {
     fn bitwise_operator(&mut self, expr: &BinaryExpression) {
         let (left, right) = self.extract_lhs_and_rhs(expr);
         if let Some(left) = left {
-            self.has_bitwise_operations(left);
+            self.has_bitwise_operations(&left);
         }
 
         if let Some(right) = right {
-            self.has_bitwise_operations(right);
+            self.has_bitwise_operations(&right);
         }
     }
 
     fn logical_operator(&mut self, expr: &BinaryExpression) -> ExpressionKind {
         let (left, right) = self.extract_lhs_and_rhs(expr);
 
-        ExpressionKind::Literal(self.merge_or_union(
-            left.map_or(Type::Unknown, |l| l.typ),
-            right.map_or(Type::Unknown, |r| r.typ),
+        ExpressionKind::Literal(merge_types(
+            &left.map_or(Type::UNKNOWN, |l| l.kind),
+            &right.map_or(Type::UNKNOWN, |r| r.kind),
         ))
     }
 
@@ -4276,14 +4140,21 @@ impl<'db> Resolver<'db> {
         operator: BinaryOperator,
     ) -> NullableExprKind {
         let (left, right) = self.extract_lhs_and_rhs(expr);
-        let result = self.arithmetic(left?, right?, operator)?;
+        let result = self.arithmetic(
+            &left?,
+            &right.unwrap_or_else(|| TypeWithRange {
+                kind: Type::default(),
+                range: expr.syntax().text_range(),
+            }),
+            operator,
+        )?;
         Some(ExpressionKind::Literal(result))
     }
 
     // This signature is so weird because it is also used by increment / decrement operators
     fn arithmetic_assign_operator(
         &mut self,
-        left: Option<&AssignmentLeftHandSide>,
+        left: Option<AssignmentLeftHandSide>,
         right: TypeWithRange,
         operator: BinaryOperator,
     ) -> Option<Type> {
@@ -4295,8 +4166,8 @@ impl<'db> Resolver<'db> {
                 ..
             }) => {
                 let (operand, arguments) =
-                    to_operand_and_arguments(*parent, *expr_range, *name_range, right);
-                self.set(operand, &arguments);
+                    to_operand_and_arguments(parent, expr_range, name_range, right);
+                self.set(&operand, &arguments);
                 None
             }
             Some(AssignmentLeftHandSide::Exists {
@@ -4305,26 +4176,26 @@ impl<'db> Resolver<'db> {
                 expr_range,
                 name_range,
             }) => {
-                self.new_reference(*name_range, *symbol);
+                self.new_reference(name_range, symbol);
                 let typ = self.arithmetic(
-                    TypeWithRange {
-                        typ: self.get(*symbol).typ,
-                        range: *name_range,
+                    &TypeWithRange {
+                        kind: self.get(symbol).typ.clone(),
+                        range: name_range,
                     },
-                    right,
+                    &right,
                     operator,
                 )?;
 
                 let type_with_range = TypeWithRange {
-                    typ,
-                    range: *expr_range,
+                    kind: typ.clone(),
+                    range: expr_range,
                 };
 
-                if !self.get(*symbol).is_modifiable() {
-                    let name = &self.get(*symbol).name;
+                if !self.get(symbol).is_modifiable() {
+                    let name = &self.get(symbol).name;
                     self.diagnostics.push(Diagnostic {
                         message: format!("Symbol '{name}' is not modifiable"),
-                        range: *name_range,
+                        range: name_range,
                         ..Default::default()
                     });
                     return Some(typ);
@@ -4332,12 +4203,12 @@ impl<'db> Resolver<'db> {
 
                 if let Some(parent) = parent {
                     let (operand, arguments) = to_operand_and_arguments(
-                        *parent,
-                        *expr_range,
-                        *name_range,
-                        type_with_range,
+                        parent,
+                        expr_range,
+                        name_range,
+                        type_with_range.clone(),
                     );
-                    if self.set(operand, &arguments).is_none() {
+                    if self.set(&operand, &arguments).is_none() {
                         return Some(typ);
                     }
                 }
@@ -4347,11 +4218,11 @@ impl<'db> Resolver<'db> {
                 }
 
                 if let Some(new) = self.check_or_update_type(
-                    self.get(*symbol).typ,
-                    self.get(*symbol).type_state,
+                    &self.get(symbol).typ.clone(),
+                    self.get(symbol).type_state,
                     NewType::NotExplicit(type_with_range),
                     CheckTypeSource::Variable,
-                ) && let Some(symbol) = self.get_mut(*symbol)
+                ) && let Some(symbol) = self.get_mut(symbol)
                 {
                     symbol.typ = new;
                     symbol.type_state = TypeState::Inferred;
@@ -4364,19 +4235,19 @@ impl<'db> Resolver<'db> {
                 expr_range,
             }) => {
                 let operand = TypeWithRange {
-                    typ: *parent,
-                    range: *expr_range,
+                    kind: parent.clone(),
+                    range: expr_range,
                 };
-                let typ = self.arithmetic(operand, right, operator)?;
+                let typ = self.arithmetic(&operand, &right, operator)?;
 
                 let type_with_range = TypeWithRange {
-                    typ,
-                    range: *expr_range,
+                    kind: typ.clone(),
+                    range: expr_range,
                 };
 
                 let (operand, arguments) =
-                    to_operand_and_arguments(*parent, *expr_range, name.range, type_with_range);
-                self.set(operand, &arguments);
+                    to_operand_and_arguments(parent, expr_range, name.range, type_with_range);
+                self.set(&operand, &arguments);
                 Some(typ)
             }
 
@@ -4392,14 +4263,14 @@ impl<'db> Resolver<'db> {
         let then_type = expr
             .then_branch()
             .and_then(|b| b.expression())
-            .map_or(Type::Unknown, |expr| self.expr_to_type(&expr));
+            .map_or(Type::UNKNOWN, |expr| self.expr_to_type(&expr));
 
         let else_type = expr
             .else_branch()
             .and_then(|b| b.expression())
-            .map_or(Type::Unknown, |expr| self.expr_to_type(&expr));
+            .map_or(Type::UNKNOWN, |expr| self.expr_to_type(&expr));
 
-        ExpressionKind::Literal(self.merge_or_union(then_type, else_type))
+        ExpressionKind::Literal(merge_types(&then_type, &else_type))
     }
 
     fn prefix_unary_expression(&mut self, expr: &PrefixUnaryExpression) -> NullableExprKind {
@@ -4408,12 +4279,12 @@ impl<'db> Resolver<'db> {
             PrefixUnaryOperator::Negation => self.negation_operator(expr),
             PrefixUnaryOperator::BitwiseNot => {
                 self.bitwise_not_operator(expr);
-                Some(ExpressionKind::Literal(Type::Integer(None)))
+                Some(ExpressionKind::Literal(Type::INTEGER))
             }
             PrefixUnaryOperator::LogicalNot => {
                 self.logical_not_operator(expr);
 
-                Some(ExpressionKind::Literal(Type::Boolean(None)))
+                Some(ExpressionKind::Literal(Type::BOOL))
             }
         }
     }
@@ -4421,21 +4292,23 @@ impl<'db> Resolver<'db> {
     fn negation_operator(&mut self, expr: &PrefixUnaryExpression) -> NullableExprKind {
         let operand = self.expr_to_type_with_range(&expr.operand()?);
 
-        Some(ExpressionKind::Literal(match operand.typ {
-            Type::Integer(Some(value)) => Type::Integer(Some(-value)),
-            Type::Float(Some(value)) => Type::Float(Some(-value)),
-            _ => {
-                let set = self.to_type_set(operand.typ);
-                if TypeSet::NUMBER.contains(set) {
-                    operand.typ
+        Some(ExpressionKind::Literal(match &operand.kind {
+            Type::Primitive(Primitive::Integer(Some(value))) => {
+                Type::Primitive(Primitive::Integer(Some(-value)))
+            }
+            Type::Primitive(Primitive::Float(Some(value))) => {
+                Type::Primitive(Primitive::Float(Some(-value)))
+            }
+            typ => {
+                if typ.type_flags().intersects(TypeFlags::NUMBER) {
+                    operand.kind
                 } else {
                     self.call_metamethod(
-                        operand,
+                        &operand,
                         "_unm",
                         &Vec::new(),
-                        MetamethodErrors::Yes {
-                            keyword: "negation",
-                        },
+                        TypeFlags::UNKNOWN,
+                        "negation",
                     )?
                 }
             }
@@ -4447,7 +4320,7 @@ impl<'db> Resolver<'db> {
             return;
         };
         let operand = self.expr_to_type_with_range(&operand);
-        self.has_bitwise_operations(operand);
+        self.has_bitwise_operations(&operand);
     }
 
     fn logical_not_operator(&mut self, expr: &PrefixUnaryExpression) {
@@ -4468,9 +4341,9 @@ impl<'db> Resolver<'db> {
     fn prefix_increment_operator(&mut self, expr: &PrefixUpdateExpression) -> NullableExprKind {
         let operand = self.assignment_lhs(&expr.operand()?);
         Some(ExpressionKind::Literal(self.arithmetic_assign_operator(
-            operand.as_ref(),
+            operand,
             TypeWithRange {
-                typ: Type::Integer(Some(1)),
+                kind: Type::Primitive(Primitive::Integer(Some(1))),
                 range: expr.syntax().text_range(),
             },
             BinaryOperator::AddAssign,
@@ -4481,9 +4354,9 @@ impl<'db> Resolver<'db> {
         let operand = self.assignment_lhs(&expr.operand()?);
 
         Some(ExpressionKind::Literal(self.arithmetic_assign_operator(
-            operand.as_ref(),
+            operand,
             TypeWithRange {
-                typ: Type::Integer(Some(1)),
+                kind: Type::Primitive(Primitive::Integer(Some(1))),
                 range: expr.syntax().text_range(),
             },
             BinaryOperator::SubtractAssign,
@@ -4502,9 +4375,9 @@ impl<'db> Resolver<'db> {
         let operand = self.assignment_lhs(&expr.operand()?);
         let kind = operand.as_ref().and_then(NullableExprKind::from);
         self.arithmetic_assign_operator(
-            operand.as_ref(),
+            operand,
             TypeWithRange {
-                typ: Type::Integer(Some(1)),
+                kind: Type::Primitive(Primitive::Integer(Some(1))),
                 range: expr.syntax().text_range(),
             },
             BinaryOperator::AddAssign,
@@ -4516,9 +4389,9 @@ impl<'db> Resolver<'db> {
         let operand = self.assignment_lhs(&expr.operand()?);
         let kind = operand.as_ref().and_then(NullableExprKind::from);
         self.arithmetic_assign_operator(
-            operand.as_ref(),
+            operand,
             TypeWithRange {
-                typ: Type::Integer(Some(1)),
+                kind: Type::Primitive(Primitive::Integer(Some(1))),
                 range: expr.syntax().text_range(),
             },
             BinaryOperator::SubtractAssign,
@@ -4537,14 +4410,14 @@ impl<'db> Resolver<'db> {
                 ..
             }) => {
                 let delete_operand = TypeWithRange {
-                    typ: parent,
+                    kind: parent,
                     range: expr_range,
                 };
                 let index = TypeWithRange {
-                    typ: Type::STRING,
+                    kind: Type::STRING,
                     range: name_range,
                 };
-                self.delete(delete_operand, index);
+                self.delete(&delete_operand, &index);
 
                 kind
             }
@@ -4555,10 +4428,10 @@ impl<'db> Resolver<'db> {
                 ..
             }) => {
                 let delete_operand = TypeWithRange {
-                    typ: parent,
+                    kind: parent,
                     range: expr_range,
                 };
-                self.delete(delete_operand, key);
+                self.delete(&delete_operand, &key);
 
                 kind
             }
@@ -4571,16 +4444,16 @@ impl<'db> Resolver<'db> {
                 self.new_reference(name_range, symbol);
                 if let Some(parent) = parent {
                     let delete_operand = TypeWithRange {
-                        typ: parent,
+                        kind: parent,
                         range: expr_range,
                     };
                     let index = TypeWithRange {
-                        typ: Type::STRING,
+                        kind: Type::STRING,
                         range: name_range,
                     };
-                    self.delete(delete_operand, index);
+                    self.delete(&delete_operand, &index);
 
-                    return Some(ExpressionKind::Literal(self.get(symbol).typ));
+                    return Some(ExpressionKind::Literal(self.get(symbol).typ.clone()));
                 }
                 // ```
                 // local a = 2
@@ -4593,7 +4466,7 @@ impl<'db> Resolver<'db> {
                     ..Default::default()
                 });
 
-                Some(ExpressionKind::Literal(self.get(symbol).typ))
+                Some(ExpressionKind::Literal(self.get(symbol).typ.clone()))
             }
             _ => None,
         }
@@ -4605,18 +4478,22 @@ impl<'db> Resolver<'db> {
         };
 
         ExpressionKind::Literal(
-            self.call_metamethod(operand, "_typeof", &Vec::new(), MetamethodErrors::No)
-                .unwrap_or(Type::STRING),
+            self.call_metamethod(
+                &operand,
+                "_typeof",
+                &Vec::new(),
+                TypeFlags::all(),
+                "'typeof' operator",
+            )
+            .unwrap_or(Type::STRING),
         )
     }
 
     fn resume_expression(&mut self, expr: &ResumeExpression) -> NullableExprKind {
         let typ = self.expr_to_type(&expr.operand()?);
-
-        match typ {
-            Type::Unknown | Type::Any => None,
-            Type::Generator(id) => Some(ExpressionKind::Literal(self.get(id?).yields)),
-            _ => {
+        match typ.to_generator() {
+            Ok(id) => Some(ExpressionKind::Literal(self.get(id).yields.clone())),
+            Err(ToPrimitiveError::WrongType) => {
                 self.diagnostics.push(Diagnostic {
                     message: "Only generators can be resumed".to_owned(),
                     range: expr.syntax().text_range(),
@@ -4624,6 +4501,7 @@ impl<'db> Resolver<'db> {
                 });
                 None
             }
+            Err(ToPrimitiveError::NotSpecific) => None,
         }
     }
 
@@ -4646,10 +4524,9 @@ impl<'db> Resolver<'db> {
         let function = arguments.remove(0);
         let context = arguments.remove(0);
 
-        let obj = function;
         Some(ExpressionKind::Literal(self.callable(
-            context.typ,
-            obj,
+            &context.kind,
+            &function,
             &arguments,
         )?))
     }
@@ -4661,12 +4538,12 @@ impl<'db> Resolver<'db> {
 
     fn function_expression(&mut self, expr: &FunctionExpression) -> ExpressionKind {
         let id = self.collect_function(expr);
-        ExpressionKind::Literal(Type::Function(Some(id)))
+        ExpressionKind::Literal(Type::Primitive(Primitive::Function(Some(id))))
     }
 
     fn lambda_expression(&mut self, expr: &LambdaExpression) -> ExpressionKind {
         let id = self.collect_function(expr);
-        ExpressionKind::Literal(Type::Function(Some(id)))
+        ExpressionKind::Literal(Type::Primitive(Primitive::Function(Some(id))))
     }
 
     fn include_script(&mut self, arguments: &[TypeWithRange]) {
@@ -4675,8 +4552,7 @@ impl<'db> Resolver<'db> {
             return;
         };
 
-        let Type::String { literal: str, .. } = path_string.typ else {
-            // Same as above
+        let Ok((_, str)) = path_string.kind.to_string() else {
             return;
         };
 
@@ -4713,11 +4589,11 @@ impl<'db> Resolver<'db> {
                 //         }
                 //     }
                 // } else {
-                let Ok(target) = ImportTarget::try_from(expr.typ) else {
+                let Ok(target) = ImportTarget::try_from(&expr.kind) else {
                     self.diagnostics.push(Diagnostic {
                         message: format!(
                             "Type '{}' cannot receive new members",
-                            self.type_to_str(expr.typ)
+                            self.type_to_str(&expr.kind)
                         ),
                         range: expr.range,
                         severity: DiagnosticSeverity::Warning,
@@ -4741,38 +4617,35 @@ impl<'db> Resolver<'db> {
             .or_insert_with(|| vec![file]);
     }
 
-    fn set_delegate(&mut self, context: Type, arguments: &[TypeWithRange]) {
+    fn set_delegate(&mut self, context: &Type, arguments: &[TypeWithRange]) {
         let Some(first) = arguments.first() else {
             return;
         };
 
-        let Type::Table(delegate) = first.typ else {
+        let Ok(for_table) = context.to_table() else {
             return;
         };
-
-        let Type::Table(Some(for_table)) = context else {
-            return;
-        };
+        let delegate = first.kind.to_table().ok();
 
         if let Some(table) = self.get_mut(for_table) {
             table.delegate = delegate;
         }
     }
 
-    fn bindenv(&mut self, context: Type, arguments: &[TypeWithRange]) -> Type {
+    fn bindenv(&mut self, context: &Type, arguments: &[TypeWithRange]) -> Type {
         let Some(first) = arguments.first() else {
-            return context;
+            return context.clone();
         };
 
-        let Ok(container) = Container::try_from(first.typ) else {
-            return context;
+        let Ok(container) = Container::try_from(&first.kind) else {
+            return context.clone();
         };
 
-        let Type::Function(Some(function_id)) = context else {
-            return context;
+        let Ok(id) = context.to_function() else {
+            return context.clone();
         };
 
-        let old = self.get(function_id);
+        let old = self.get(id);
         let new = FunctionId::new(
             self.file,
             self.arena.alloc(FunctionData {
@@ -4781,7 +4654,7 @@ impl<'db> Resolver<'db> {
             }),
         );
 
-        Type::Function(Some(new))
+        Type::Primitive(Primitive::Function(Some(new)))
     }
 
     fn unused_variables_diagnostics(&mut self) {
@@ -4820,7 +4693,7 @@ impl<'db> Resolver<'db> {
     fn deprecated_diagnostics(&mut self) {
         for (id, references) in &self.symbol_to_ranges {
             let symbol = self.get(*id);
-            if !symbol.flags.contains(SymbolFlags::DEPRECATED) {
+            if !symbol.flags.intersects(SymbolFlags::DEPRECATED) {
                 continue;
             }
 

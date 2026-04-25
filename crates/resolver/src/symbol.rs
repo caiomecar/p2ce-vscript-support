@@ -2,9 +2,27 @@ use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
 use string_literals::StringLiteralValues;
 
-use crate::arena::{
-    ArrayId, ClassId, EnumId, FunctionId, StringLiteralId, SymbolId, TableId, UnionId,
-};
+use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringLiteralId, SymbolId, TableId};
+
+macro_rules! primitive_accessor {
+    (
+        $name:ident,
+        $flag:ident,
+        $ret:ty,
+        $pattern:pat => $value:expr
+    ) => {
+        /// # Errors
+        /// If the information couldn't be extracted
+        pub fn $name(&self) -> Result<$ret, ToPrimitiveError> {
+            if !self.type_flags().contains(TypeFlags::$flag) {
+                return Err(ToPrimitiveError::WrongType);
+            }
+
+            self.find(|p| if let $pattern = p { $value } else { None })
+                .ok_or(ToPrimitiveError::NotSpecific)
+        }
+    };
+}
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Symbol {
@@ -19,7 +37,7 @@ pub struct Symbol {
 }
 
 bitflags::bitflags! {
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
     pub struct SymbolFlags: u8 {
         const CONST = 1 << 0;
         const HIDE = 1 << 1;
@@ -76,7 +94,125 @@ pub fn to_flat_symbol_table(table: SymbolTable) -> FlatSymbolTable {
         .collect()
 }
 
-/// Symbol's type
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Any,
+    Primitive(Primitive),
+    Enum(EnumId),
+    Union(Union),
+}
+
+impl Default for Type {
+    fn default() -> Self {
+        Self::Primitive(Primitive::default())
+    }
+}
+
+pub enum ToPrimitiveError {
+    WrongType,
+    NotSpecific,
+}
+
+impl Type {
+    #[must_use]
+    pub const fn type_flags(&self) -> TypeFlags {
+        match self {
+            Self::Any => TypeFlags::all(),
+            Self::Enum(_) => TypeFlags::empty(),
+            Self::Primitive(prim) => prim.type_flags(),
+            Self::Union(union) => union.flags,
+        }
+    }
+
+    pub fn find<T, U>(&self, func: T) -> Option<U>
+    where
+        T: Fn(Primitive) -> Option<U>,
+    {
+        match self {
+            Self::Any | Self::Enum(_) => None,
+            Self::Union(union) => union.primitives.iter().find_map(|p| func(*p)),
+            Self::Primitive(prim) => func(*prim),
+        }
+    }
+
+    pub fn find_with_filter<T, U, V>(&self, func: T, filter: V) -> Option<U>
+    where
+        T: Fn(Primitive) -> Option<U>,
+        V: Fn(Primitive) -> bool,
+    {
+        match self {
+            Self::Any | Self::Enum(_) => None,
+            Self::Union(union) => union
+                .primitives
+                .iter()
+                .filter(|p| filter(**p))
+                .find_map(|p| func(*p)),
+            Self::Primitive(prim) => func(*prim),
+        }
+    }
+
+    primitive_accessor!(
+        to_string,
+        STRING,
+        (StringKind, Option<StringLiteralId>),
+        Primitive::String { kind, literal } => Some((kind, literal))
+    );
+
+    primitive_accessor!(
+        to_function,
+        FUNCTION,
+        FunctionId,
+        Primitive::Function(id) => id
+    );
+
+    primitive_accessor!(
+        to_table,
+        TABLE,
+        TableId,
+        Primitive::Table(id) => id
+    );
+
+    primitive_accessor!(
+        to_class,
+        CLASS,
+        ClassId,
+        Primitive::Class(id) => id
+    );
+
+    primitive_accessor!(
+        to_instance,
+        INSTANCE,
+        ClassId,
+        Primitive::Instance(id) => id
+    );
+
+    primitive_accessor!(
+        to_generator,
+        GENERATOR,
+        FunctionId,
+        Primitive::Generator(id) => id
+    );
+
+    pub const UNKNOWN: Self = Self::Primitive(Primitive::Unknown);
+    pub const INTEGER: Self = Self::Primitive(Primitive::Integer(None));
+    pub const FLOAT: Self = Self::Primitive(Primitive::Float(None));
+    pub const STRING: Self = Self::Primitive(Primitive::String {
+        kind: StringKind::Arbitrary,
+        literal: None,
+    });
+    pub const BOOL: Self = Self::Primitive(Primitive::Bool(None));
+    pub const NULL: Self = Self::Primitive(Primitive::Null);
+    pub const INSTANCE: Self = Self::Primitive(Primitive::Instance(None));
+    pub const ARRAY: Self = Self::Primitive(Primitive::Array(None));
+    pub const TABLE: Self = Self::Primitive(Primitive::Table(None));
+    pub const CLASS: Self = Self::Primitive(Primitive::Class(None));
+    pub const FUNCTION: Self = Self::Primitive(Primitive::Function(None));
+    pub const GENERATOR: Self = Self::Primitive(Primitive::Generator(None));
+    pub const THREAD: Self = Self::Primitive(Primitive::Thread(None));
+    pub const WEAKREF: Self = Self::Primitive(Primitive::Weakref);
+}
+
+/// Single type
 ///
 /// options here basically mean: we know it would be this type
 /// but we don't really know what is the exact data behind it
@@ -86,46 +222,257 @@ pub fn to_flat_symbol_table(table: SymbolTable) -> FlatSymbolTable {
 /// into Unknown since we at least can get partial completions
 /// and operations
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub enum Type {
+pub enum Primitive {
     #[default]
     Unknown,
-    Any,
     Integer(Option<i32>),
     Float(Option<f32>),
     String {
         kind: StringKind,
         literal: Option<StringLiteralId>,
     },
-    Boolean(Option<bool>),
+    Bool(Option<bool>),
     Null,
     Instance(Option<ClassId>),
     Array(Option<ArrayId>),
     Table(Option<TableId>),
     Class(Option<ClassId>),
-    Enum(EnumId),
     Function(Option<FunctionId>),
     Generator(Option<FunctionId>),
     Thread(Option<FunctionId>),
     Weakref,
-    Union(UnionId),
 }
 
-impl Type {
-    // Those are basically defaults for a certain type
-    pub const INTEGER: Self = Self::Integer(None);
-    pub const FLOAT: Self = Self::Float(None);
-    pub const STRING: Self = Self::String {
-        kind: StringKind::Arbitrary,
-        literal: None,
-    };
-    pub const BOOLEAN: Self = Self::Boolean(None);
-    pub const INSTANCE: Self = Self::Instance(None);
-    pub const ARRAY: Self = Self::Array(None);
-    pub const TABLE: Self = Self::Table(None);
-    pub const CLASS: Self = Self::Class(None);
-    pub const FUNCTION: Self = Self::Function(None);
-    pub const GENERATOR: Self = Self::Generator(None);
-    pub const THREAD: Self = Self::Thread(None);
+impl Primitive {
+    #[must_use]
+    pub const fn type_flags(&self) -> TypeFlags {
+        match self {
+            Self::Unknown => TypeFlags::UNKNOWN,
+            Self::Integer(_) => TypeFlags::INTEGER,
+            Self::Float(_) => TypeFlags::FLOAT,
+            Self::String { .. } => TypeFlags::STRING,
+            Self::Bool(_) => TypeFlags::BOOL,
+            Self::Null => TypeFlags::NULL,
+            Self::Instance(_) => TypeFlags::INSTANCE,
+            Self::Array(_) => TypeFlags::ARRAY,
+            Self::Table(_) => TypeFlags::TABLE,
+            Self::Class(_) => TypeFlags::CLASS,
+            Self::Function(_) => TypeFlags::FUNCTION,
+            Self::Generator(_) => TypeFlags::GENERATOR,
+            Self::Thread(_) => TypeFlags::THREAD,
+            Self::Weakref => TypeFlags::WEAKREF,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Union {
+    pub flags: TypeFlags,
+    pub primitives: Vec<Primitive>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum TypeState {
+    #[default]
+    NotAssigned,
+    Inferred,
+    // From doc
+    Explicit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    Local(LocalKind),
+    Constant,
+    Enum,
+    EnumMember,
+    Property(PropertyKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalKind {
+    Variable,
+    Function,
+    Parameter,
+    VariedArgs,
+    Exception,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+pub enum PropertyKind {
+    #[default]
+    NoSupport,
+    NewSlot,
+    No,
+    Yes,
+    Embedded,
+}
+
+impl Default for SymbolKind {
+    fn default() -> Self {
+        Self::Property(PropertyKind::default())
+    }
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub struct TypeFlags: u16 {
+        const UNKNOWN = 1 << 0;
+        const NULL = 1 << 1;
+        const INTEGER = 1 << 2;
+        const FLOAT = 1 << 3;
+        const STRING = 1 << 4;
+        const BOOL = 1 << 5;
+        const INSTANCE = 1 << 6;
+        const ARRAY = 1 << 7;
+        const TABLE = 1 << 8;
+        const CLASS = 1 << 9;
+        const FUNCTION = 1 << 10;
+        const GENERATOR = 1 << 11;
+        const THREAD = 1 << 12;
+        const WEAKREF = 1 << 13;
+
+    }
+}
+
+impl TypeFlags {
+    pub const NUMBER: Self = Self::INTEGER.union(Self::FLOAT);
+
+    pub const NUMBER_OR_ANY: Self = Self::NUMBER.union(Self::UNKNOWN);
+    pub const ARRAY_OR_STRING: Self = Self::ARRAY.union(Self::STRING);
+
+    pub const INSTANCE_OR_ANY: Self = Self::INSTANCE.union(Self::UNKNOWN);
+    pub const CLASS_OR_ANY: Self = Self::CLASS.union(Self::UNKNOWN);
+
+    pub const TABLE_OR_INSTANCE: Self = Self::TABLE.union(Self::INSTANCE);
+
+    pub const HAS_MEMBERS: Self = Self::CLASS.union(Self::TABLE).union(Self::INSTANCE);
+
+    pub const HAS_MEMBERS_OR_ANY: Self = Self::HAS_MEMBERS.union(Self::UNKNOWN);
+
+    pub const CAN_COMPARE: Self = Self::NULL
+        .union(Self::FLOAT)
+        .union(Self::INTEGER)
+        .union(Self::BOOL)
+        .union(Self::STRING)
+        .union(Self::TABLE)
+        .union(Self::INSTANCE);
+
+    pub const ARITHMETIC: Self = Self::NUMBER.union(Self::TABLE).union(Self::INSTANCE);
+
+    pub const VALID_DISCRIMINANT: Self = Self::NULL
+        .union(Self::FLOAT)
+        .union(Self::NUMBER)
+        .union(Self::BOOL)
+        .union(Self::STRING)
+        .union(Self::UNKNOWN);
+}
+
+pub fn merge_primitives(left: Primitive, right: Primitive) -> Option<Primitive> {
+    if left == right {
+        return Some(left);
+    }
+
+    Some(match (left, right) {
+        (Primitive::Integer(_), Primitive::Integer(_)) => Primitive::Integer(None),
+        (Primitive::Float(_), Primitive::Float(_)) => Primitive::Float(None),
+        (Primitive::Bool(_), Primitive::Bool(_)) => Primitive::Bool(None),
+        (Primitive::String { .. }, Primitive::String { .. }) => Primitive::String {
+            kind: StringKind::Arbitrary,
+            literal: None,
+        },
+
+        (Primitive::Instance(Some(left_id)), Primitive::Instance(Some(right_id))) => {
+            return (left_id == right_id).then_some(left);
+        }
+        (Primitive::Instance(_), Primitive::Instance(_)) => Primitive::Instance(None),
+        (Primitive::Table(_), Primitive::Table(_)) => Primitive::Table(None),
+        (Primitive::Class(_), Primitive::Class(_)) => Primitive::Class(None),
+        (Primitive::Array(_), Primitive::Array(_)) => Primitive::Array(None),
+        (Primitive::Function(_), Primitive::Function(_)) => Primitive::Function(None),
+        (Primitive::Generator(_), Primitive::Generator(_)) => Primitive::Generator(None),
+        (Primitive::Thread(_), Primitive::Thread(_)) => Primitive::Thread(None),
+        (_, _) => {
+            return None;
+        }
+    })
+}
+
+pub fn merge_types(left: &Type, right: &Type) -> Type {
+    match (left, right) {
+        (Type::Any, _) | (_, Type::Any) => Type::Any,
+        (Type::Enum(_), other) | (other, Type::Enum(_)) => other.clone(),
+        (Type::Union(left), Type::Union(right)) => {
+            let mut primitives = Vec::new();
+            let mut right_used = vec![false; right.primitives.len()];
+
+            for left in &left.primitives {
+                let mut merged = false;
+
+                for (i, right) in right.primitives.iter().enumerate() {
+                    if right_used[i] {
+                        continue;
+                    }
+
+                    if let Some(new_type) = merge_primitives(*left, *right) {
+                        primitives.push(new_type);
+                        right_used[i] = true;
+                        merged = true;
+                        break;
+                    }
+                }
+
+                if !merged {
+                    primitives.push(*left);
+                }
+            }
+
+            // Add remaining right-side types
+            for (i, right) in right.primitives.iter().enumerate() {
+                if !right_used[i] {
+                    primitives.push(*right);
+                }
+            }
+
+            Type::Union(Union {
+                primitives,
+                flags: left.flags | right.flags,
+            })
+        }
+
+        (Type::Primitive(other), Type::Union(union))
+        | (Type::Union(union), Type::Primitive(other)) => {
+            let mut primitives = Vec::new();
+            let mut iter = union.primitives.iter();
+            let flags = union.flags | other.type_flags();
+
+            while let Some(typ) = iter.next() {
+                let Some(merged_type) = merge_primitives(*typ, *other) else {
+                    primitives.push(*typ);
+                    continue;
+                };
+
+                primitives.push(merged_type);
+                // After we've successfully merged the required type just extend the list
+                // with the remaining types from the iterator
+                primitives.extend(iter);
+                return Type::Union(Union { flags, primitives });
+            }
+            // No merge was successful -> just add a new type to the end of the list
+            primitives.push(*other);
+            Type::Union(Union { flags, primitives })
+        }
+        (Type::Primitive(left), Type::Primitive(right)) => {
+            if let Some(typ) = merge_primitives(*left, *right) {
+                return Type::Primitive(typ);
+            }
+
+            let primitives = vec![*left, *right];
+            let flags = left.type_flags() | right.type_flags();
+
+            Type::Union(Union { flags, primitives })
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,165 +649,5 @@ impl StringKind {
             self,
             Self::Input | Self::Output | Self::Classname | Self::Convar
         )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymbolKind {
-    Local(LocalKind),
-    Constant,
-    Enum,
-    EnumMember,
-    Property(PropertyKind),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LocalKind {
-    Variable,
-    Function,
-    Parameter,
-    VariedArgs,
-    Exception,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum TypeState {
-    #[default]
-    NotAssigned,
-    Inferred,
-    // From doc
-    Explicit,
-}
-
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub enum PropertyKind {
-    #[default]
-    NoSupport,
-    NewSlot,
-    No,
-    Yes,
-    Embedded,
-}
-
-impl Default for SymbolKind {
-    fn default() -> Self {
-        Self::Property(PropertyKind::default())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum TypeKind {
-    Unknown = 1 << 0,
-    Any = 1 << 1,
-    Integer = 1 << 2,
-    Float = 1 << 3,
-    String = 1 << 4,
-    Boolean = 1 << 5,
-    Null = 1 << 6,
-    Instance = 1 << 7,
-    Array = 1 << 8,
-    Table = 1 << 9,
-    Class = 1 << 10,
-    Enum = 1 << 11,
-    Function = 1 << 12,
-    Generator = 1 << 13,
-    Thread = 1 << 14,
-    Weakref = 1 << 15,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct TypeSet(u32);
-
-impl TypeSet {
-    pub const fn new(kinds: &[TypeKind]) -> Self {
-        let mut bitset = 0u32;
-        let mut i = 0;
-        while i < kinds.len() {
-            bitset |= kinds[i] as u32;
-            i += 1;
-        }
-        Self(bitset)
-    }
-
-    pub const fn from_kind(kind: TypeKind) -> Self {
-        Self(kind as u32)
-    }
-
-    pub const fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-
-    pub const fn intersect(self, other: Self) -> Self {
-        Self(self.0 & other.0)
-    }
-
-    pub const fn contains(self, other: Self) -> bool {
-        (self.0 & other.0) != 0
-    }
-
-    pub const fn are_both_numbers(first: Self, second: Self) -> bool {
-        Self::NUMBER.contains(first) && Self::NUMBER.contains(second)
-    }
-
-    pub const EMPTY: Self = Self::new(&[]);
-    pub const ANY: Self = Self::new(&[TypeKind::Unknown, TypeKind::Any]);
-    pub const INTEGER: Self = Self::from_kind(TypeKind::Integer);
-    pub const NUMBER: Self = Self::new(&[TypeKind::Float, TypeKind::Integer]);
-    pub const NUMBER_OR_ANY: Self = Self::NUMBER.union(Self::ANY);
-    pub const STRING: Self = Self::from_kind(TypeKind::String);
-    pub const NULL: Self = Self::from_kind(TypeKind::Null);
-    pub const TABLE: Self = Self::from_kind(TypeKind::Table);
-    pub const INSTANCE: Self = Self::from_kind(TypeKind::Instance);
-
-    pub const TABLE_OR_INSTANCE: Self = Self::new(&[TypeKind::Table, TypeKind::Instance]);
-
-    pub const VALID_IN_LHS: Self =
-        Self::new(&[TypeKind::Array, TypeKind::Table, TypeKind::Class]).union(Self::ANY);
-    pub const VALID_INSTANCE_OF_LHS: Self = Self::new(&[TypeKind::Instance]).union(Self::ANY);
-    pub const VALID_INSTANCE_OF_RHS: Self = Self::new(&[TypeKind::Class]).union(Self::ANY);
-    pub const VALID_SWITCH_DISCRIMINANT: Self = Self::new(&[
-        TypeKind::Null,
-        TypeKind::Float,
-        TypeKind::Integer,
-        TypeKind::Boolean,
-        TypeKind::String,
-    ])
-    .union(Self::ANY);
-    pub const CAN_COMPARE: Self = Self::new(&[
-        TypeKind::Null,
-        TypeKind::Float,
-        TypeKind::Integer,
-        TypeKind::Boolean,
-        TypeKind::String,
-        TypeKind::Table,
-        TypeKind::Instance,
-    ])
-    .union(Self::ANY);
-    pub const CAN_HAVE_UNKNOWN_MEMBERS: Self =
-        Self::new(&[TypeKind::Table, TypeKind::Class, TypeKind::Instance]).union(Self::ANY);
-}
-
-impl From<Type> for TypeKind {
-    fn from(val: Type) -> Self {
-        match val {
-            Type::Unknown => Self::Unknown,
-            Type::Any => Self::Any,
-            Type::Integer(_) => Self::Integer,
-            Type::Float(_) => Self::Float,
-            Type::String { .. } => Self::String,
-            Type::Boolean(_) => Self::Boolean,
-            Type::Null => Self::Null,
-            Type::Instance(_) => Self::Instance,
-            Type::Array(_) => Self::Array,
-            Type::Table(_) => Self::Table,
-            Type::Class(_) => Self::Class,
-            Type::Enum(_) => Self::Enum,
-            Type::Function(_) => Self::Function,
-            Type::Generator(_) => Self::Generator,
-            Type::Thread(_) => Self::Thread,
-            Type::Weakref => Self::Weakref,
-            Type::Union(_) => unreachable!(), // handled separately
-        }
     }
 }

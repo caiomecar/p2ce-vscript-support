@@ -4,7 +4,8 @@ use lsp_types::{
     SymbolTag,
 };
 use resolver::{
-    Database, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind, Type, line_index,
+    Database, FinishedFile, Primitive, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind, Type,
+    line_index,
 };
 
 pub fn handle_document_symbols(
@@ -43,9 +44,9 @@ pub fn handle_document_symbols(
         let range = conversions::range(line_idx, symbol.range);
         let name_range = conversions::range(line_idx, symbol.name_range);
         let kind = match symbol.typ {
-            Type::Function(_) => LspSymbolKind::FUNCTION,
-            Type::Class(_) => LspSymbolKind::CLASS,
             Type::Enum(_) => LspSymbolKind::ENUM,
+            Type::Primitive(Primitive::Function(_)) => LspSymbolKind::FUNCTION,
+            Type::Primitive(Primitive::Class(_)) => LspSymbolKind::CLASS,
             _ => match symbol.kind {
                 SymbolKind::Constant => LspSymbolKind::CONSTANT,
                 SymbolKind::EnumMember => LspSymbolKind::ENUM_MEMBER,
@@ -70,7 +71,7 @@ pub fn handle_document_symbols(
         #[allow(deprecated)]
         let doc_symbol = DocumentSymbol {
             name,
-            detail: Some(finished_file.type_to_str(symbol.typ).into_string()),
+            detail: Some(finished_file.type_to_str(&symbol.typ).into_string()),
             kind,
             range,
             selection_range: name_range,

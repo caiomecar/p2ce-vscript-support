@@ -6,7 +6,7 @@ use line_index::{TextRange, TextSize};
 use crate::{
     File,
     db::{Db, source_symbol},
-    symbol::{Symbol, SymbolTable, Type, TypeSet, TypeState},
+    symbol::{Primitive, Symbol, SymbolTable, Type, TypeState},
 };
 
 pub trait ArenaId: Clone + Copy + PartialEq + Eq {
@@ -56,7 +56,6 @@ arena_id!(EnumId => EnumData);
 arena_id!(FunctionId => FunctionData);
 arena_id!(ArrayId => ArrayData);
 arena_id!(StringLiteralId => StringLiteralData);
-arena_id!(UnionId => UnionData);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Container {
@@ -89,33 +88,41 @@ pub enum TypeConversionError {
 impl From<Container> for Type {
     fn from(value: Container) -> Self {
         match value {
-            Container::Table(idx) => Self::Table(Some(idx)),
-            Container::Class(idx) => Self::Class(Some(idx)),
-            Container::Instance(idx) => Self::Instance(Some(idx)),
+            Container::Table(idx) => Self::Primitive(Primitive::Table(Some(idx))),
+            Container::Class(idx) => Self::Primitive(Primitive::Class(Some(idx))),
+            Container::Instance(idx) => Self::Primitive(Primitive::Instance(Some(idx))),
             Container::Enum(idx) => Self::Enum(idx),
         }
     }
 }
 
-impl TryFrom<Type> for Container {
+impl TryFrom<Primitive> for Container {
     type Error = TypeConversionError;
-    fn try_from(value: Type) -> Result<Self, Self::Error> {
+    fn try_from(value: Primitive) -> Result<Self, Self::Error> {
         Ok(match value {
-            Type::Table(id) => {
+            Primitive::Table(id) => {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
                 Self::Table(id)
             }
-            Type::Class(id) | Type::Instance(id) => {
+            Primitive::Class(id) | Primitive::Instance(id) => {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
                 Self::Class(id)
             }
-            Type::Enum(id) => Self::Enum(id),
             _ => return Err(TypeConversionError::WrongType),
         })
+    }
+}
+
+impl TryFrom<&Type> for Container {
+    type Error = TypeConversionError;
+    fn try_from(value: &Type) -> Result<Self, Self::Error> {
+        value
+            .find(|prim| Self::try_from(prim).ok())
+            .ok_or(TypeConversionError::WrongType)
     }
 }
 
@@ -130,17 +137,17 @@ impl TryFrom<Container> for ImportTarget {
     }
 }
 
-impl TryFrom<Type> for ImportTarget {
+impl TryFrom<Primitive> for ImportTarget {
     type Error = TypeConversionError;
-    fn try_from(value: Type) -> Result<Self, Self::Error> {
+    fn try_from(value: Primitive) -> Result<Self, Self::Error> {
         Ok(match value {
-            Type::Table(id) => {
+            Primitive::Table(id) => {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
                 Self::Table(id)
             }
-            Type::Instance(id) | Type::Class(id) => {
+            Primitive::Instance(id) | Primitive::Class(id) => {
                 let Some(id) = id else {
                     return Err(TypeConversionError::NotSpecific);
                 };
@@ -148,6 +155,15 @@ impl TryFrom<Type> for ImportTarget {
             }
             _ => return Err(TypeConversionError::WrongType),
         })
+    }
+}
+
+impl TryFrom<&Type> for ImportTarget {
+    type Error = TypeConversionError;
+    fn try_from(value: &Type) -> Result<Self, Self::Error> {
+        value
+            .find(|prim| Self::try_from(prim).ok())
+            .ok_or(TypeConversionError::WrongType)
     }
 }
 
@@ -216,12 +232,6 @@ pub struct Scope {
 
 pub type ScopeId = Idx<Scope>;
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct UnionData {
-    pub type_set: TypeSet,
-    pub types: Vec<Type>,
-}
-
 pub trait ArenaAlloc<T> {
     fn alloc(&mut self, value: T) -> Idx<T>;
 }
@@ -265,7 +275,6 @@ impl_source_arena! {
     functions: FunctionData,
     arrays:    ArrayData,
     strings:   StringLiteralData,
-    unions:    UnionData,
 }
 
 impl SourceArena {

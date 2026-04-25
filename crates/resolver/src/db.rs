@@ -13,7 +13,7 @@ use crate::{
     FinishedFile, Source, SourceSymbol, SymbolId, Type,
     arena::{ArenaId, ClassId, FunctionId},
     resolver::Resolver,
-    symbol::{FlatSymbolTable, to_flat_symbol_table},
+    symbol::{FlatSymbolTable, Primitive, to_flat_symbol_table},
 };
 
 #[salsa::input]
@@ -259,7 +259,7 @@ impl Database {
                 continue;
             };
 
-            let Type::Function(Some(function_id)) =
+            let Type::Primitive(Primitive::Function(Some(function_id))) =
                 source_symbol(self, builtins).arena[symbol.idx()].typ
             else {
                 eprintln!(
@@ -295,7 +295,7 @@ impl Database {
 
         let source = source_symbol(self, file);
 
-        let Type::Class(Some(id)) = source.arena[symbol.idx()].typ else {
+        let Type::Primitive(Primitive::Class(Some(id))) = source.arena[symbol.idx()].typ else {
             panic!("'{name}' member is not of type 'class'");
         };
 
@@ -320,7 +320,7 @@ impl Database {
                 continue;
             };
 
-            let Type::Function(Some(function_id)) =
+            let Type::Primitive(Primitive::Function(Some(function_id))) =
                 source_symbol(self, lib).arena[symbol.idx()].typ
             else {
                 eprintln!(
@@ -350,7 +350,7 @@ impl Database {
                 continue;
             };
 
-            let Type::Function(Some(function_id)) =
+            let Type::Primitive(Primitive::Function(Some(function_id))) =
                 source_symbol(self, lib).arena[symbol.idx()].typ
             else {
                 eprintln!(
@@ -363,7 +363,9 @@ impl Database {
         }
 
         if let Some(symbol) = self.find_symbol(lib, &["CBaseEntity"]) {
-            if let Type::Class(maybe_id) = source_symbol(self, lib).arena[symbol.idx()].typ {
+            if let Type::Primitive(Primitive::Class(maybe_id)) =
+                source_symbol(self, lib).arena[symbol.idx()].typ
+            {
                 self.base_entity_class = maybe_id;
             } else {
                 eprintln!(
@@ -382,7 +384,8 @@ impl Database {
         'inner: for part in path {
             let members = match last {
                 Some(id) => {
-                    if let Type::Class(Some(id)) = source.arena[id.idx()].typ {
+                    if let Type::Primitive(Primitive::Class(Some(id))) = source.arena[id.idx()].typ
+                    {
                         if id.file() != file {
                             eprintln!(
                                 "Standard library symbol in '{path:?}' is defined externally"
@@ -392,7 +395,7 @@ impl Database {
                         &source.arena[id.idx()].members
                     } else {
                         eprintln!(
-                            "Symbol '{}' in '{path:?}' is not of type class",
+                            "Symbol '{}' in '{path:?}' is not of type 'class'",
                             source.arena[id.idx()].name
                         );
                         return None;

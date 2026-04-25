@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Range};
 use resolver::{
-    ArenaId, Database, ExpressionKind, FinishedFile, Source, StringKind, Type, line_index, parse,
-    token_name_range,
+    ArenaId, Database, ExpressionKind, FinishedFile, Primitive, Source, StringKind, Type,
+    line_index, parse, token_name_range,
 };
 use sq_3_parser::{TextRange, TextSize};
 
@@ -26,13 +26,13 @@ pub fn handle_go_to_definition(
 
     let finished_file = FinishedFile::new(db, file);
 
-    if let Some(ExpressionKind::Literal(Type::String {
+    if let Some(ExpressionKind::Literal(Type::Primitive(Primitive::String {
         kind,
         literal: Some(literal),
-    })) = finished_file.expr_kind_at(token.text_range())
-        && kind == StringKind::Script
+    }))) = finished_file.expr_kind_at(token.text_range())
+        && *kind == StringKind::Script
     {
-        let path = PathBuf::from(finished_file.get(literal).text.to_string());
+        let path = PathBuf::from(finished_file.get(*literal).text.to_string());
         if let Ok(script) = finished_file.db().get_script(path) {
             let path = db.get_path(script).expect("We got this file from db");
             return Some(GotoDefinitionResponse::Scalar(Location {
