@@ -828,7 +828,12 @@ impl<'db> Resolver<'db> {
             }
             _ => {
                 let flags = other.type_flags();
-                if flags.intersects(doc_type.type_flags()) {
+                let doc_flags = doc_type.type_flags();
+                if doc_flags.intersects(flags) {
+                    return None;
+                }
+
+                if doc_flags.intersects(TypeFlags::FLOAT) && flags.intersects(TypeFlags::INTEGER) {
                     return None;
                 }
 
@@ -1484,7 +1489,7 @@ impl<'db> Resolver<'db> {
                         };
 
                         let Some(new_typ) = self.check_or_update_type(
-                            &typ,
+                            &self.get(id).typ.clone(),
                             self.get(vargv).type_state,
                             NewType::NotExplicit(argument),
                             CheckTypeSource::VarArgs,
@@ -4710,7 +4715,7 @@ impl<'db> Resolver<'db> {
             self.diagnostics.push(Diagnostic {
                 message: match symbol.kind {
                     SymbolKind::Local(LocalKind::Function | LocalKind::Variable) => {
-                        format!("Unused local variable '{}'", symbol.name)
+                        format!("Unused local variable '{}'. Prepend the name with '_' if it cannot be removed", symbol.name)
                     }
                     SymbolKind::Local(LocalKind::Parameter) => {
                         format!(
