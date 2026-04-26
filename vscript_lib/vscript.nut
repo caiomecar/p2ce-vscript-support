@@ -238,7 +238,7 @@ class CBaseEntity {
     function GetCenter();
 
     /**
-     * @returns {string}
+     * @returns {classname}
      */
     function GetClassname();
 
@@ -2873,14 +2873,14 @@ class CEntities {
     /**
      * Find entities by classname. Pass null to start, or previous entity to continue.
      * @param {CBaseEntity|null} previous
-     * @param {classname} classname
+     * @param {classname_search} classname
      * @returns {CBaseEntity|null}
      */
     function FindByClassname(previous, classname);
 
     /**
      * Find entities by classname nearest to a point within a radius.
-     * @param {classname} classname
+     * @param {classname_search} classname
      * @param {Vector} center
      * @param {float} radius
      * @returns {CBaseEntity|null}
@@ -2890,7 +2890,7 @@ class CEntities {
     /**
      * Find entities by classname within a radius. Pass null to start, or previous to continue.
      * @param {CBaseEntity|null} previous
-     * @param {classname} classname
+     * @param {classname_search} classname
      * @param {Vector} center
      * @param {float} radius
      * @returns {CBaseEntity|null}

@@ -494,6 +494,7 @@ pub enum StringKind {
     Input,
     Output,
     Classname,
+    ClassnameSearch,
 
     Convar,
 
@@ -522,6 +523,7 @@ impl std::fmt::Display for StringKind {
             Self::Input => write!(f, "input"),
             Self::Output => write!(f, "output"),
             Self::Classname => write!(f, "classname"),
+            Self::ClassnameSearch => write!(f, "classname_search"),
             Self::Convar => write!(f, "convar"),
             Self::PropInt => write!(f, "integer_property"),
             Self::PropIntArray => write!(f, "integer_array_property"),
@@ -551,6 +553,7 @@ impl std::str::FromStr for StringKind {
             "input" => Self::Input,
             "output" => Self::Output,
             "classname" => Self::Classname,
+            "classname_search" => Self::ClassnameSearch,
             "convar" => Self::Convar,
             "integer_property" => Self::PropInt,
             "integer_array_property" => Self::PropIntArray,
@@ -632,7 +635,7 @@ impl StringKind {
             Self::Attribute => &ATTRIBUTE,
             Self::Input => &INPUT,
             Self::Output => &OUTPUT,
-            Self::Classname => &CLASSNAME,
+            Self::Classname | Self::ClassnameSearch => &CLASSNAME,
             Self::Convar => &CONVAR,
             Self::PropInt => &PROP_INT,
             Self::PropIntArray => &PROP_INT_ARRAY,

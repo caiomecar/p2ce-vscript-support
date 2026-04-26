@@ -760,6 +760,26 @@ impl<'db> Resolver<'db> {
 
                 let message = match kind {
                     StringKind::Script => self.db().get_script(PathBuf::from(text)).err(),
+                    StringKind::ClassnameSearch if text.ends_with('*') => {
+                        // If prefix exists, so "tf_wearable*"
+                        // we check whether any of our keys start with that main part
+                        // otherwise we fall back to a default method
+                        let prefix = text
+                            .strip_suffix('*')
+                            .expect("We did 'ends_with' before entering this branch");
+
+                        kind.values()
+                            .is_some_and(|values| {
+                                !values
+                                    .iter()
+                                    .any(|set| set.1.iter().any(|txt| txt.starts_with(prefix)))
+                            })
+                            .then(|| {
+                                format!(
+                                    "Text of string literal is not suitable for the kind '{kind}'"
+                                )
+                            })
+                    }
                     _ => kind
                         .values()
                         .is_some_and(|values| !values.iter().any(|set| set.0.contains(&text)))
