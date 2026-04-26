@@ -173,6 +173,7 @@ fn main_loop(connection: &Connection, params: serde_json::Value) -> Result<()> {
                 }
                 let now = Instant::now();
                 let method = req.method.clone();
+                eprintln!("[lsp] got request {method}");
                 if let Err(err) = handle_request(&db, connection, req) {
                     eprintln!("[lsp] request {method} failed: {err}");
                 }
@@ -181,6 +182,7 @@ fn main_loop(connection: &Connection, params: serde_json::Value) -> Result<()> {
             Message::Notification(note) => {
                 let now = Instant::now();
                 let method = note.method.clone();
+                eprintln!("[lsp] got notification {method}");
                 if let Err(err) = handle_notification(&mut db, connection, note) {
                     eprintln!("[lsp] notification {method} failed: {err}");
                 }

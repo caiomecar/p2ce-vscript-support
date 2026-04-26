@@ -564,7 +564,10 @@ fn context_completions(
                 });
             }
 
-            // Member access also wraps it in 'member' node
+            if !ast::MemberPart::can_cast(parent.kind()) {
+                return Some(ContextCompletions::Statement);
+            }
+
             let Some(member_access) = parent.parent() else {
                 return Some(ContextCompletions::Statement);
             };
