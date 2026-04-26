@@ -5,14 +5,14 @@
  * @native
  */
 
-const _charsize_ = 1;
-const _floatsize_ = 4;
-
 /**
  * 32-bit: `4`
  * 64-bit: `8`
  */
 const _intsize_ = 8;
+const _charsize_ = 1;
+const _floatsize_ = 4;
+
 
 const _version_ = "Squirrel 3.2 stable";
 const _versionnumber_ = 320;

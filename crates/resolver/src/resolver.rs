@@ -1378,6 +1378,10 @@ impl<'db> Resolver<'db> {
                 }
                 return None;
             }
+            // This is only a prediction, stuff like
+            // player: unknown
+            // player.EyeAngles() * 30 will output integer
+            // which is not correct and lead us to error
             return Some(with.kind.clone());
         }
 
@@ -1400,7 +1404,15 @@ impl<'db> Resolver<'db> {
             )
         } else {
             if !with_flags.intersects(TypeFlags::UNKNOWN) {
-                self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
+                self.no_support(
+                    &format!(
+                        "{}' and '{}",
+                        &self.primitive_to_str(operand),
+                        &self.type_to_str(&with.kind)
+                    ),
+                    keyword,
+                    with.range,
+                );
             }
             Some(Type::Primitive(operand))
         }
