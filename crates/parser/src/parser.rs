@@ -141,16 +141,13 @@ impl Parser {
             });
         }
         self.consumed_index = self.lookahead_index;
+        self.preceding_comments_index = None;
+        self.has_preceding_new_line = false;
     }
 
     /// Adds the marker as the last element to the events array
     fn start(&mut self) -> Marker {
-        // Attach comments to the nodes if there's only a single new line in between them
-        self.has_new_line_after_comment = false;
         if let Some(comments_index) = self.preceding_comments_index {
-            // To not trigger on further starts
-            self.preceding_comments_index = None;
-
             let save_lookahead = self.lookahead_index;
             self.lookahead_index = comments_index;
             self.consume_to_lookahead();
@@ -170,10 +167,12 @@ impl Parser {
 
     fn start_without_comment_attachment(&mut self) -> Marker {
         if let Some(comments_index) = self.preceding_comments_index {
+            let save_has_new_line = self.has_new_line_after_comment;
             let save_lookahead = self.lookahead_index;
             self.lookahead_index = comments_index;
             self.consume_to_lookahead();
             self.lookahead_index = save_lookahead;
+            self.has_new_line_after_comment = save_has_new_line;
         } else {
             self.consume_to_lookahead();
         }
