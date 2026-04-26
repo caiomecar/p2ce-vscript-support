@@ -139,7 +139,13 @@ impl Db for Database {
                     return None;
                 }
 
-                Some(rel_path.with_extension("").to_string_lossy().into_owned())
+                let forward_slash_path = rel_path
+                    .with_extension("")
+                    .components()
+                    .filter_map(|c| c.as_os_str().to_str())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                Some(forward_slash_path)
             })
             .collect()
     }
