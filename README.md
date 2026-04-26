@@ -1,7 +1,4 @@
-Since the old (TypeScript's) version features (that were implemented using tokens)
-became completely obsolete once I've decided to make features using actual proper logic(with syntax trees instead) the previous codebase will just be abandoned.
-Once this is developed enough it will completely overwrite the main branch and become version 3.0
-
+# Team Fortress 2 VScript Support
 
 ## Features
 - Completions
@@ -32,7 +29,7 @@ Once this is developed enough it will completely overwrite the main branch and b
 
 ## Additional
 - String literal name resolution
-- Type inference for both variables and functions (not always perfect, sometimes you would need to annotate the type with the doc comment)
+- Type inference for both variables and functions
 - Documentation comments with simple types
 - Import resolution from `IncludeScript`
 - Standard library symbols included from both Squirrel and VScript
@@ -43,3 +40,17 @@ Once this is developed enough it will completely overwrite the main branch and b
 - Formatting
 - Completions and validation for assets like models / sounds
 - Improving reuse with salsa for individual files (meaning more speed)
+
+
+## Sidenode
+Functionality is mostly checked using a comprehensive set of scripts, there might be unknown bugs
+please report at https://github.com/ocet247/tf2-vscript-support/issues.
+
+Type checking diagnostics don't try to be very conservative since it's a scripting language,
+however type inference also tries to predict runtime types which might be incorrect, leading
+to misleading errors. The fix to this issue is to annotate your types where needed so resolver
+doesn't need to guess them
+
+
+# Credits
+- Valve Development Community for VScript function signatures and documentation https://developer.valvesoftware.com/wiki/VScript
