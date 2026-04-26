@@ -1372,17 +1372,16 @@ impl<'db> Resolver<'db> {
                 self.no_support(&self.primitive_to_str(operand), keyword, range);
             }
 
-            if !with_flags.intersects(TypeFlags::ARITHMETIC) {
-                if !with_flags.intersects(TypeFlags::UNKNOWN) {
-                    self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
-                }
-                return None;
+            if !with_flags.intersects(TypeFlags::ARITHMETIC)
+                && !with_flags.intersects(TypeFlags::UNKNOWN)
+            {
+                self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
             }
-            // This is only a prediction, stuff like
+            // Stuff like
             // player: unknown
             // player.EyeAngles() * 30 will output integer
-            // which is not correct and lead us to error
-            return Some(with.kind.clone());
+            // which is not correct and will lead us to error
+            return None;
         }
 
         if operand_flags.intersects(TypeFlags::INTEGER) && with_flags.intersects(TypeFlags::INTEGER)
@@ -2172,9 +2171,15 @@ impl<'db> Resolver<'db> {
     }
 
     fn collect_table_property(&mut self, property: &Property) {
-        let typ = property
-            .value()
-            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
+        let typ = property.value().map_or(Type::UNKNOWN, |v| {
+            let typ = self.expr_to_type(&v);
+            // This is not actually correct but it eases out false positive errors
+            if typ == Type::NULL {
+                Type::UNKNOWN
+            } else {
+                typ
+            }
+        });
 
         let Some(name) = property.name() else {
             return;
@@ -2184,7 +2189,7 @@ impl<'db> Resolver<'db> {
             return;
         };
 
-        let type_state = if typ == Type::NULL {
+        let type_state = if typ == Type::UNKNOWN {
             TypeState::NotAssigned
         } else {
             TypeState::Inferred
@@ -2205,9 +2210,15 @@ impl<'db> Resolver<'db> {
     }
 
     fn collect_class_property(&mut self, property: &Property) {
-        let typ = property
-            .value()
-            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
+        let typ = property.value().map_or(Type::UNKNOWN, |v| {
+            let typ = self.expr_to_type(&v);
+            // This is not actually correct but it eases out false positive errors
+            if typ == Type::NULL {
+                Type::UNKNOWN
+            } else {
+                typ
+            }
+        });
 
         let statik = self.try_swap_to_instance(property, typ.to_function().ok());
 
@@ -2219,7 +2230,7 @@ impl<'db> Resolver<'db> {
             return;
         };
 
-        let type_state = if typ == Type::NULL {
+        let type_state = if typ == Type::UNKNOWN {
             TypeState::NotAssigned
         } else {
             TypeState::Inferred
