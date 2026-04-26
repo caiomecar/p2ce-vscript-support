@@ -1261,9 +1261,9 @@ impl Parser {
         self.expect_or_panic(SyntaxKind::OpenBracket);
         while !self.at(SyntaxKind::CloseBracket)
             && !self.at(SyntaxKind::Eof)
-            && !self.at_set(TokenSet::STATEMENT_WITH_SEMICOLON)
+            && !self.at_set(TokenSet::NON_EXPRESSION_STATEMENT)
         {
-            self.parse_expression(TokenSet::STATEMENT_OR_CLOSE_BRACKET);
+            self.parse_expression(TokenSet::NON_EXPRESSION_STATEMENT);
             if self.at_set(TokenSet::SEPARATORS) {
                 self.parse_proper_or_error(
                     SyntaxKind::Comma,
