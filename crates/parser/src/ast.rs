@@ -605,9 +605,11 @@ impl ForStatement {
 
 ast_node!(ForEachKey, ForeachKey);
 impl HasName for ForEachKey {}
+impl HasDoc for ForEachKey {}
 
 ast_node!(ForEachValue, ForeachValue);
 impl HasName for ForEachValue {}
+impl HasDoc for ForEachValue {}
 
 ast_node!(ForEachStatement, ForEachStatement);
 impl HasBody for ForEachStatement {}

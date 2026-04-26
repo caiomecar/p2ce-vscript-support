@@ -1589,13 +1589,15 @@ impl Parser {
 
         self.expect(SyntaxKind::OpenParenthesis);
 
+        let key_or_value = self.start();
         let key_or_value_name =
             self.parse_name("key's or value's name", TokenSet::FOREACH_RECOVERY);
 
         if self.at_set(TokenSet::SEPARATORS) {
-            if let Some(name) = key_or_value_name {
-                self.precede(name);
-                self.finish(name, SyntaxKind::ForeachKey);
+            if key_or_value_name.is_some() {
+                self.finish(key_or_value, SyntaxKind::ForeachKey);
+            } else {
+                self.drop(key_or_value);
             }
 
             self.parse_proper_or_error(
@@ -1603,18 +1605,21 @@ impl Parser {
                 "Expected ',' to separate key and value".to_owned(),
             );
 
+            let value = self.start();
             let value_name = self.parse_name("value's name", TokenSet::FOREACH_RECOVERY);
-            if let Some(name) = value_name {
-                self.precede(name);
-                self.finish(name, SyntaxKind::ForeachValue);
+            if value_name.is_some() {
+                self.finish(value, SyntaxKind::ForeachValue);
+            } else {
+                self.drop(value);
             }
 
             self.expect(SyntaxKind::InKeyword);
             // foreach (k v in ...)
         } else if self.at_set(TokenSet::NAME) {
-            if let Some(name) = key_or_value_name {
-                self.precede(name);
-                self.finish(name, SyntaxKind::ForeachKey);
+            if key_or_value_name.is_some() {
+                self.finish(key_or_value, SyntaxKind::ForeachKey);
+            } else {
+                self.drop(key_or_value);
             }
 
             self.error_at_token("Expected ',' to separate key and value".to_owned());
@@ -1624,10 +1629,12 @@ impl Parser {
 
             self.expect(SyntaxKind::InKeyword);
         } else {
-            if let Some(name) = key_or_value_name {
-                self.precede(name);
-                self.finish(name, SyntaxKind::ForeachValue);
+            if key_or_value_name.is_some() {
+                self.finish(key_or_value, SyntaxKind::ForeachValue);
+            } else {
+                self.drop(key_or_value);
             }
+
             self.expect_with_message(SyntaxKind::InKeyword, "',' or 'in'");
         }
 
