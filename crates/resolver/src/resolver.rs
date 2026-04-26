@@ -737,71 +737,6 @@ impl<'db> Resolver<'db> {
         last_type
     }
 
-    fn check_string_literal(
-        &mut self,
-        doc_type: &Type,
-        other: &Type,
-        error_range: TextRange,
-    ) -> Option<Type> {
-        let Type::Primitive(Primitive::String { kind, .. }) = doc_type else {
-            return None;
-        };
-
-        let Type::Primitive(Primitive::String {
-            literal: Some(literal),
-            ..
-        }) = other
-        else {
-            return None;
-        };
-
-        let text = &self.get(*literal).text;
-
-        let text = if kind.is_case_sensetive() {
-            text.to_string()
-        } else {
-            text.to_lowercase()
-        };
-
-        let message = match kind {
-            StringKind::Script => self.db().get_script(PathBuf::from(text)).err(),
-            _ => {
-                if kind
-                    .values()
-                    .is_some_and(|values| !values.iter().any(|set| set.0.contains(&text)))
-                {
-                    Some(format!(
-                        "Text of string literal is not suitable for the kind '{kind}'"
-                    ))
-                } else {
-                    None
-                }
-            }
-        };
-
-        if let Some(message) = message {
-            self.diagnostics.push(Diagnostic {
-                message,
-                range: error_range,
-                severity: DiagnosticSeverity::Warning,
-            });
-        }
-
-        let typ = Type::Primitive(Primitive::String {
-            kind: *kind,
-            literal: Some(*literal),
-        });
-
-        if literal.file() == self.file {
-            self.range_to_expr.insert(
-                self.get(*literal).range,
-                ExpressionKind::Literal(typ.clone()),
-            );
-        }
-
-        Some(typ)
-    }
-
     fn check_type(
         &mut self,
         doc_type: &Type,
@@ -809,49 +744,134 @@ impl<'db> Resolver<'db> {
         source: CheckTypeSource,
         error_range: TextRange,
     ) -> Option<Type> {
-        let flags = other.type_flags();
-        if doc_type.type_flags().intersects(flags) {
-            return self.check_string_literal(doc_type, other, error_range);
+        match (doc_type, other) {
+            (
+                Type::Primitive(Primitive::String { kind, .. }),
+                Type::Primitive(Primitive::String { literal, .. }),
+            ) => {
+                let literal = *literal.as_ref()?;
+                let text = &self.get(literal).text;
+
+                let text = if kind.is_case_sensetive() {
+                    text.to_string()
+                } else {
+                    text.to_lowercase()
+                };
+
+                let message = match kind {
+                    StringKind::Script => self.db().get_script(PathBuf::from(text)).err(),
+                    _ => kind
+                        .values()
+                        .is_some_and(|values| !values.iter().any(|set| set.0.contains(&text)))
+                        .then(|| {
+                            format!("Text of string literal is not suitable for the kind '{kind}'")
+                        }),
+                };
+
+                if let Some(message) = message {
+                    self.diagnostics.push(Diagnostic {
+                        message,
+                        range: error_range,
+                        severity: DiagnosticSeverity::Warning,
+                    });
+                }
+
+                let typ = Type::Primitive(Primitive::String {
+                    kind: *kind,
+                    literal: Some(literal),
+                });
+
+                if literal.file() == self.file {
+                    self.range_to_expr.insert(
+                        self.get(literal).range,
+                        ExpressionKind::Literal(typ.clone()),
+                    );
+                }
+
+                Some(typ)
+            }
+            // We have doc type of table but only the value assigned can have the shape of the table
+            // so to not lose this information we use the assigned value type
+            //
+            // We don't do this for class or instance because if a variable can take a type of multiple classes
+            // then we're producing errors by taking id from the first assignment rather than sticking to
+            // generic 'instance' or 'class' types
+            // E.g.
+            // ```tf2vscript
+            // /** @type {instance} */
+            // local a /*: CBaseEntity */ = CBaseEntity();
+            // // error
+            // a = regexp();
+            // ```
+            (Type::Primitive(Primitive::Table(_)), Type::Primitive(Primitive::Table(id))) => {
+                let id = *id.as_ref()?;
+                Some(Type::Primitive(Primitive::Table(Some(id))))
+            }
+            (Type::Primitive(Primitive::Array(_)), Type::Primitive(Primitive::Array(id))) => {
+                let id = *id.as_ref()?;
+                Some(Type::Primitive(Primitive::Array(Some(id))))
+            }
+            (Type::Primitive(Primitive::Function(_)), Type::Primitive(Primitive::Function(id))) => {
+                let id = *id.as_ref()?;
+                Some(Type::Primitive(Primitive::Function(Some(id))))
+            }
+            (
+                Type::Primitive(Primitive::Generator(_)),
+                Type::Primitive(Primitive::Generator(id)),
+            ) => {
+                let id = *id.as_ref()?;
+                Some(Type::Primitive(Primitive::Generator(Some(id))))
+            }
+            (Type::Primitive(Primitive::Thread(_)), Type::Primitive(Primitive::Thread(id))) => {
+                let id = *id.as_ref()?;
+                Some(Type::Primitive(Primitive::Thread(Some(id))))
+            }
+            _ => {
+                let flags = other.type_flags();
+                if flags.intersects(doc_type.type_flags()) {
+                    return None;
+                }
+
+                if flags.intersects(TypeFlags::UNKNOWN) {
+                    return None;
+                }
+
+                self.diagnostics.push(Diagnostic {
+                    message: match source {
+                        CheckTypeSource::Variable => format!(
+                            "Trying to assign a variable of type '{}' to '{}'",
+                            self.type_to_str(doc_type),
+                            self.type_to_str(other)
+                        ),
+                        CheckTypeSource::VarArgs |
+                        CheckTypeSource::Parameter => format!(
+                            "Expected parameter of type '{}', but got '{}'",
+                            self.type_to_str(doc_type),
+                            self.type_to_str(other)
+                        ),
+                        CheckTypeSource::Return => format!(
+                            "Trying to return a value of type '{}' in a function with declared return type of '{}'",
+                            self.type_to_str(doc_type),
+                            self.type_to_str(other),
+                        ),
+                        CheckTypeSource::Throw => format!(
+                            "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
+                            self.type_to_str(doc_type),
+                            self.type_to_str(other),
+                        ),
+                        CheckTypeSource::Yield => format!(
+                            "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
+                            self.type_to_str(doc_type),
+                            self.type_to_str(other),
+                        ),
+                    },
+                    range: error_range,
+                    severity: DiagnosticSeverity::Warning,
+                });
+
+                None
+            }
         }
-
-        if flags.intersects(TypeFlags::UNKNOWN) {
-            return None;
-        }
-
-        self.diagnostics.push(Diagnostic {
-            message: match source {
-                CheckTypeSource::Variable => format!(
-                    "Trying to assign a variable of type '{}' to '{}'",
-                    self.type_to_str(doc_type),
-                    self.type_to_str(other)
-                ),
-                CheckTypeSource::VarArgs |
-                CheckTypeSource::Parameter => format!(
-                    "Expected parameter of type '{}', but got '{}'",
-                    self.type_to_str(doc_type),
-                    self.type_to_str(other)
-                ),
-                CheckTypeSource::Return => format!(
-                    "Trying to return a value of type '{}' in a function with declared return type of '{}'",
-                    self.type_to_str(doc_type),
-                    self.type_to_str(other),
-                ),
-                CheckTypeSource::Throw => format!(
-                    "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
-                    self.type_to_str(doc_type),
-                    self.type_to_str(other),
-                ),
-                CheckTypeSource::Yield => format!(
-                    "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
-                    self.type_to_str(doc_type),
-                    self.type_to_str(other),
-                ),
-            },
-            range: error_range,
-            severity: DiagnosticSeverity::Warning,
-        });
-
-        None
     }
 
     fn check_or_update_type(
@@ -942,6 +962,7 @@ impl<'db> Resolver<'db> {
                     let symbol = self.symbol(Symbol {
                         name: name.text().into(),
                         typ,
+                        type_state: TypeState::Inferred,
                         kind: SymbolKind::Local(LocalKind::Parameter),
                         name_range: name.text_range(),
                         range: var.syntax().text_range(),
@@ -975,6 +996,7 @@ impl<'db> Resolver<'db> {
                         let symbol = self.symbol(Symbol {
                             name: "vargv".into(),
                             typ: Type::Primitive(Primitive::Array(Some(vargv_array))),
+                            type_state: TypeState::Inferred,
                             kind: SymbolKind::Local(LocalKind::VariedArgs),
                             name_range: var_args.syntax().text_range(),
                             range: var_args.syntax().text_range(),
@@ -2013,6 +2035,7 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    type_state: TypeState::Inferred,
                     name_range: name.text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
@@ -2036,6 +2059,7 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    type_state: TypeState::Inferred,
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
@@ -2066,6 +2090,7 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    type_state: TypeState::Inferred,
                     kind: SymbolKind::Property(statik),
                     name_range: name.text_range(),
                     range: method.syntax().text_range(),
@@ -2091,6 +2116,7 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    type_state: TypeState::Inferred,
                     kind: SymbolKind::Property(statik),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
@@ -2130,9 +2156,9 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ,
+            type_state,
             name_range,
             range: property.syntax().text_range(),
-            type_state,
             ..Default::default()
         });
 
@@ -2202,10 +2228,10 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ,
+            type_state: TypeState::Inferred,
             kind: SymbolKind::EnumMember,
             name_range,
             range: property.syntax().text_range(),
-            type_state: TypeState::Inferred,
             ..Default::default()
         });
 
@@ -2306,6 +2332,7 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: name.text().into(),
             typ: Type::Primitive(Primitive::Function(Some(id))),
+            type_state: TypeState::Inferred,
             kind: SymbolKind::Local(LocalKind::Function),
             name_range: name.text_range(),
             range: decl.syntax().text_range(),
@@ -2346,10 +2373,10 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: name.text().into(),
             typ,
+            type_state: TypeState::Inferred,
             kind: SymbolKind::Constant,
             name_range: name.text_range(),
             range: stmt.syntax().text_range(),
-            type_state: TypeState::Inferred,
             ..Default::default()
         });
 
@@ -2363,6 +2390,7 @@ impl<'db> Resolver<'db> {
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
+        dbg!(stmt);
         let save_break_continue = (self.can_break, self.can_continue);
         self.can_break = true;
         self.can_continue = true;
@@ -2386,11 +2414,14 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: key_type,
+                type_state: TypeState::Inferred,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: key.syntax().text_range(),
                 ..Default::default()
             });
+
+            self.resolve_variable_doc(symbol, &key);
 
             insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
         }
@@ -2401,11 +2432,14 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: value_type,
+                type_state: TypeState::Inferred,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: value.syntax().text_range(),
                 ..Default::default()
             });
+
+            self.resolve_variable_doc(symbol, &value);
 
             insert_symbol(&mut self.current_scope().locals, name.text().into(), symbol);
         }
@@ -2448,17 +2482,15 @@ impl<'db> Resolver<'db> {
         let class = self.class(stmt);
 
         let name = stmt.name().and_then(|n| self.assignment_lhs(&n));
-        if let Some(symbol) = self.do_new_slot(
-            None,
+        self.expr_new_symbol(
+            stmt,
             name,
             TypeWithRange {
                 kind: Type::Primitive(Primitive::Class(Some(class))),
                 range: stmt.syntax().text_range(),
             },
             PropertyKind::NoSupport,
-        ) {
-            self.resolve_variable_doc(symbol, stmt);
-        }
+        );
 
         let save_symbol = self.container;
         self.container = Container::Class(class);
@@ -2486,6 +2518,7 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: Type::Primitive(Primitive::Function(Some(id))),
+                type_state: TypeState::Inferred,
                 name_range: name.text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()
@@ -2627,6 +2660,7 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: final_name.text().into(),
             typ: Type::Primitive(Primitive::Function(Some(id))),
+            type_state: TypeState::Inferred,
             name_range: final_name.text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
@@ -2649,6 +2683,7 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: Type::Enum(enum_),
+                type_state: TypeState::Inferred,
                 kind: SymbolKind::Enum,
                 name_range: name.text_range(),
                 range: stmt.syntax().text_range(),
@@ -2904,6 +2939,7 @@ impl<'db> Resolver<'db> {
         {
             let symbol = self.symbol(Symbol {
                 typ: Type::STRING,
+                type_state: TypeState::Inferred,
                 name: name.text().into(),
                 kind: SymbolKind::Local(LocalKind::Exception),
                 name_range: name.text_range(),
@@ -3623,14 +3659,16 @@ impl<'db> Resolver<'db> {
     }
 
     // Also used by class statement
-    fn do_new_slot(
+    fn expr_new_symbol<T>(
         &mut self,
-        whole_expr_range: Option<TextRange>,
-        left: Option<AssignmentLeftHandSide>,
-        right: TypeWithRange,
+        expr: &T,
+        name: Option<AssignmentLeftHandSide>,
+        value: TypeWithRange,
         property_kind: PropertyKind,
-    ) -> Option<SymbolId> {
-        match left {
+    ) where
+        T: HasDoc,
+    {
+        match name {
             Some(AssignmentLeftHandSide::CanCreate {
                 parent,
                 name_range,
@@ -3638,23 +3676,32 @@ impl<'db> Resolver<'db> {
                 expr_range,
             }) => {
                 let (operand, arguments) =
-                    to_operand_and_arguments(parent, expr_range, name_range, right.clone());
+                    to_operand_and_arguments(parent, expr_range, name_range, value.clone());
 
                 let result = self.new_slot(&operand, &arguments);
                 if matches!(result, NewSlotResult::NotAllowed) {
-                    return None;
+                    return;
                 }
+
+                let type_state = if value.kind == Type::NULL {
+                    TypeState::NotAssigned
+                } else {
+                    TypeState::Inferred
+                };
 
                 let symbol = self.symbol(Symbol {
                     name: new_key.clone(),
-                    typ: right.kind.clone(),
+                    typ: value.kind.clone(),
+                    type_state,
                     kind: SymbolKind::Property(property_kind),
                     name_range,
-                    range: whole_expr_range.unwrap_or(expr_range),
+                    range: expr.syntax().text_range(),
                     ..Default::default()
                 });
 
-                if let Ok(id) = right.kind.to_class()
+                self.resolve_variable_doc(symbol, expr);
+
+                if let Ok(id) = value.kind.to_class()
                     && let Some(class) = self.get_mut(id)
                     && class.symbol.is_none()
                 {
@@ -3664,14 +3711,12 @@ impl<'db> Resolver<'db> {
                 if let NewSlotResult::CanAdd(container) = result {
                     self.add_container_member(container, new_key, symbol);
 
-                    if let Ok(id) = right.kind.to_function()
+                    if let Ok(id) = value.kind.to_function()
                         && let Some(function) = self.get_mut(id)
                     {
                         function.container = container;
                     }
                 }
-
-                Some(symbol)
             }
             Some(AssignmentLeftHandSide::Exists {
                 parent,
@@ -3698,42 +3743,49 @@ impl<'db> Resolver<'db> {
                     };
 
                     let (operand, arguments) =
-                        to_operand_and_arguments(parent, expr_range, name_range, right.clone());
+                        to_operand_and_arguments(parent, expr_range, name_range, value.clone());
 
                     let result = self.new_slot(&operand, &arguments);
                     if matches!(result, NewSlotResult::NotAllowed) {
-                        return None;
+                        return;
                     }
 
                     let name = self.get(symbol).name.clone();
 
+                    let type_state = if value.kind == Type::NULL {
+                        TypeState::NotAssigned
+                    } else {
+                        TypeState::Inferred
+                    };
+
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
-                        typ: right.kind.clone(),
+                        typ: value.kind.clone(),
+                        type_state,
                         kind: SymbolKind::Property(property_kind),
                         name_range,
-                        range: whole_expr_range.unwrap_or(expr_range),
+                        range: expr.syntax().text_range(),
                         ..Default::default()
                     });
 
-                    if let Ok(id) = right.kind.to_class()
+                    if let Ok(id) = value.kind.to_class()
                         && let Some(class) = self.get_mut(id)
                         && class.symbol.is_none()
                     {
                         class.symbol = Some(symbol);
                     }
 
+                    self.resolve_variable_doc(symbol, expr);
+
                     if let NewSlotResult::CanAdd(container) = result {
                         self.add_container_member(container, name, symbol);
 
-                        if let Ok(id) = right.kind.to_function()
+                        if let Ok(id) = value.kind.to_function()
                             && let Some(function) = self.get_mut(id)
                         {
                             function.container = container;
                         }
                     }
-
-                    Some(symbol)
                 } else {
                     self.new_reference(name_range, symbol);
                     // Parent is only None for locals and consts
@@ -3747,7 +3799,6 @@ impl<'db> Resolver<'db> {
                         range: name_range,
                         ..Default::default()
                     });
-                    None
                 }
             }
             Some(AssignmentLeftHandSide::NonStringName {
@@ -3756,9 +3807,9 @@ impl<'db> Resolver<'db> {
                 expr_range,
             }) => {
                 let container = Container::try_from(&parent);
-                let id = right.kind.to_function();
+                let id = value.kind.to_function();
 
-                let arguments = [key, right];
+                let arguments = [key, value];
                 let operand = TypeWithRange {
                     kind: parent,
                     range: expr_range,
@@ -3771,9 +3822,8 @@ impl<'db> Resolver<'db> {
                 {
                     function.container = container;
                 }
-                None
             }
-            _ => None,
+            _ => {}
         }
     }
 
@@ -3798,14 +3848,7 @@ impl<'db> Resolver<'db> {
             },
         );
 
-        if let Some(symbol) = self.do_new_slot(
-            Some(expr.syntax().text_range()),
-            left,
-            right,
-            PropertyKind::NewSlot,
-        ) {
-            self.resolve_variable_doc(symbol, expr);
-        }
+        self.expr_new_symbol(expr, left, right, PropertyKind::NewSlot);
 
         right_kind
     }
