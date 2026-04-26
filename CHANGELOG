@@ -1,5 +1,8 @@
 # Changelog
 
+## [3.0.3]
+- Fix selecting tf2 root directory producing multiple files with the same path
+
 ## [3.0.2]
 - Fix `script` completions not working properly on windows
 
