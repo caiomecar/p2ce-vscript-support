@@ -1,0 +1,10 @@
+# Changelog
+
+## [3.0.2]
+- Fix `script` completions not working properly on windows
+
+## [3.0.1]
+- Add README.md to the vsix
+
+## [3.0.0]
+- Initial release of fully featured language server
