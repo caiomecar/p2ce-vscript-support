@@ -1,5 +1,8 @@
 # Changelog
 
+## [3.0.4]
+- Ease out type prediction to prevent a lot of false positives errors
+
 ## [3.0.3]
 - Fix selecting tf2 root directory producing multiple files with the same path
 
