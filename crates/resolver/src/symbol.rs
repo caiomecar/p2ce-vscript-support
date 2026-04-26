@@ -17,7 +17,7 @@ macro_rules! primitive_accessor {
         /// If the information couldn't be extracted
         pub fn $name(&self) -> Result<$ret, ToPrimitiveError> {
             let flags = self.type_flags();
-            if flags.intersects(TypeFlags::$flag) {
+            if !flags.intersects(TypeFlags::$flag) {
                 return Err(if flags.intersects(TypeFlags::UNKNOWN) {
                     ToPrimitiveError::NotSpecific
                 } else {
