@@ -3529,7 +3529,7 @@ class CNetPropManager {
     /**
      * Returns the size of a netprop array, or -1.
      * @param {CBaseEntity} entity
-     * @param {array_property} property_name
+     * @param {property_array} property_name
      * @returns {integer}
      */
     function GetPropArraySize(entity, property_name);
@@ -3545,7 +3545,7 @@ class CNetPropManager {
     /**
      * Reads an EHANDLE-valued netprop from an array. Returns null if not found.
      * @param {CBaseEntity} entity
-     * @param {entity_property_array} property_name
+     * @param {entity_array_property} property_name
      * @param {integer} array_element
      * @returns {CBaseEntity|null}
      */
