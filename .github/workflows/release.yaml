@@ -49,9 +49,9 @@ jobs:
         with:
           node-version: 22
       - name: Copy LICENSE
-        run: cp LICENSE editors/vscode/LICENSE
+        run: cp LICENSE editors/code/LICENSE
       - name: Copy README
-        run: cp README.md editors/vscode/README.md
+        run: cp README.md editors/code/README.md
 
       - name: Install Dependencies
         run: npm ci
