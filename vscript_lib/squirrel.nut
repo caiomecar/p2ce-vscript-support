@@ -7,9 +7,23 @@
 
 const _charsize_ = 1;
 const _floatsize_ = 4;
+
+/**
+ * 32-bit: `4`
+ * 64-bit: `8`
+ */
 const _intsize_ = 8;
+
 const _version_ = "Squirrel 3.2 stable";
 const _versionnumber_ = 320;
+
+/**
+ * Windows: `32767`
+ * Linux: `2147483647`
+ */
+const RAND_MAX = 2147483647
+
+const PI = 3.14159
 
 /**
  * Throws an assertion error if the given expression evaluates to false (i.e. the values 0, 0.0, -0.0, null and false).

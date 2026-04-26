@@ -290,7 +290,7 @@ class array {
     function resize(new_size, fill = null);
 
     /**
-     * Reverses the order of the elements in the array.
+     * Reverses the order of the elements in the array.class itself
      * @returns {array} array itself
      */
     function reverse();
