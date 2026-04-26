@@ -226,6 +226,10 @@ impl Database {
         };
 
         let scripts = root.join("tf/scripts/vscripts");
+        let Ok(scripts) = scripts.canonicalize() else {
+            return Err("Couldn't canonicalize path");
+        };
+
         if scripts.exists() {
             Ok(scripts)
         } else {
