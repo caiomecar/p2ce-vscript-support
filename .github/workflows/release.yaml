@@ -52,6 +52,8 @@ jobs:
         run: cp LICENSE editors/code/LICENSE
       - name: Copy README
         run: cp README.md editors/code/README.md
+      - name: Copy CHANGELOG
+        run: cp CHANGELOG editors/code/CHANGELOG
 
       - name: Install Dependencies
         run: npm ci
