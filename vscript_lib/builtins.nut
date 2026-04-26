@@ -181,6 +181,7 @@ class array {
     /**
      * Adds an item to the end of the array.
      * @param {any} item
+     * @returns {array} array itself
      */
     function append(item);
 
@@ -190,11 +191,13 @@ class array {
      * The provided func can accept up to 3 arguments: array item value (required),
      * array item index (optional), reference to the array itself (optional).
      * @param {function} func
+     * @returns {array} array itself
      */
     function apply(func);
 
     /**
      * Removes all of the items from the array.
+     * @returns {array} array itself
      */
     function clear();
 
@@ -224,6 +227,7 @@ class array {
      * Inserts an item into the array at the specified index.
      * @param {integer} index
      * @param {any} item
+     * @returns {array} array itself
      */
     function insert(index, item);
 
@@ -245,15 +249,15 @@ class array {
 
     /**
      * Returns and removes the value at the end of the array.
-     * Throws an exception if the array is empty.
      * @returns {any}
-     * @throws {string}
+     * @throws {string} if the array is empty.
      */
     function pop();
 
     /**
      * Adds an item to the end of the array.
      * @param {any} item
+     * @returns {array} array itself
      */
     function push(item);
 
@@ -281,11 +285,13 @@ class array {
      * In case of increasing, fills the new spots with the fill parameter.
      * @param {integer} new_size
      * @param {any} fill
+     * @returns {array} array itself
      */
     function resize(new_size, fill = null);
 
     /**
      * Reverses the order of the elements in the array.
+     * @returns {array} array itself
      */
     function reverse();
 
@@ -311,6 +317,7 @@ class array {
      * should be placed before the second, 1 if it should follow, or 0 if they are equivalent.
      * The spaceship operator <=> may come in handy, e.g. arr.sort(\@(a, b) a.distance <=> b.distance).
      * @param {function} compare - function(a: any, b: any) -> integer
+     * @returns {array} array itself
      */
     function sort(compare = @(a, b) a <=> b);
 
@@ -338,6 +345,7 @@ class array {
 class table {
     /**
      * Removes all of the items from the table.
+     * @returns {table} table itself
      */
     function clear();
 
@@ -391,18 +399,18 @@ class table {
     function rawin(key);
 
     /**
-     * Sets the value of the specified key without employing delegation. Returns the table itself.
+     * Sets the value of the specified key without employing delegation
      * @param {any} key
      * @param {any} value
-     * @returns {table}
+     * @returns {table} table itself
      */
     function rawset(key, value);
 
     /**
-     * Assigns the passed table as the target's new custom delegate. Returns the target table.
+     * Assigns the passed table as the target's new custom delegate.
      * To remove a delegate, pass null.
      * @param {table|null} delegate
-     * @returns {table}
+     * @returns {table} table itself
      */
     function setdelegate(delegate);
 
@@ -481,6 +489,7 @@ class function_ {
     /**
      * Sets the root table of the closure.
      * @param {table} root
+     * @returns {function} function itself
      */
     function setroot(root);
 
@@ -515,6 +524,7 @@ class class_ {
      * @param {any} value
      * @param {table} attributes
      * @param {bool} is_static
+     * @returns {class} class itself
      */
     function newmember(key, value, attributes = {}, is_static = false);
 
@@ -548,14 +558,15 @@ class class_ {
      * @param {any} value
      * @param {table} attributes
      * @param {bool} is_static
+     * @returns {class} class itself
      */
     function rawnewmember(key, value, attributes = {}, is_static = false);
 
     /**
-     * Sets the value of the specified key without employing delegation. Returns the class itself.
+     * Sets the value of the specified key without employing delegation.
      * @param {any} key
      * @param {any} value
-     * @returns {class}
+     * @returns {class} class itself
      */
     function rawset(key, value);
 
