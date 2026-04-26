@@ -792,8 +792,14 @@ pub trait Source {
 
     fn symbol_markdown(&self, id: SymbolId) -> String {
         let s = self.get(id);
-        let mut str = s.description.clone().unwrap_or_default();
-        str.push_str("\n```sqDoc\n");
+        let mut str = "\n```sqDoc\n".to_owned();
+
+        let finish = |str: &mut String| {
+            str.push_str("\n```\n");
+            if let Some(desc) = &s.description {
+                str.push_str(desc);
+            }
+        };
         match s.kind {
             SymbolKind::Local(_) => str.push_str("local "),
             SymbolKind::Property(statik) => {
@@ -803,7 +809,7 @@ pub trait Source {
             }
             SymbolKind::Enum => {
                 let _ = write!(&mut str, "enum {}", s.name);
-                str.push_str("\n```");
+                finish(&mut str);
                 return str;
             }
             SymbolKind::Constant | SymbolKind::EnumMember => {
@@ -819,13 +825,13 @@ pub trait Source {
                     }
                     _ => {
                         let _ = write!(&mut str, "const {}", s.name);
-                        str.push_str("\n```");
+                        finish(&mut str);
                         return str;
                     }
                 };
 
                 let _ = write!(&mut str, "const {}: {}", s.name, type_text);
-                str.push_str("\n```");
+                finish(&mut str);
                 return str;
             }
         }
@@ -848,7 +854,7 @@ pub trait Source {
             }
         }
 
-        str.push_str("\n```");
+        finish(&mut str);
         str
     }
 

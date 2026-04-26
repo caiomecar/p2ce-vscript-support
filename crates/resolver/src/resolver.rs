@@ -1775,6 +1775,12 @@ impl<'db> Resolver<'db> {
             }
         }
 
+        if let Some(symbol) = self.get_mut(symbol)
+            && let Some(desc) = doc.full_description()
+        {
+            symbol.description = Some(desc);
+        }
+
         let offset = range.end();
         for tag in doc.tags() {
             match tag {
@@ -1835,13 +1841,6 @@ impl<'db> Resolver<'db> {
         }) else {
             return;
         };
-
-        if let Some(symbol_id) = self.arena[entry.idx].symbol
-            && let Some(symbol) = self.get_mut(symbol_id)
-            && let Some(desc) = doc.description()
-        {
-            symbol.description = desc.content();
-        }
 
         for tag in doc.tags() {
             match tag {

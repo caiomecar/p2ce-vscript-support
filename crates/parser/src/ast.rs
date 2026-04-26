@@ -957,6 +957,50 @@ impl DocComment {
     pub fn tags(&self) -> AstChildren<Tag> {
         support::children(&self.0)
     }
+
+    #[must_use]
+    pub fn full_description(&self) -> Option<String> {
+        let mut parts: Vec<String> = Vec::new();
+
+        if let Some(desc) = self.description()
+            && let Some(content) = desc.content()
+        {
+            parts.push(content);
+        }
+
+        for tag in self.tags() {
+            let mut tag_str = String::from("*");
+            if let Some(item) = tag.tag_item() {
+                tag_str.push_str(&item.syntax().text().to_string());
+            }
+
+            tag_str.push('*');
+
+            if let Tag::Param(param) = &tag
+                && let Some(name) = param.name().and_then(|n| n.identifier())
+            {
+                tag_str.push(' ');
+                tag_str.push('`');
+                tag_str.push_str(name.text());
+                tag_str.push('`');
+            }
+
+            if let Some(desc) = tag.description()
+                && let Some(content) = desc.content()
+            {
+                tag_str.push_str(" \u{2014} "); // em dash
+                tag_str.push_str(content.trim());
+            }
+
+            parts.push(tag_str);
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n\n"))
+        }
+    }
 }
 
 ast_node!(DocDescription, DocDescription);
@@ -1028,6 +1072,9 @@ ast_enum!(Tag {
     Input(InputTag),
 });
 
+impl HasDescription for Tag {}
+impl IsTag for Tag {}
+
 ast_node!(ReturnTag, ReturnTag);
 impl HasDescription for ReturnTag {}
 impl IsTag for ReturnTag {}
@@ -1048,6 +1095,11 @@ ast_node!(VarArgsTag, VarArgsTag);
 impl HasDescription for VarArgsTag {}
 impl IsTag for VarArgsTag {}
 impl HasType for VarArgsTag {}
+
+ast_node!(ExtendsTag, ExtendsTag);
+impl HasDescription for ExtendsTag {}
+impl IsTag for ExtendsTag {}
+impl HasType for ExtendsTag {}
 
 ast_node!(TypeTag, TypeTag);
 impl HasDescription for TypeTag {}

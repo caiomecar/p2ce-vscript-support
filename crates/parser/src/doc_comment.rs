@@ -130,9 +130,7 @@ impl<'a> DocComment<'a> {
                     }
                     Some('\\') => {
                         self.next();
-                        if self.peek() == Some('@') {
-                            self.next();
-                        }
+                        self.next();
                     }
                     _ => {
                         self.next();
@@ -226,6 +224,10 @@ impl<'a> DocComment<'a> {
             "varargs" | "vargv" => {
                 self.possible_type();
                 SyntaxKind::VarArgsTag
+            }
+            "extends" => {
+                self.possible_type();
+                SyntaxKind::ExtendsTag
             }
             "entity" => SyntaxKind::EntityTag,
             "native" => SyntaxKind::NativeTag,

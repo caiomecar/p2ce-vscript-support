@@ -32,14 +32,14 @@ Once this is developed enough it will completely overwrite the main branch and b
 
 ## Additional
 - String literal name resolution
-- Type inference for both variables and functions
+- Type inference for both variables and functions (not always perfect, sometimes you would need to annotate the type with the doc comment)
 - Documentation comments with simple types
 - Import resolution from `IncludeScript`
 - Standard library symbols included from both Squirrel and VScript
 
 ## Possible future development (in order)
 - Handle events (like `OnScriptHook_OnTakeDamage` by using a preset signature for certain keys)
-- Completions and validation for assets like models / sounds
+- Complex type system (mostly for tables)
 - Formatting
+- Completions and validation for assets like models / sounds
 - Improving reuse with salsa for individual files (meaning more speed)
-- Complex type system

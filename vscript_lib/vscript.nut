@@ -828,7 +828,6 @@ class CBaseEntity {
 
 /**
  * Script handle class for animatable entities, such as props.
- * @extends CBaseEntity
  */
 class CBaseAnimating extends CBaseEntity {
     /**
@@ -1078,7 +1077,6 @@ class CBaseAnimating extends CBaseEntity {
 
 /**
  * Script handle class for any weapon entities that can be part of a player's inventory.
- * @extends CBaseAnimating
  */
 class CBaseCombatWeapon extends CBaseAnimating {
     /**
@@ -1296,12 +1294,9 @@ class CBaseCombatWeapon extends CBaseAnimating {
 /**
  * This is just multiple inheritance of CBaseCombatWeapon and CEconEntity
  * with no additional methods added. Here it inherits CBaseCombatWeapon
- * and copies CEconEntity methods to achieve the same result
- * (C++ developers when codebase is so bad they have to break the rules
- * of "clean code" OOP they promised to adhere to just to get things
- * actually working)
- * @extends CBaseAnimating
- * @extends CEconEntity
+ * and copies CEconEntity methods to achieve the same result. (Why C++
+ * developers are spreading their broken OOP curse on everyone else?)
+ * @extends {CBaseAnimating|CEconEntity}
  */
 class CTFWeaponBase extends CBaseCombatWeapon {
     /**
@@ -1340,7 +1335,6 @@ class CTFWeaponBase extends CBaseCombatWeapon {
 
 /**
  * Animated characters who have vertex flex capability (e.g., facial expressions).
- * @extends CBaseAnimating
  */
 class CBaseFlex extends CBaseAnimating {
     /**
@@ -1358,7 +1352,6 @@ class CBaseFlex extends CBaseAnimating {
 
 /**
  * Combat entities with similar movement capabilities to a player.
- * @extends CBaseFlex
  */
 class CBaseCombatCharacter extends CBaseFlex {
     /**
@@ -1374,7 +1367,6 @@ class CBaseCombatCharacter extends CBaseFlex {
 
 /**
  * Script handle class for player entities.
- * @extends CBaseCombatCharacter
  */
 class CBasePlayer extends CBaseCombatCharacter {
     /**
@@ -1444,7 +1436,6 @@ class CBasePlayer extends CBaseCombatCharacter {
 
 /**
  * Script handle class for economic equippables (hats and weapons).
- * @extends CBaseAnimating
  */
 class CEconEntity extends CBaseAnimating {
     /**
@@ -1484,7 +1475,6 @@ class CEconEntity extends CBaseAnimating {
 
 /**
  * Script handle class for player entities of Team Fortress 2.
- * @extends CBasePlayer
  */
 class CTFPlayer extends CBasePlayer {
     /**
@@ -2317,9 +2307,10 @@ class CTFPlayer extends CBasePlayer {
 
 /**
  * Script handle class for bot-controlled players (tf_bot).
+ *
  * Note: Puppet bots do NOT inherit from this class.
- * @extends CTFPlayer
- * @extends NextBotCombatCharacter
+ *
+ * @extends {CTFPlayer | NextBotCombatCharacter}
  */
 class CTFBot extends CTFPlayer {
     /**
@@ -2771,7 +2762,6 @@ class CTFBot extends CTFPlayer {
 
 /**
  * Base class intended for custom NPCs. Officially used as part of MvM tank.
- * @extends NextBotCombatCharacter
  */
 class CTFBaseBoss extends NextBotCombatCharacter {
     /**
@@ -3942,7 +3932,6 @@ class CPlayerVoiceListener {
 
 /**
  * Script handle class for env_entity_maker.
- * @extends CBaseEntity
  */
 class CEnvEntityMaker extends CBaseEntity {
     /**
@@ -3976,7 +3965,6 @@ class CEnvEntityMaker extends CBaseEntity {
 
 /**
  * Script handle class for func_tracktrain.
- * @extends CBaseEntity
  */
 class CFuncTrackTrain extends CBaseEntity {
     /**
@@ -3994,7 +3982,6 @@ class CFuncTrackTrain extends CBaseEntity {
 
 /**
  * Script handle class for scripted_scene (VCD data).
- * @extends CBaseEntity
  */
 class CSceneEntity extends CBaseEntity {
     /**
@@ -4135,7 +4122,6 @@ class CSimpleCallChainer {
 
 /**
  * Script handle class for non-playable combat characters operating under the NextBot system.
- * @extends CBaseCombatCharacter
  */
 class NextBotCombatCharacter extends CBaseCombatCharacter {
     /**
@@ -4257,7 +4243,6 @@ class INextBotComponent {
 
 /**
  * The interface for interacting with a specific NextBot's movement brain.
- * @extends INextBotComponent
  */
 class ILocomotion extends INextBotComponent {
     /**

@@ -7,6 +7,7 @@
 
 /**
  * 32-bit: `4`
+ *
  * 64-bit: `8`
  */
 const _intsize_ = 8;
@@ -19,6 +20,7 @@ const _versionnumber_ = 320;
 
 /**
  * Windows: `32767`
+ *
  * Linux: `2147483647`
  */
 const RAND_MAX = 2147483647

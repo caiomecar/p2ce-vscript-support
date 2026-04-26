@@ -241,6 +241,7 @@ pub enum SyntaxKind {
     UnknownTag,
     ParamTag,
     VarArgsTag,
+    ExtendsTag,
     TypeTag,
     ReturnTag,
     ThrowTag,

@@ -1091,17 +1091,18 @@ fn completion_doc_tag(
 ) -> Vec<CompletionItem> {
     let tags = [
         "@param ",
-        "@returns",
-        "@throws",
-        "@yields",
-        "@type",
-        "@varargs",
+        "@returns ",
+        "@throws ",
+        "@yields ",
+        "@type ",
+        "@varargs ",
         "@deprecated",
         "@hide",
         "@native",
         "@entity",
         "@const",
         "@input",
+        "@extends ",
     ];
     let range = replace_range.and_then(|r| conversions::range(line_idx, r));
     tags.into_iter()
