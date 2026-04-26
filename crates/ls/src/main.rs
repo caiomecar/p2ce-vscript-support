@@ -251,10 +251,6 @@ fn handle_notification(
                 });
 
             db.update_tf2_root(tf2_root_path);
-
-            for (file, _) in &db.all_files() {
-                publish_diagnostics(db, conn, *file)?;
-            }
         }
         _ => {}
     }

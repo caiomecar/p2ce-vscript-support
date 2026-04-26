@@ -197,6 +197,9 @@ impl Database {
 
     pub fn open_file(&self, path: &Path) -> Option<File> {
         let path = path.canonicalize().ok()?;
+        if let Some(file) = self.path_to_file.borrow().get(&path) {
+            return Some(*file);
+        }
 
         let text = std::fs::read_to_string(path.clone()).ok()?;
         Some(self.open_file_with_text(path, text))
