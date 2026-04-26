@@ -44,10 +44,15 @@ jobs:
           cp target/${{ matrix.rust-target }}/release/$BIN editors/code/server/
       - name: Move Standard Library
         shell: bash
-        run: cp -r ./vscript_lib ./editors/code/vscript_lib
+        run: cp -r ./vscript_lib editors/code/vscript_lib
       - uses: actions/setup-node@v6.3.0
         with:
           node-version: 22
+      - name: Copy LICENSE
+        run: cp LICENSE editors/vscode/LICENSE
+      - name: Copy README
+        run: cp README.md editors/vscode/README.md
+
       - name: Install Dependencies
         run: npm ci
         working-directory: editors/code
