@@ -265,7 +265,7 @@ class array {
      * Applies the supplied function to all of the items in the array, starting with the first two.
      * The function returns a single value which is then combined with the next item — and so on
      * until all items have been combined into a single value which the method returns.
-     * @param {function} func - function(pre_value: any, current_value: any) -> any
+     * @param {function} func `function(pre_value: any, current_value: any) -> any`
      * @param {any} init
      * @returns {any}
      */
@@ -316,7 +316,7 @@ class array {
      * The comparison function should take two parameters and return -1 if the first value
      * should be placed before the second, 1 if it should follow, or 0 if they are equivalent.
      * The spaceship operator <=> may come in handy, e.g. arr.sort(\@(a, b) a.distance <=> b.distance).
-     * @param {function} compare - function(a: any, b: any) -> integer
+     * @param {function} compare `function(a: any, b: any) -> integer`
      * @returns {array} array itself
      */
     function sort(compare = @(a, b) a <=> b);
@@ -353,7 +353,7 @@ class table {
      * Creates a new table with all values that pass the test implemented by the provided function.
      * Invokes the function for each key-value pair; if it returns true, the value is added
      * to the new table at the same key.
-     * @param {function} func - function(key: any, value: any) -> bool
+     * @param {function} func `function(key: any, value: any) -> bool`
      * @returns {table}
      */
     function filter(func);

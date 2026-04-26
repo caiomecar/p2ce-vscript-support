@@ -59,8 +59,8 @@ class CBaseEntity {
     /**
      * Adds the supplied flags to the Entity Flags in the entity. (`m_iEFlags` datamap)
      *
-     * Note: Adding `EFL_KILLME` will make the entity unkillable, even on round resets, until the flag is removed.
-     * @param {integer} flags See [Constants.FEntityEFlags](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FEntityEFlags)
+     * **Note**: Adding `EFL_KILLME` will make the entity unkillable, even on round resets, until the flag is removed.
+     * @param {integer} flags See [Constants.FPlayer](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FPlayer)
      */
     function AddEFlags(flags);
 
@@ -94,7 +94,7 @@ class CBaseEntity {
      * Acts like the `BecomeRagdoll` input, with the required impulse value applied as a force on the ragdoll.
      * Does NOT spawn a prop_ragdoll or any other entity.
      *
-     * . **Warning**: These are a special group of ragdolls that never disappear by default.
+     * **Warning**: These are a special group of ragdolls that never disappear by default.
      * @param {Vector} impulse
      * @returns {bool}
      */
@@ -136,13 +136,15 @@ class CBaseEntity {
 
     /**
      * Alternative dispatch spawn, same as the one in CEntities, for convenience.
-     * Note: Calling this on players will cause them to respawn.
+     *
+     * **Note**: Calling this on players will cause them to respawn.
      */
     function DispatchSpawn();
 
     /**
      * Plays a sound from this entity. The sound must be precached first for it to play.
-     * Warning: Looping sounds will not stop on the entity when it's destroyed and will persist forever!
+     *
+     * **Warning**: Looping sounds will not stop on the entity when it's destroyed and will persist forever!
      * @param {string} sound_name
      */
     function EmitSound(sound_name);
@@ -191,7 +193,7 @@ class CBaseEntity {
     /**
      * Get the entity's pitch, yaw, and roll as Vector.
      * @returns {Vector}
-     * @deprecated - Use GetAbsAngles that returns a QAngle instead
+     * @deprecated Use `GetAbsAngles` that returns a QAngle instead
      */
     function GetAngles();
 
@@ -244,19 +246,19 @@ class CBaseEntity {
 
     /**
      * Gets the current collision group of the entity.
-     * @returns {integer} - See Constants.ECollisionGroup
+     * @returns {integer} See [Constants.ECollisionGroup](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ECollisionGroup)
      */
     function GetCollisionGroup();
 
     /**
      * Get the entity's engine flags.
-     * @returns {integer} - See Constants.FEntityEFlags
+     * @returns {integer} See [Constants.FEntityEFlags](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FEntityEFlags)
      */
     function GetEFlags();
 
     /**
      * Get the entity's flags.
-     * @returns {integer} - See Constants.FPlayer
+     * @returns {integer} See [Constants.FPlayer](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FPlayer)
      */
     function GetFlags();
 
@@ -274,7 +276,8 @@ class CBaseEntity {
 
     /**
      * Get the forward vector of the entity.
-     * Note: If you intend to get a player's eye forward vector, use `EyeAngles().Forward()` instead.
+     *
+     * **Note**: If you intend to get a player's eye forward vector, use `EyeAngles().Forward()` instead.
      * @returns {Vector}
      */
     function GetForwardVector();
@@ -298,7 +301,7 @@ class CBaseEntity {
     /**
      * Get the right vector of the entity.
      * @returns {Vector}
-     * @deprecated - This is purely for compatibility, use `GetLeftVector` instead
+     * @deprecated This is purely for compatibility, use `GetLeftVector` instead
      */
     function GetLeftVector();
 
@@ -360,7 +363,8 @@ class CBaseEntity {
 
     /**
      * Gets this entity's owner.
-     * Note: This is a wrapper for m_hOwnerEntity netprop.
+     *
+     * **Note**: This is a wrapper for `m_hOwnerEntity` netprop.
      * @returns {CBaseEntity|null}
      */
     function GetOwner();
@@ -412,13 +416,14 @@ class CBaseEntity {
     function GetScriptThinkFunc();
 
     /**
-     * @returns {integer} - See ESolidType
+     * @returns {integer} See [Constants.ESolidType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ESolidType)
      */
     function GetSolid();
 
     /**
      * Returns float duration of the sound. Actor model name is optional and can be left empty.
-     * Warning: Does not work on dedicated servers.
+     *
+     * **Warning**: Does not work on dedicated servers.
      * @param {string} sound_name
      * @param {string|null} actor_model_name
      * @returns {float}
@@ -426,7 +431,7 @@ class CBaseEntity {
     function GetSoundDuration(sound_name, actor_model_name);
 
     /**
-     * @returns {integer} - See Constants.ETFTeam
+     * @returns {integer} See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      */
     function GetTeam();
 
@@ -438,7 +443,7 @@ class CBaseEntity {
 
     /**
      * @returns {Vector}
-     * @deprecated - Use `GetAbsVelocity` instead
+     * @deprecated Use `GetAbsVelocity` instead
      */
     function GetVelocity();
 
@@ -461,7 +466,7 @@ class CBaseEntity {
     function IsAlive();
 
     /**
-     * @param {integer} flag - See Constants.FEntityEFlags
+     * @param {integer} flag See [Constants.FEntityEFlags](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FEntityEFlags)
      * @returns {bool}
      */
     function IsEFlagSet(flag);
@@ -478,7 +483,7 @@ class CBaseEntity {
     function IsSolid();
 
     /**
-     * @param {integer} flag - See Constants.FSolid
+     * @param {integer} flag See [Constants.FSolid](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FSolid)
      * @returns {bool}
      */
     function IsSolidFlagSet(flag);
@@ -492,7 +497,8 @@ class CBaseEntity {
 
     /**
      * Executes KeyValue with a float.
-     * Warning: Does not update the internal network state of the entity.
+     *
+     * **Warning**: Does not update the internal network state of the entity.
      * @param {string} key
      * @param {float} value
      * @returns {bool}
@@ -501,7 +507,8 @@ class CBaseEntity {
 
     /**
      * Executes KeyValue with an int.
-     * Warning: Does not update the internal network state of the entity.
+     *
+     * **Warning**: Does not update the internal network state of the entity.
      * @param {string} key
      * @param {integer} value
      * @returns {bool}
@@ -510,7 +517,8 @@ class CBaseEntity {
 
     /**
      * Executes KeyValue with a string.
-     * Warning: Does not update the internal network state of the entity.
+     *
+     * **Warning**: Does not update the internal network state of the entity.
      * @param {string} key
      * @param {string} value
      * @returns {bool}
@@ -519,7 +527,8 @@ class CBaseEntity {
 
     /**
      * Executes KeyValue with a vector.
-     * Warning: Does not update the internal network state of the entity.
+     *
+     * **Warning**: Does not update the internal network state of the entity.
      * @param {string} key
      * @param {Vector} value
      * @returns {bool}
@@ -528,7 +537,8 @@ class CBaseEntity {
 
     /**
      * Removes the entity. Equivalent of firing the Kill I/O input, but instantaneous.
-     * Warning: This clears the owner entity before removing.
+     *
+     * **Warning**: This clears the owner entity before removing.
      */
     function Kill();
 
@@ -563,17 +573,17 @@ class CBaseEntity {
     function PrecacheSoundScript(sound_script);
 
     /**
-     * @param {integer} flags - See Constants.FEntityEFlags
+     * @param {integer} flags See [Constants.FEntityEFlags](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FEntityEFlags)
      */
     function RemoveEFlags(flags);
 
     /**
-     * @param {integer} flags - See Constants.FPlayer
+     * @param {integer} flags See [Constants.FPlayer](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FPlayer)
      */
     function RemoveFlag(flags);
 
     /**
-     * @param {integer} flags - See Constants.FSolid
+     * @param {integer} flags See [Constants.FSolid](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FSolid)
      */
     function RemoveSolidFlags(flags);
 
@@ -601,7 +611,7 @@ class CBaseEntity {
      * @param {float} pitch
      * @param {float} yaw
      * @param {float} roll
-     * @deprecated - Use SetAbsAngles instead
+     * @deprecated Use `SetAbsAngles` instead
      */
     function SetAngles(pitch, yaw, roll);
 
@@ -615,7 +625,7 @@ class CBaseEntity {
 
     /**
      * Set the current collision group of the entity.
-     * @param {integer} group - See Constants.ECollisionGroup
+     * @param {integer} group See [Constants.ECollisionGroup](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ECollisionGroup)
      */
     function SetCollisionGroup(group);
 
@@ -626,7 +636,7 @@ class CBaseEntity {
     function SetDrawEnabled(toggle);
 
     /**
-     * @param {integer} flags - See Constants.FEntityEFlags
+     * @param {integer} flags See [Constants.FEntityEFlags](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FEntityEFlags)
      */
     function SetEFlags(flags);
 
@@ -643,7 +653,8 @@ class CBaseEntity {
 
     /**
      * Sets a multiplier for gravity. 1 is default gravity.
-     * Note: 0 gravity will not work, use 0.000001 as a workaround.
+     *
+     * **Note**: 0 gravity will not work, use 0.000001 as a workaround.
      * @param {float} gravity
      */
     function SetGravity(gravity);
@@ -666,7 +677,7 @@ class CBaseEntity {
     /**
      * Sets the maximum health this entity can have. Does not update the current health.
      *
-     * Note: Does nothing on players.
+     * **Note**: Does nothing on players.
      * @param {integer} health
      */
     function SetMaxHealth(health);
@@ -674,27 +685,27 @@ class CBaseEntity {
     /**
      * Set a model for this entity.
      *
-     * Warning: Make sure the model was already precached before using this function or the game will crash!
+     * **Warning**: Make sure the model was already precached before using this function or the game will crash!
      * @param {string} model_name
      */
     function SetModel(model_name);
 
     /**
-     * @param {integer} movetype - See Constants.EMoveType
-     * @param {integer} movecollide - See Constants.EMoveCollide
+     * @param {integer} movetype See [Constants.EMoveType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#EMoveType)
+     * @param {integer} movecollide See [Constants.EMoveCollide](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#EMoveCollide)
      */
     function SetMoveType(movetype, movecollide);
 
     /**
      * @param {Vector} origin
-     * @deprecated - Use `SetAbsOrigin` instead
+     * @deprecated Use `SetAbsOrigin` instead
      */
     function SetOrigin(origin);
 
     /**
      * Sets this entity's owner.
      *
-     * Note: This is a wrapper for `m_hOwnerEntity` netprop.
+     * **Note**: This is a wrapper for `m_hOwnerEntity` netprop.
      * @param {CBaseEntity|null} entity
      */
     function SetOwner(entity);
@@ -712,39 +723,39 @@ class CBaseEntity {
     /**
      * Sets the bounding box's scale for this entity.
      *
-     * Warning: If any component of mins/maxs is backwards, the engine will exit with a fatal error.
+     * **Warning**: If any component of mins/maxs is backwards, the engine will exit with a fatal error.
      * @param {Vector} mins
      * @param {Vector} maxs
      */
     function SetSize(mins, maxs);
 
     /**
-     * @param {integer} solid - See Constants.ESolidType
+     * @param {integer} solid See [Constants.ESolidType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ESolidType)
      */
     function SetSolid(solid);
 
     /**
-     * @param {integer} flags - See Constants.FSolid
+     * @param {integer} flags See [Constants.FSolid](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FSolid)
      */
     function SetSolidFlags(flags);
 
     /**
      * Sets entity team.
      *
-     * Note: Use ForceChangeTeam on players instead.
-     * @param {integer} team - See Constants.ETFTeam
+     * **Note**: Use `ForceChangeTeam` on players instead.
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      */
     function SetTeam(team);
 
     /**
      * @param {Vector} velocity
-     * @deprecated - Use SetAbsVelocity instead
+     * @deprecated Use `SetAbsVelocity` instead
      */
     function SetVelocity(velocity);
 
     /**
      * Sets how much of the entity is underwater. 0=not underwater, 1=feet, 2=waist, 3=head.
-     * @param {integer} water_level - See Constants.WATERLEVEL
+     * @param {integer} water_level See [Constants.WATERLEVEL](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#WATERLEVEL)
      */
     function SetWaterLevel(water_level);
 
@@ -763,21 +774,22 @@ class CBaseEntity {
     /**
      * Deals damage to the entity.
      * @param {float} damage
-     * @param {integer} damage_type - See Constants.FDmgType
+     * @param {integer} damage_type See [Constants.FDmgType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FDmgType)
      * @param {CBaseEntity} attacker
      */
     function TakeDamage(damage, damage_type, attacker);
 
     /**
      * Extended version of TakeDamage.
-     * Note: If damage_force is Vector(0,0,0), the game will automatically calculate it.
+     *
+     * **Note**: If damage_force is Vector(0,0,0), the game will automatically calculate it.
      * @param {CBaseEntity|null} inflictor
      * @param {CBaseEntity|null} attacker
      * @param {CBaseEntity|null} weapon
      * @param {Vector} damage_force
      * @param {Vector} damage_position
      * @param {float} damage
-     * @param {integer} damage_type - See Constants.FDmgType
+     * @param {integer} damage_type See [Constants.FDmgType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FDmgType)
      */
     function TakeDamageEx(inflictor, attacker, weapon, damage_force, damage_position, damage, damage_type);
 
@@ -789,8 +801,8 @@ class CBaseEntity {
      * @param {Vector} damage_force
      * @param {Vector} damage_position
      * @param {float} damage
-     * @param {integer} damage_type - See Constants.FDmgType
-     * @param {integer} custom_damage_type - See Constants.ETFDmgCustom
+     * @param {integer} damage_type See [Constants.FDmgType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FDmgType)
+     * @param {integer} custom_damage_type See [Constants.ETFDmgCustom](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFDmgCustom)
      */
     function TakeDamageCustom(inflictor, attacker, weapon, damage_force, damage_position, damage, damage_type, custom_damage_type);
 
@@ -811,7 +823,7 @@ class CBaseEntity {
     function TerminateScriptScope();
 
     /**
-     * @param {integer} flags - See Constants.FPlayer
+     * @param {integer} flags See [Constants.FPlayer](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FPlayer)
      */
     function ToggleFlag(flags);
 
@@ -888,7 +900,8 @@ class CBaseAnimating extends CBaseEntity {
 
     /**
      * Get the bone's angles as a QAngle, by ID.
-     * Warning: Bone transforms are cached; setting new sequences may cause stale bone data.
+     *
+     * **Warning**: Bone transforms are cached; setting new sequences may cause stale bone data.
      * @param {integer} id
      * @returns {QAngle}
      */
@@ -896,7 +909,7 @@ class CBaseAnimating extends CBaseEntity {
 
     /**
      * Get the bone's origin Vector by ID.
-     * Warning: See GetBoneAngles warning.
+     * **Warning**: See GetBoneAngles warning.
      * @param {integer} id
      * @returns {Vector}
      */
@@ -1009,7 +1022,8 @@ class CBaseAnimating extends CBaseEntity {
 
     /**
      * Sets the model's current animation cycle from 0 to 1.
-     * Note: Only works if m_bClientSideAnimation is set to false.
+     *
+     * **Note**: Only works if `m_bClientSideAnimation` is set to false.
      * @param {float} cycle
      */
     function SetCycle(cycle);
@@ -1043,7 +1057,8 @@ class CBaseAnimating extends CBaseEntity {
 
     /**
      * Plays a sequence by sequence ID.
-     * Warning: Can cause animation stutters. Consider using ResetSequence instead.
+     *
+     * **Warning**: Can cause animation stutters. Consider using ResetSequence instead.
      * @param {integer} id
      */
     function SetSequence(id);
@@ -1123,7 +1138,8 @@ class CBaseCombatWeapon extends CBaseAnimating {
 
     /**
      * Gets the weapon's internal name (not the targetname!)
-     * Warning: Conflicts with CBaseEntity's GetName. Use CBaseEntity.GetName.call(weapon) for targetname.
+     *
+     * **Warning**: Conflicts with CBaseEntity's GetName. Use CBaseEntity.GetName.call(weapon) for targetname.
      * @returns {string}
      */
     function GetName();
@@ -1220,13 +1236,15 @@ class CBaseCombatWeapon extends CBaseAnimating {
 
     /**
      * Force a primary attack.
-     * Warning: Hitscan and melee weapons require lag compensation information to be present.
+     *
+     * **Warning**: Hitscan and melee weapons require lag compensation information to be present.
      */
     function PrimaryAttack();
 
     /**
      * Force a secondary attack.
-     * Warning: See PrimaryAttack warning.
+     *
+     * **Warning**: Hitscan and melee weapons require lag compensation information to be present.
      */
     function SecondaryAttack();
 
@@ -1301,7 +1319,8 @@ class CBaseCombatWeapon extends CBaseAnimating {
 class CTFWeaponBase extends CBaseCombatWeapon {
     /**
      * Add an attribute to the entity. Set duration to 0 or lower for infinite duration.
-     * Note: For players use AddCustomAttribute instead.
+     *
+     * **Note**: For players use `AddCustomAttribute` instead.
      * @param {attribute} name
      * @param {float} value
      * @param {float} duration
@@ -1309,7 +1328,7 @@ class CTFWeaponBase extends CBaseCombatWeapon {
     function AddAttribute(name, value, duration);
 
     /**
-     * Get an attribute float from the entity. Returns default_value if not found.
+     * Get an attribute float from the entity. Returns `default_value` if not found.
      * @param {attribute} name
      * @param {float} default_value
      * @returns {float}
@@ -1318,7 +1337,8 @@ class CTFWeaponBase extends CBaseCombatWeapon {
 
     /**
      * Remove an attribute from the entity.
-     * Note: Static attributes cannot be removed with this method.
+     *
+     * **Note**: Static attributes cannot be removed with this method.
      * @param {attribute} name
      */
     function RemoveAttribute(name);
@@ -1441,7 +1461,7 @@ class CEconEntity extends CBaseAnimating {
     /**
      * Add an attribute to the entity. Set duration to 0 or lower for infinite duration.
      *
-     * Note: For players use AddCustomAttribute instead.
+     * **Note**: For players use AddCustomAttribute instead.
      * @param {attribute} name
      * @param {float} value
      * @param {float} duration
@@ -1458,7 +1478,8 @@ class CEconEntity extends CBaseAnimating {
 
     /**
      * Remove an attribute from the entity.
-     * Note: Static attributes cannot be removed with this method.
+     *
+     * **Note**: Static attributes cannot be removed with this method.
      * @param {attribute} name
      */
     function RemoveAttribute(name);
@@ -1478,12 +1499,12 @@ class CEconEntity extends CBaseAnimating {
  */
 class CTFPlayer extends CBasePlayer {
     /**
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      */
     function AddCond(cond);
 
     /**
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      * @param {float} duration
      * @param {CBaseEntity|null} provider
      */
@@ -1497,7 +1518,8 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Add a custom attribute to the player. Set duration to 0 or lower for infinite.
-     * Note: Does not work when applied in the player_spawn event.
+     *
+     * **Note**: Does not work when applied in the player_spawn event.
      * @param {attribute} name
      * @param {float} value
      * @param {float} duration
@@ -1506,7 +1528,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Hides a HUD element(s).
-     * @param {integer} flags - See Constants.FHideHUD
+     * @param {integer} flags See [Constants.FHideHUD](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FHideHUD)
      */
     function AddHudHideFlags(flags);
 
@@ -1528,7 +1550,7 @@ class CTFPlayer extends CBasePlayer {
      * @param {float} duration
      * @param {integer} damage
      * @param {bool} endless
-     * @param {integer} custom_damage_type - See Constants.ETFDmgCustom
+     * @param {integer} custom_damage_type See [Constants.ETFDmgCustom](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFDmgCustom)
      */
     function BleedPlayerEx(duration, damage, endless, custom_damage_type);
 
@@ -1604,7 +1626,7 @@ class CTFPlayer extends CBasePlayer {
     /**
      * Force player to drop the rune.
      * @param {bool} apply_force
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      */
     function DropRune(apply_force, team);
 
@@ -1630,7 +1652,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Force player to change their team.
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @param {bool} full_team_switch
      */
     function ForceChangeTeam(team, full_team_switch);
@@ -1684,7 +1706,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Returns duration of the condition. Returns 0 if not applied. Returns -1 if infinite.
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      * @returns {float}
      */
     function GetCondDuration(cond);
@@ -1757,7 +1779,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Gets current hidden HUD elements.
-     * @returns {integer} - See Constants.FHideHUD
+     * @returns {integer} See [Constants.FHideHUD](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FHideHUD)
      */
     function GetHudHideFlags();
 
@@ -1882,7 +1904,7 @@ class CTFPlayer extends CBasePlayer {
     function InAirDueToKnockback();
 
     /**
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      * @returns {bool}
      */
     function InCond(cond);
@@ -1905,7 +1927,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Returns true if the player matches this bot type.
-     * @param {integer} type - See Constants.EBotType
+     * @param {integer} type See [Constants.EBotType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#EBotType)
      * @returns {bool}
      */
     function IsBotOfType(type);
@@ -2044,13 +2066,13 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Removes a condition.
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      */
     function RemoveCond(cond);
 
     /**
      * Extended version of RemoveCond. Allows forcefully removing the condition.
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      * @param {bool} ignore_duration
      */
     function RemoveCondEx(cond, ignore_duration);
@@ -2074,7 +2096,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Unhides a HUD element(s).
-     * @param {integer} flags - See Constants.FHideHUD
+     * @param {integer} flags See [Constants.FHideHUD](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FHideHUD)
      */
     function RemoveHudHideFlags(flags);
 
@@ -2096,7 +2118,7 @@ class CTFPlayer extends CBasePlayer {
     function RollRareSpell();
 
     /**
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      * @param {float} duration
      */
     function SetCondDuration(cond, duration);
@@ -2163,7 +2185,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Force HUD hide flags to a value.
-     * @param {integer} flags - See Constants.FHideHUD
+     * @param {integer} flags See [Constants.FHideHUD](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FHideHUD)
      */
     function SetHudHideFlags(flags);
 
@@ -2193,7 +2215,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Sets the player class. Updates the player's visuals and model.
-     * @param {integer} class_index - See Constants.ETFClass
+     * @param {integer} class_index See [Constants.ETFClass](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFClass)
      */
     function SetPlayerClass(class_index);
 
@@ -2242,15 +2264,15 @@ class CTFPlayer extends CBasePlayer {
      * Stuns the player for a specified duration.
      * @param {float} duration
      * @param {float} move_speed_reduction
-     * @param {integer} flags - See Constants.TF_STUN
+     * @param {integer} flags See [Constants.TF_STUN](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#TF_STUN)
      * @param {CBaseEntity|null} attacker
      */
     function StunPlayer(duration, move_speed_reduction, flags, attacker);
 
     /**
      * Performs a taunt if allowed.
-     * @param {integer} taunt_index - See Constants.FTaunts
-     * @param {integer} taunt_concept - See Constants.MP_CONCEPT
+     * @param {integer} taunt_index See [Constants.FTaunts](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FTaunts)
+     * @param {integer} taunt_concept See [Constants.MP_CONCEPT](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#MP_CONCEPT)
      */
     function Taunt(taunt_index, taunt_concept);
 
@@ -2266,7 +2288,7 @@ class CTFPlayer extends CBasePlayer {
     function UpdateSkin(skin);
 
     /**
-     * @param {integer} cond - See Constants.ETFCond
+     * @param {integer} cond See [Constants.ETFCond](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFCond)
      * @returns {bool}
      */
     function WasInCond(cond);
@@ -2308,14 +2330,13 @@ class CTFPlayer extends CBasePlayer {
 /**
  * Script handle class for bot-controlled players (tf_bot).
  *
- * Note: Puppet bots do NOT inherit from this class.
- *
+ * **Note**: Puppet bots do NOT inherit from this class.
  * @extends {CTFPlayer | NextBotCombatCharacter}
  */
 class CTFBot extends CTFPlayer {
     /**
      * Sets attribute flags on this TFBot.
-     * @param {integer} attribute - See Constants.FTFBotAttributeType
+     * @param {integer} attribute See [Constants.FTFBotAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FTFBotAttributeType)
      */
     function AddBotAttribute(attribute);
 
@@ -2327,7 +2348,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Adds weapon restriction flags.
-     * @param {integer} flags - See Constants.TFBotWeaponRestrictionType
+     * @param {integer} flags See [Constants.TFBotWeaponRestrictionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#TFBotWeaponRestrictionType)
      */
     function AddWeaponRestriction(flags);
 
@@ -2353,7 +2374,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Clear the given behavior flag(s) for this bot.
-     * @param {integer} flags - See Constants.TFBOT_BEHAVIOR
+     * @param {integer} flags See [Constants.TFBOT_BEHAVIOR](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#TFBOT_BEHAVIOR)
      */
     function ClearBehaviorFlag(flags);
 
@@ -2402,7 +2423,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Returns the bot's difficulty level.
-     * @returns {integer} - See Constants.ETFBotDifficultyType
+     * @returns {integer} See [Constants.ETFBotDifficultyType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotDifficultyType)
      */
     function GetDifficulty();
 
@@ -2414,7 +2435,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Get this bot's current mission.
-     * @returns {integer} - See Constants.ETFBotMissionType
+     * @returns {integer} See [Constants.ETFBotMissionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotMissionType)
      */
     function GetMission();
 
@@ -2432,7 +2453,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Get this bot's previous mission.
-     * @returns {integer} - See Constants.ETFBotMissionType
+     * @returns {integer} See [Constants.ETFBotMissionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotMissionType)
      */
     function GetPrevMission();
 
@@ -2450,7 +2471,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Checks if this TFBot has the given attributes.
-     * @param {integer} attribute - See Constants.FTFBotAttributeType
+     * @param {integer} attribute See [Constants.FTFBotAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FTFBotAttributeType)
      * @returns {bool}
      */
     function HasBotAttribute(attribute);
@@ -2464,14 +2485,14 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Return true if the given mission is this bot's current mission.
-     * @param {integer} mission - See Constants.ETFBotMissionType
+     * @param {integer} mission See [Constants.ETFBotMissionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotMissionType)
      * @returns {bool}
      */
     function HasMission(mission);
 
     /**
      * Checks if this TFBot has the given weapon restriction flags.
-     * @param {integer} flags - See Constants.TFBotWeaponRestrictionType
+     * @param {integer} flags See [Constants.TFBotWeaponRestrictionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#TFBotWeaponRestrictionType)
      * @returns {bool}
      */
     function HasWeaponRestriction(flags);
@@ -2501,14 +2522,14 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Return true if the given behavior flag(s) are set for this bot.
-     * @param {integer} flags - See Constants.TFBOT_BEHAVIOR
+     * @param {integer} flags See [Constants.TFBOT_BEHAVIOR](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#TFBOT_BEHAVIOR)
      * @returns {bool}
      */
     function IsBehaviorFlagSet(flags);
 
     /**
      * Returns true/false if the bot's difficulty level matches.
-     * @param {integer} difficulty - See Constants.ETFBotDifficultyType
+     * @param {integer} difficulty See [Constants.ETFBotDifficultyType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotDifficultyType)
      * @returns {bool}
      */
     function IsDifficulty(difficulty);
@@ -2554,7 +2575,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Removes attribute flags on this TFBot.
-     * @param {integer} attribute - See Constants.FTFBotAttributeType
+     * @param {integer} attribute See [Constants.FTFBotAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FTFBotAttributeType)
      */
     function RemoveBotAttribute(attribute);
 
@@ -2566,7 +2587,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Removes weapon restriction flags.
-     * @param {integer} flags - See Constants.TFBotWeaponRestrictionType
+     * @param {integer} flags See [Constants.TFBotWeaponRestrictionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#TFBotWeaponRestrictionType)
      */
     function RemoveWeaponRestriction(flags);
 
@@ -2591,13 +2612,13 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Set the given behavior flag(s) for this bot.
-     * @param {integer} flags - See Constants.TFBOT_BEHAVIOR
+     * @param {integer} flags See [Constants.TFBOT_BEHAVIOR](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#TFBOT_BEHAVIOR)
      */
     function SetBehaviorFlag(flags);
 
     /**
      * Sets the bots difficulty level.
-     * @param {integer} difficulty - See Constants.ETFBotDifficultyType
+     * @param {integer} difficulty See [Constants.ETFBotDifficultyType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotDifficultyType)
      */
     function SetDifficulty(difficulty);
 
@@ -2615,7 +2636,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Set this bot's current mission to the given mission.
-     * @param {integer} mission - See Constants.ETFBotMissionType
+     * @param {integer} mission See [Constants.ETFBotMissionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotMissionType)
      * @param {bool} reset_behavior
      */
     function SetMission(mission, reset_behavior);
@@ -2628,7 +2649,7 @@ class CTFBot extends CTFPlayer {
 
     /**
      * Set this bot's previous mission to the given mission.
-     * @param {integer} mission - See Constants.ETFBotMissionType
+     * @param {integer} mission See [Constants.ETFBotMissionType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFBotMissionType)
      */
     function SetPrevMission(mission);
 
@@ -2777,7 +2798,8 @@ class CTFBaseBoss extends NextBotCombatCharacter {
 
 /**
  * An interface to manipulate the convars on the server.
- * Note: Protected convars (e.g. rcon_password) cannot be accessed.
+ *
+ * **Note**: Protected convars (e.g. `rcon_password`) cannot be accessed.
  */
 class Convars {
     /**
@@ -2798,7 +2820,7 @@ class Convars {
     /**
      * Returns the convar as an int. May return null if no such convar.
      *
-     * Warning: The entire convar list is searched each time (slow). Cache results if used often.
+     * **Warning**: The entire convar list is searched each time (slow). Cache results if used often.
      * @param {convar} name
      * @returns {integer|null}
      */
@@ -2807,7 +2829,7 @@ class Convars {
     /**
      * Returns the convar as a string. May return null if no such convar.
      *
-     * Warning: The entire convar list is searched each time (slow). Cache results if used often.
+     * **Warning**: The entire convar list is searched each time (slow). Cache results if used often.
      * @param {convar} name
      * @returns {string|null}
      */
@@ -2816,7 +2838,7 @@ class Convars {
     /**
      * Returns the convar as a float. May return null if no such convar.
      *
-     * Warning: The entire convar list is searched each time (slow). Cache results if used often.
+     * **Warning**: The entire convar list is searched each time (slow). Cache results if used often.
      * @param {convar} name
      * @returns {float|null}
      */
@@ -2964,20 +2986,20 @@ class CTFNavArea {
     /**
      * Add areas that connect TO this area by a ONE-WAY link.
      * @param {CTFNavArea} area
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      */
     function AddIncomingConnection(area, dir);
 
     /**
      * Clear TF-specific area attribute bits.
-     * @param {integer} bits - See Constants.FTFNavAttributeType
+     * @param {integer} bits See [Constants.FTFNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FTFNavAttributeType)
      */
     function ClearAttributeTF(bits);
 
     /**
      * Compute closest point within the portal between areas.
      * @param {CTFNavArea} to
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @param {Vector} close_pos
      * @returns {Vector}
      */
@@ -2993,7 +3015,7 @@ class CTFNavArea {
     /**
      * Connect this area to given area in given direction.
      * @param {CTFNavArea} area
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      */
     function ConnectTo(area, dir);
 
@@ -3037,7 +3059,7 @@ class CTFNavArea {
 
     /**
      * Return the n'th adjacent area in the given direction.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @param {integer} n
      * @returns {CTFNavArea|null}
      */
@@ -3045,21 +3067,21 @@ class CTFNavArea {
 
     /**
      * Fills a passed in table with all adjacent areas in the given direction.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @param {table} result
      */
     function GetAdjacentAreas(dir, result);
 
     /**
      * Get the number of adjacent areas in the given direction.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @returns {integer}
      */
     function GetAdjacentCount(dir);
 
     /**
      * Get area attribute bits.
-     * @returns {integer} - See Constants.FNavAttributeType
+     * @returns {integer} See [Constants.FNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FNavAttributeType)
      */
     function GetAttributes();
 
@@ -3077,7 +3099,7 @@ class CTFNavArea {
 
     /**
      * Get corner origin of area.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @returns {Vector}
      */
     function GetCorner(dir);
@@ -3115,7 +3137,7 @@ class CTFNavArea {
 
     /**
      * Fills a passed in table with areas connected TO this area by a ONE-WAY link.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @param {table} result
      */
     function GetIncomingConnections(dir, result);
@@ -3140,14 +3162,14 @@ class CTFNavArea {
 
     /**
      * Return number of players of given team currently within this area (0 = any/all).
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @returns {integer}
      */
     function GetPlayerCount(team);
 
     /**
      * Return a random adjacent area in the given direction.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @returns {CTFNavArea|null}
      */
     function GetRandomAdjacentArea(dir);
@@ -3179,14 +3201,14 @@ class CTFNavArea {
 
     /**
      * Has TF-specific area attribute bits of the given ones.
-     * @param {integer} bits - See Constants.FTFNavAttributeType
+     * @param {integer} bits See [Constants.FTFNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FTFNavAttributeType)
      * @returns {bool}
      */
     function HasAttributeTF(bits);
 
     /**
      * Has area attribute bits of the given ones.
-     * @param {integer} bits - See Constants.FNavAttributeType
+     * @param {integer} bits See [Constants.FNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FNavAttributeType)
      * @returns {bool}
      */
     function HasAttributes(bits);
@@ -3200,7 +3222,7 @@ class CTFNavArea {
 
     /**
      * Return true if team is blocked in this area.
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @param {bool} affects_flow
      * @returns {bool}
      */
@@ -3214,7 +3236,7 @@ class CTFNavArea {
 
     /**
      * Return true if given area is completely visible from somewhere in this area.
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @returns {bool}
      */
     function IsCompletelyVisibleToTeam(team);
@@ -3222,7 +3244,7 @@ class CTFNavArea {
     /**
      * Return true if this area is connected to other area in given direction.
      * @param {CBaseEntity} area
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @returns {bool}
      */
     function IsConnected(area, dir);
@@ -3248,7 +3270,7 @@ class CTFNavArea {
 
     /**
      * Return true if there are no bi-directional links on the given side.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      * @returns {bool}
      */
     function IsEdge(dir);
@@ -3276,14 +3298,14 @@ class CTFNavArea {
 
     /**
      * Return true if any portion of this area is visible to anyone on the given team.
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @returns {bool}
      */
     function IsPotentiallyVisibleToTeam(team);
 
     /**
      * Is this area reachable by the given team?
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @returns {bool}
      */
     function IsReachableByTeam(team);
@@ -3321,7 +3343,7 @@ class CTFNavArea {
 
     /**
      * Mark this area as blocked for team.
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      */
     function MarkAsBlocked(team);
 
@@ -3339,25 +3361,25 @@ class CTFNavArea {
 
     /**
      * Removes area attribute bits.
-     * @param {integer} bits - See Constants.FNavAttributeType
+     * @param {integer} bits See [Constants.FNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FNavAttributeType)
      */
     function RemoveAttributes(bits);
 
     /**
      * Removes all connections in directions to left and right of specified direction.
-     * @param {integer} dir - See Constants.ENavDirType
+     * @param {integer} dir See [Constants.ENavDirType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ENavDirType)
      */
     function RemoveOrthogonalConnections(dir);
 
     /**
      * Set TF-specific area attributes.
-     * @param {integer} bits - See Constants.FTFNavAttributeType
+     * @param {integer} bits See [Constants.FTFNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FTFNavAttributeType)
      */
     function SetAttributeTF(bits);
 
     /**
      * Set area attribute bits.
-     * @param {integer} bits - See Constants.FNavAttributeType
+     * @param {integer} bits See [Constants.FNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FNavAttributeType)
      */
     function SetAttributes(bits);
 
@@ -3397,13 +3419,13 @@ class CNavMesh {
 
     /**
      * Fills a passed in table of all nav areas.
-     * @param {table} result - Resulting shape: {"area0": CTFNavArea, "area1": CTFNavArea, ...}
+     * @param {table} result Resulting shape: {"area0": CTFNavArea, "area1": CTFNavArea, ...}
      */
     function GetAllAreas(result);
 
     /**
      * Fills a passed in table of all nav areas that have the specified attributes.
-     * @param {integer} bits - See Constants.FNavAttributeType
+     * @param {integer} bits See [Constants.FNavAttributeType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FNavAttributeType)
      * @param {table} result
      */
     function GetAreasWithAttributes(bits, result);
@@ -3431,12 +3453,13 @@ class CNavMesh {
 
     /**
      * Fills the table with areas from a path. Returns whether a path was found.
-     * Note: The areas are passed from end area to the start area.
+     *
+     * **Note**: The areas are passed from end area to the start area.
      * @param {CTFNavArea} start_area
      * @param {CTFNavArea} end_area
      * @param {Vector} goal_pos
      * @param {float} max_path_length
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @param {bool} ignore_nav_blockers
      * @param {table} result
      * @returns {bool}
@@ -3480,7 +3503,7 @@ class CNavMesh {
      * @param {CTFNavArea} end_area
      * @param {Vector} goal_pos
      * @param {float} max_path_length
-     * @param {integer} team - See Constants.ETFTeam
+     * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
      * @param {bool} ignore_nav_blockers
      * @returns {bool}
      */
@@ -3714,7 +3737,7 @@ class CNetPropManager {
     /**
      * Sets a netprop to the specified integer.
      *
-     * Warning: Do not override m_iTeamNum netprops on players or Engineer buildings permanently.
+     * **Warning**: Do not override `m_iTeamNum` netprops on players or Engineer buildings permanently.
      * @param {CBaseEntity} entity
      * @param {integer_property} property_name
      * @param {integer} value
@@ -3948,7 +3971,7 @@ class CEnvEntityMaker extends CBaseEntity {
     /**
      * Create an entity at a specified location and orientation.
      * @param {Vector} origin
-     * @param {Vector} orientation - Euler angle in degrees (pitch, yaw, roll)
+     * @param {Vector} orientation Euler angle in degrees (pitch, yaw, roll)
      */
     function SpawnEntityAtLocation(origin, orientation);
 
@@ -4771,7 +4794,8 @@ class QAngle {
 
     /**
      * Returns the right Vector of the angles.
-     * Note: Despite being named "Left", this actually returns the right vector.
+     *
+     * **Note**: Despite being named "Left", this actually returns the right vector.
      * @returns {Vector}
      */
     function Left();
@@ -5050,7 +5074,8 @@ function developer();
 
 /**
  * Dispatches a one-off particle system.
- * Warning: Does NOT work if called from a player think or OnTakeDamage caused by hitscan/melee.
+ *
+ * **Warning**: Does NOT work if called from a player think or `OnTakeDamage` caused by hitscan/melee.
  * @param {string} name
  * @param {Vector} origin
  * @param {Vector} direction
@@ -5112,14 +5137,33 @@ function StopAmbientSoundOn(sound_name, entity);
 
 /**
  * Play a sound with extended parameters.
- * @param {table} params - Keys: sound_name, channel, volume, sound_level, flags, pitch, special_dsp, origin, delay, sound_time, entity, speaker_entity, filter_type, filter_param
+ *
+ * See the [EmitSoundEx](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/EmitSoundEx) for more details.
+ * @param {table} params
+ * ## Keys:
+ * ```sqDoc
+ * sound_name: string
+ * channel?: integer
+ * volume?: float
+ * sound_level?: integer
+ * flags?: integer
+ * pitch?: integer
+ * special_dsp?: integer
+ * origin?: Vector
+ * delay?: float,
+ * sound_time?: float
+ * entity?: CBaseEntity|null
+ * speaker_entity?: CBaseEntity|null
+ * filter_type?: integer
+ * filter_param?: integer
+ * ```
  */
 function EmitSoundEx(params);
 
 /**
  * Play named sound on given entity. The sound must be precached first.
  *
- * Warning: Looping sounds will not stop on the entity when it's destroyed.
+ * **Warning**: Looping sounds will not stop on the entity when it's destroyed.
  * @param {string} sound_script
  * @param {CBaseEntity} entity
  */
@@ -5134,7 +5178,8 @@ function StopSoundOn(sound_script, entity);
 
 /**
  * Play named sound only on the client for the specified player.
- * Note: Only supports soundscripts.
+ *
+ * **Note**: Only supports soundscripts.
  * @param {string} sound_script
  * @param {CBaseEntity} player
  */
@@ -5153,7 +5198,7 @@ function EntFire(target, action, value = null, delay = 0.0, activator = null);
 /**
  * Generate an entity I/O event by handle. Negative delays are clamped to 0.
  *
- * Note: With 0 delay, processed at end of frame. Use AcceptInput for instant/synchronous I/O.
+ * **Note**: With 0 delay, processed at end of frame. Use AcceptInput for instant/synchronous I/O.
  * @param {CBaseEntity} entity
  * @param {input} action
  * @param {string|null} value
@@ -5181,7 +5226,8 @@ function FileToString(file);
 
 /**
  * Fire a game event to a listening callback function in script.
- * Note: Does not fire an event that the game will pick up. Use SendGlobalGameEvent for real events.
+ *
+ * **Note**: Does not fire an event that the game will pick up. Use SendGlobalGameEvent for real events.
  * @param {string} name
  * @param {table} params
  * @returns {bool}
@@ -5244,14 +5290,14 @@ function GetModelIndex(model_name);
 /**
  * Returns the angular velocity of the entity
  * @param {CBaseEntity} entity
- * @deprecated - Use the `GetPhysAngularVelocity` method on the entity instead.
+ * @deprecated Use the `GetPhysAngularVelocity` method on the entity instead.
  */
 function GetPhysAngularVelocity(entity);
 
 /**
  * Returns the velocity of the entity
  * @param {CBaseEntity} entity
- * @deprecated - Use the `GetPhysVelocity` method on the entity instead.
+ * @deprecated Use the `GetPhysVelocity` method on the entity instead.
  */
 function GetPhysVelocity(entity);
 
@@ -5264,7 +5310,8 @@ function GetPlayerFromUserID(userid);
 
 /**
  * Returns float duration of the sound.
- * Warning: Does not work on dedicated servers.
+ *
+ * **Warning**: Does not work on dedicated servers.
  * @param {string} sound_name
  * @param {string|null} actor_model_name
  * @returns {float}
@@ -5300,7 +5347,8 @@ function IsPlayerABot(player);
 
 /**
  * Fills out a table with the local time.
- * Warning: The month will be 1-12 rather than 0-11.
+ *
+ * **Warning**: The month will be 1-12 rather than 0-11.
  * @param {table} result
  */
 function LocalTime(result);
@@ -5400,7 +5448,7 @@ function RotatePosition(origin, rotation, input);
  * @param {integer} alpha
  * @param {float} fade_time
  * @param {float} fade_hold
- * @param {integer} flags - See Constants.FFADE
+ * @param {integer} flags See [Constants.FFADE](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FFADE)
  */
 function ScreenFade(player, red, green, blue, alpha, fade_time, fade_hold, flags);
 
@@ -5411,7 +5459,7 @@ function ScreenFade(player, red, green, blue, alpha, fade_time, fade_hold, flags
  * @param {float} frequency
  * @param {float} duration
  * @param {float} radius
- * @param {integer} command - See Constants.SHAKE_COMMAND (0=start, 1=stop)
+ * @param {integer} command See [Constants.SHAKE_COMMAND](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#SHAKE_COMMAND) (0=start, 1=stop)
  * @param {bool} air_shake
  */
 function ScreenShake(center, amplitude, frequency, duration, radius, command, air_shake);
@@ -5479,7 +5527,8 @@ function SpawnEntityGroupFromTable(groups);
 
 /**
  * Stores a string as a file, located in the game's scriptdata folder.
- * Warning: Performance varies by hardware; only call at checkpoints.
+ *
+ * **Warning**: Performance varies by hardware; only call at checkpoints.
  * @param {string} file
  * @param {string} content
  */
@@ -5501,7 +5550,7 @@ function Time();
 function TraceLine(start, end, ignore);
 
 /**
- * Different version of TraceLine that also hits players and NPCs.
+ * Different version of `TraceLine` that also hits players and NPCs.
  * @param {Vector} start
  * @param {Vector} end
  * @param {CBaseEntity|null} ignore
@@ -5510,18 +5559,74 @@ function TraceLine(start, end, ignore);
 function TraceLinePlayersIncluded(start, end, ignore);
 
 /**
- * Extended version of TraceLine.
- * Warning: Setting any input parameters which expect an instance to a primitive type will crash the server.
+ * Extended version of `TraceLine`. The passed in table requires to have parameters and will be modified to contain new ones
+ *
+ * See [TraceLineEx](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/TraceLineEx) for more details
+ *
+ * **Warning**: Setting any input parameters which expect an instance to a primitive type will crash the server.
+ * # Input table
+ * ```sqDoc
+ * start: Vector
+ * end: Vector
+ * mask: integer
+ * ignore: CBaseEntity
+ * ```
+ * # Output table
+ * ```sqDoc
+ * pos: Vector
+ * fraction: float
+ * hit: bool
+ * enthit?: CBaseEntity
+ * startsolid?: bool
+ * allsolid?: bool
+ * startpos: Vector
+ * endpos: Vector
+ * plane_normal?: Vector
+ * plane_dist?: float
+ * surface_name?: string
+ * surface_flags?: integer
+ * surface_props?: integer
+ * ```
  * @param {table} params
- * @returns {bool}
+ * @returns {bool} `false` if the user didn't specify a valid `start` or `end`, `true` otherwise.
+ *                 You don't need to check this return usually.
  */
 function TraceLineEx(params);
 
 /**
- * Trace a box (AABB).
- * Warning: See TraceLineEx warning.
+ * Trace a box (AABB). The passed in table requires to have parameters and will be modified to contain new ones
+ *
+ * See [TraceHull](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/TraceHull) for more details
+ *
+ * **Warning**: Setting any input parameters which expect an instance to a primitive type will crash the server.
+ * # Input table
+ * ```sqDoc
+ * start: Vector
+ * end: Vector
+ * hullmin: Vector
+ * hullmax: Vector
+ * mask: integer
+ * ignore: CBaseEntity
+ * ```
+ * # Output table
+ * ```sqDoc
+ * pos: Vector
+ * fraction: float
+ * hit: bool
+ * enthit?: CBaseEntity
+ * startsolid?: bool
+ * allsolid?: bool
+ * startpos: Vector
+ * endpos: Vector
+ * plane_normal?: Vector
+ * plane_dist?: float
+ * surface_name?: string
+ * surface_flags?: integer
+ * surface_props?: integer
+ * ```
  * @param {table} params
- * @returns {bool}
+ * @returns {bool} `false` if the user didn't specify a valid `start`, `end`, `hullmin` or `hullmax`, `true` otherwise.
+ *                 You don't need to check this return usually.
  */
 function TraceHull(params);
 
@@ -5533,7 +5638,7 @@ function TraceHull(params);
 function UniqueString(suffix = "");
 
 /**
- * Internal function called by UniqueString
+ * Internal function called by `UniqueString`
  * @param {string|null} suffix
  * @returns {string}
  * @hide
@@ -5541,7 +5646,7 @@ function UniqueString(suffix = "");
 function DoUniqueString(suffix);
 
 /**
- * Wrapper that registers callbacks for OnGameEvent_x and OnScriptEvent_ functions.
+ * Wrapper that registers callbacks for `OnGameEvent_x` and `OnScriptEvent_` functions.
  * @param {table} scope
  */
 function __CollectGameEventCallbacks(scope);
@@ -5598,7 +5703,7 @@ function GameModeUsesUpgrades();
 
 /**
  * Get class limit for class.
- * @param {integer} class_number - See Constants.ETFClass
+ * @param {integer} class_number See [Constants.ETFClass](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFClass)
  * @returns {integer}
  */
 function GetClassLimit(class_number);
@@ -5620,13 +5725,13 @@ function GetOvertimeAllowedForCTF();
 
 /**
  * Get current round state.
- * @returns {integer} - See Constants.ERoundState
+ * @returns {integer} See [Constants.ERoundState](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ERoundState)
  */
 function GetRoundState();
 
 /**
  * Get the current stopwatch state.
- * @returns {integer} - See Constants.EStopwatchState
+ * @returns {integer} See [Constants.EStopwatchState](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#EStopwatchState)
  */
 function GetStopWatchState();
 
@@ -5678,14 +5783,14 @@ function IsDefaultGameMode();
 
 /**
  * Is the given holiday active?
- * @param {integer} holiday - See Constants.EHoliday
+ * @param {integer} holiday See [Constants.EHoliday](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#EHoliday)
  * @returns {bool}
  */
 function IsHolidayActive(holiday);
 
 /**
  * Playing a holiday map?
- * @param {integer} holiday - See Constants.EHoliday
+ * @param {integer} holiday See [Constants.EHoliday](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#EHoliday)
  * @returns {bool}
  */
 function IsHolidayMap(holiday);
@@ -5787,7 +5892,7 @@ function MapHasMatchSummaryStage();
 function MatchmakingShouldUseStopwatchMode();
 
 /**
- * @param {integer} team - See Constants.ETFTeam
+ * @param {integer} team See [Constants.ETFTeam](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#ETFTeam)
  * @returns {bool}
  */
 function PlayerReadyStatus_ArePlayersOnTeamReady(team);
@@ -5850,14 +5955,15 @@ function UsePlayerReadyStatusMode();
  * Print a client message. Pass null instead of a valid player to send to all clients.
  * When printing to chat (HUD_PRINTTALK), use \x07RRGGBB for custom colors.
  * @param {CTFPlayer|null} player
- * @param {integer} destination - See Constants.EHudNotify
+ * @param {integer} destination See [Constants.EHudNotify](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#EHudNotify)
  * @param {string} message
  */
 function ClientPrint(player, destination, message);
 
 /**
  * Draw a debug overlay box.
- * Warning: Requires developer cvar to be enabled.
+ *
+ * **Warning**: Requires developer cvar to be enabled.
  * @param {Vector} origin
  * @param {Vector} min
  * @param {Vector} max
