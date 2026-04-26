@@ -1149,7 +1149,8 @@ impl<'db> Resolver<'db> {
         operand: &TypeWithRange,
         metamethod: &str,
         arguments: &[TypeWithRange],
-        tolerance: TypeFlags,
+        // This is a bit misleading, it still errors on enums since they don't support any operations
+        should_error: bool,
         error_keyword: &str,
     ) -> Option<Type> {
         match &operand.kind {
@@ -1163,7 +1164,7 @@ impl<'db> Resolver<'db> {
                 operand.range,
                 metamethod,
                 arguments,
-                Some(error_keyword),
+                should_error.then_some(error_keyword),
             ),
             Type::Union(union) => {
                 for prim in union.primitives.iter() {
@@ -1177,7 +1178,7 @@ impl<'db> Resolver<'db> {
                         return Some(result);
                     }
                 }
-                if !union.flags.intersects(tolerance) {
+                if should_error && !union.flags.intersects(TypeFlags::UNKNOWN) {
                     self.no_support(
                         &self.type_to_str(&operand.kind),
                         error_keyword,
@@ -4101,9 +4102,7 @@ impl<'db> Resolver<'db> {
                 range: expr.syntax().text_range(),
             })];
 
-            if let Some(ret) =
-                self.call_metamethod(&left, "_cmp", &arguments, TypeFlags::UNKNOWN, "comparison")
-            {
+            if let Some(ret) = self.call_metamethod(&left, "_cmp", &arguments, true, "comparison") {
                 if ret.type_flags().intersects(TypeFlags::NUMBER) {
                     self.diagnostics.push(Diagnostic {
                         message: "'_cmp' must return an integer".to_owned(),
@@ -4367,13 +4366,7 @@ impl<'db> Resolver<'db> {
                 if typ.type_flags().intersects(TypeFlags::NUMBER) {
                     operand.kind
                 } else {
-                    self.call_metamethod(
-                        &operand,
-                        "_unm",
-                        &Vec::new(),
-                        TypeFlags::UNKNOWN,
-                        "negation",
-                    )?
+                    self.call_metamethod(&operand, "_unm", &Vec::new(), true, "negation")?
                 }
             }
         }))
@@ -4542,14 +4535,8 @@ impl<'db> Resolver<'db> {
         };
 
         ExpressionKind::Literal(
-            self.call_metamethod(
-                &operand,
-                "_typeof",
-                &Vec::new(),
-                TypeFlags::all(),
-                "'typeof' operator",
-            )
-            .unwrap_or(Type::STRING),
+            self.call_metamethod(&operand, "_typeof", &Vec::new(), false, "'typeof' operator")
+                .unwrap_or(Type::STRING),
         )
     }
 
