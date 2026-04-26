@@ -121,7 +121,7 @@ class string {
      * (e.g. -2 represents a second last character).
      * @param {integer} start_index
      * @param {integer} end_index
-     * @returns {integer}
+     * @returns {string}
      */
     function slice(start_index, end_index = -1);
 
