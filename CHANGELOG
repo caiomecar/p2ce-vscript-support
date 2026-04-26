@@ -1,5 +1,8 @@
 # Changelog
 
+## [3.0.5]
+- Fix array of tables not being parsed properly
+
 ## [3.0.4]
 - Ease out type prediction to prevent a lot of false positives errors
 
