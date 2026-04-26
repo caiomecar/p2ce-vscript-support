@@ -16,8 +16,13 @@ macro_rules! primitive_accessor {
         /// # Errors
         /// If the information couldn't be extracted
         pub fn $name(&self) -> Result<$ret, ToPrimitiveError> {
-            if !self.type_flags().intersects(TypeFlags::$flag) {
-                return Err(ToPrimitiveError::WrongType);
+            let flags = self.type_flags();
+            if flags.intersects(TypeFlags::$flag) {
+                return Err(if flags.intersects(TypeFlags::UNKNOWN) {
+                    ToPrimitiveError::NotSpecific
+                } else {
+                    ToPrimitiveError::WrongType
+                });
             }
 
             self.find(|p| if let $pattern = p { $value } else { None })

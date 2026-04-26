@@ -436,14 +436,14 @@ class function_ {
 
     /**
      * Clones the target function and binds it to a specified context object.
-     * @param {table|instance|null} environment
+     * @param {table|class|instance|null} environment
      * @returns {function}
      */
     function bindenv(environment);
 
     /**
      * Calls the function with a non-default context object.
-     * @param {table|instance|null} environment
+     * @param {table|class|instance|null} environment
      * @varargs {any}
      * @returns {any}
      */
@@ -472,7 +472,7 @@ class function_ {
 
     /**
      * Calls the function with a non-default context object, bypassing Squirrel error callbacks.
-     * @param {table|instance|null} environment
+     * @param {table|class|instance|null} environment
      * @varargs {any}
      * @returns {any}
      */

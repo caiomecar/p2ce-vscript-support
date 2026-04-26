@@ -5093,7 +5093,7 @@ function DoEntFire(target, action, value, delay, activator, caller);
 /**
  * Used internally by IncludeScript
  * @param {script} file
- * @param {table|null} scope
+ * @param {table|class|instance|null} scope
  * @returns {bool}
  * @hide
  */
@@ -5103,7 +5103,7 @@ function DoIncludeScript(file, scope);
  * Execute a script and put all its content for the argument passed to the scope parameter.
  * The file must have the .nut extension.
  * @param {script} file
- * @param {table|null} scope
+ * @param {table|class|instance|null} scope
  * @returns {bool}
  */
 function IncludeScript(file, scope = null);
