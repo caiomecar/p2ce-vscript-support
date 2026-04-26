@@ -2390,7 +2390,6 @@ impl<'db> Resolver<'db> {
     }
 
     fn for_each_statement(&mut self, stmt: &ForEachStatement) {
-        dbg!(stmt);
         let save_break_continue = (self.can_break, self.can_continue);
         self.can_break = true;
         self.can_continue = true;

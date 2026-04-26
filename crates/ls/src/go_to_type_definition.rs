@@ -16,7 +16,7 @@ pub fn handle_go_to_type_definition(
     let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position_params.position);
+    let offset = conversions::test_size(line_idx, params.text_document_position_params.position)?;
 
     let syntax = parse(db, file).syntax();
     let token = syntax.token_at_offset(offset).right_biased()?;
@@ -33,7 +33,7 @@ pub fn handle_go_to_type_definition(
     let line_idx = line_index(db, file);
     let name_range = finished_file.get(type_id).name_range;
 
-    let range = conversions::range(line_idx, name_range);
+    let range = conversions::range(line_idx, name_range)?;
 
     let Some(path) = db.get_path(type_id.file()) else {
         eprintln!("Couldn't get uri when processing '{uri}'");
@@ -42,6 +42,6 @@ pub fn handle_go_to_type_definition(
 
     Some(GotoTypeDefinitionResponse::Scalar(Location {
         range,
-        uri: conversions::to_uri(&path),
+        uri: conversions::to_uri(&path)?,
     }))
 }

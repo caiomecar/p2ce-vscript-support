@@ -17,7 +17,7 @@ pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<
     let line_idx = line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
 
-    let range = conversions::text_range(line_idx, params.range);
+    let range = conversions::text_range(line_idx, params.range)?;
 
     let hints = finished_file
         .all_symbols()
@@ -54,7 +54,7 @@ pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<
                 None
             };
 
-            let position = conversions::range(line_idx, symbol.name_range).end;
+            let position = conversions::range(line_idx, symbol.name_range)?.end;
 
             Some(InlayHint {
                 position,

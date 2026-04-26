@@ -223,7 +223,9 @@ fn handle_notification(
             let line_index = line_index(db, file);
             for change in p.content_changes {
                 let range = change.range.expect("Incremental changes always have range");
-                let text_range = conversions::text_range(line_index, range);
+                let Some(text_range) = conversions::text_range(line_index, range) else {
+                    continue;
+                };
                 text.replace_range(std::ops::Range::<usize>::from(text_range), &change.text);
             }
             file.set_text(db).to(text);
@@ -310,12 +312,14 @@ fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<(
     let diagnostics = parse
         .errors()
         .iter()
-        .map(|error| Diagnostic {
-            message: error.message().to_owned(),
-            range: conversions::range(line_idx, error.range()),
-            ..Default::default()
+        .filter_map(|error| {
+            Some(Diagnostic {
+                message: error.message().to_owned(),
+                range: conversions::range(line_idx, error.range())?,
+                ..Default::default()
+            })
         })
-        .chain(finished_file.diagnostics().iter().map(|diagnostic| {
+        .chain(finished_file.diagnostics().iter().filter_map(|diagnostic| {
             let (severity, tags) = match diagnostic.severity {
                 resolver::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
                 resolver::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
@@ -331,22 +335,22 @@ fn publish_diagnostics(db: &Database, conn: &Connection, file: File) -> Result<(
                     Some(vec![DiagnosticTag::DEPRECATED]),
                 ),
             };
-            Diagnostic {
+            Some(Diagnostic {
                 message: diagnostic.message.clone(),
-                range: conversions::range(line_idx, diagnostic.range),
+                range: conversions::range(line_idx, diagnostic.range)?,
                 severity: Some(severity),
                 tags,
                 ..Default::default()
-            }
+            })
         }))
         .collect();
 
-    let Some(path) = db.get_path(file) else {
+    let Some(uri) = db.get_path(file).and_then(|p| conversions::to_uri(&p)) else {
         return Ok(());
     };
 
     let params = PublishDiagnosticsParams {
-        uri: conversions::to_uri(&path),
+        uri,
         diagnostics,
         version: None,
     };

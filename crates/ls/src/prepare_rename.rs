@@ -13,7 +13,7 @@ pub fn handle_prepare_rename(
     let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.position);
+    let offset = conversions::test_size(line_idx, params.position)?;
 
     let syntax = parse(db, file).syntax();
     let token = syntax.token_at_offset(offset).right_biased()?;
@@ -25,5 +25,5 @@ pub fn handle_prepare_rename(
 
     Some(PrepareRenameResponse::Range(conversions::range(
         line_idx, range,
-    )))
+    )?))
 }

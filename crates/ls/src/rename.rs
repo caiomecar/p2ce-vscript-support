@@ -14,7 +14,7 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Option<WorkspaceEdi
     let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position.position);
+    let offset = conversions::test_size(line_idx, params.text_document_position.position)?;
 
     let syntax = parse(db, file).syntax();
     let token = syntax.token_at_offset(offset).right_biased()?;
@@ -35,9 +35,13 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Option<WorkspaceEdi
 
     if matches!(finished_file.get(symbol_id).kind, SymbolKind::Local(_)) {
         if let Some(ranges) = finished_file.symbol_to_ranges().get(&symbol_id) {
-            for range in ranges {
+            for text_range in ranges {
+                let Some(range) = conversions::range(line_idx, *text_range) else {
+                    continue;
+                };
+
                 changes.entry(uri.clone()).or_default().push(TextEdit {
-                    range: conversions::range(line_idx, *range),
+                    range,
                     new_text: new_name.clone(),
                 });
             }
@@ -62,11 +66,17 @@ pub fn handle_rename(db: &Database, params: RenameParams) -> Option<WorkspaceEdi
         };
 
         let candidate_line_idx = line_index(db, candidate_file);
-        let uri = conversions::to_uri(&candidate_path);
+        let Some(uri) = conversions::to_uri(&candidate_path) else {
+            continue;
+        };
 
-        for range in ranges {
+        for text_range in ranges {
+            let Some(range) = conversions::range(candidate_line_idx, *text_range) else {
+                continue;
+            };
+
             changes.entry(uri.clone()).or_default().push(TextEdit {
-                range: conversions::range(candidate_line_idx, *range),
+                range,
                 new_text: new_name.clone(),
             });
         }

@@ -16,7 +16,7 @@ pub fn handle_signature_help(db: &Database, params: SignatureHelpParams) -> Opti
     let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position_params.position);
+    let offset = conversions::test_size(line_idx, params.text_document_position_params.position)?;
 
     let syntax = parse(db, file).syntax();
     let node = syntax

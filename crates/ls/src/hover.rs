@@ -11,7 +11,7 @@ pub fn handle_hover(db: &Database, params: HoverParams) -> Option<Hover> {
     let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position_params.position);
+    let offset = conversions::test_size(line_idx, params.text_document_position_params.position)?;
 
     let syntax = parse(db, file).syntax();
     let token = syntax.token_at_offset(offset).right_biased()?;
@@ -32,6 +32,6 @@ pub fn handle_hover(db: &Database, params: HoverParams) -> Option<Hover> {
             kind: MarkupKind::Markdown,
             value: content,
         }),
-        range: Some(conversions::range(line_idx, range)),
+        range: conversions::range(line_idx, range),
     })
 }

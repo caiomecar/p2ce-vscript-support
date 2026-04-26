@@ -41,8 +41,14 @@ pub fn handle_document_symbols(
             return;
         }
 
-        let range = conversions::range(line_idx, symbol.range);
-        let name_range = conversions::range(line_idx, symbol.name_range);
+        let Some(range) = conversions::range(line_idx, symbol.range) else {
+            return;
+        };
+
+        let Some(name_range) = conversions::range(line_idx, symbol.name_range) else {
+            return;
+        };
+
         let kind = match symbol.typ {
             Type::Enum(_) => LspSymbolKind::ENUM,
             Type::Primitive(Primitive::Function(_)) => LspSymbolKind::FUNCTION,
@@ -66,6 +72,7 @@ pub fn handle_document_symbols(
             dbg!(symbol);
             dbg!(range);
             dbg!(name_range);
+            return;
         }
 
         #[allow(deprecated)]

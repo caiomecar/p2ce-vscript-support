@@ -10,7 +10,7 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
     let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position.position);
+    let offset = conversions::test_size(line_idx, params.text_document_position.position)?;
 
     let syntax = parse(db, file).syntax();
     let token = syntax.token_at_offset(offset).right_biased()?;
@@ -28,13 +28,17 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
     let mut all_locations = Vec::new();
 
     if let Some(ranges) = reference_file.symbol_to_ranges().get(&reference_id) {
-        for range in ranges {
-            if *range == name_range {
+        for text_range in ranges {
+            if *text_range == name_range {
                 continue;
             }
 
+            let Some(range) = conversions::range(line_idx, *text_range) else {
+                continue;
+            };
+
             all_locations.push(Location {
-                range: conversions::range(line_idx, *range),
+                range,
                 uri: uri.clone(),
             });
         }
@@ -49,6 +53,10 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
             continue;
         }
 
+        let Some(uri) = conversions::to_uri(&candidate_path) else {
+            continue;
+        };
+
         let text = candidate_file.text(db);
         if !text.contains(name) {
             continue;
@@ -61,11 +69,14 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
         };
 
         let line_idx = line_index(db, candidate_file);
-        let uri = conversions::to_uri(&candidate_path);
 
-        for range in ranges {
+        for text_range in ranges {
+            let Some(range) = conversions::range(line_idx, *text_range) else {
+                continue;
+            };
+
             all_locations.push(Location {
-                range: conversions::range(line_idx, *range),
+                range,
                 uri: uri.clone(),
             });
         }

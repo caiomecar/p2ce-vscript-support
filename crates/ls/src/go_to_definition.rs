@@ -19,7 +19,7 @@ pub fn handle_go_to_definition(
     let file = db.get_file(&path)?;
 
     let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position_params.position);
+    let offset = conversions::test_size(line_idx, params.text_document_position_params.position)?;
 
     let syntax = parse(db, file).syntax();
     let token = syntax.token_at_offset(offset).right_biased()?;
@@ -34,10 +34,10 @@ pub fn handle_go_to_definition(
     {
         let path = PathBuf::from(finished_file.get(*literal).text.to_string());
         if let Ok(script) = finished_file.db().get_script(path) {
-            let path = db.get_path(script).expect("We got this file from db");
+            let path = db.get_path(script)?;
             return Some(GotoDefinitionResponse::Scalar(Location {
                 range: Range::default(),
-                uri: conversions::to_uri(&path),
+                uri: conversions::to_uri(&path)?,
             }));
         }
     }
@@ -53,15 +53,12 @@ pub fn handle_go_to_definition(
         return None;
     }
 
-    let range = conversions::range(line_idx, symbol.name_range);
+    let range = conversions::range(line_idx, symbol.name_range)?;
 
-    let Some(path) = db.get_path(id.file()) else {
-        eprintln!("Couldn't get uri when processing '{uri}'");
-        return None;
-    };
+    let path = db.get_path(id.file())?;
 
     Some(GotoDefinitionResponse::Scalar(Location {
         range,
-        uri: conversions::to_uri(&path),
+        uri: conversions::to_uri(&path)?,
     }))
 }

@@ -112,7 +112,11 @@ pub fn handle_completions(db: &Database, params: CompletionParams) -> Completion
 
     let line_idx = line_index(db, file);
 
-    let offset = conversions::test_size(line_idx, params.text_document_position.position);
+    let Some(offset) = conversions::test_size(line_idx, params.text_document_position.position)
+    else {
+        return CompletionResponse::Array(Vec::new());
+    };
+
     let syntax = parse(db, file).syntax();
 
     let finished_file = FinishedFile::new(db, file);
@@ -875,7 +879,7 @@ fn completions_from_object(
             true,
         )
         .into_iter()
-        .map(|(name, id)| {
+        .filter_map(|(name, id)| {
             let mut label = name.into_string();
             let symbol = finished_file.get(id);
             let kind = Some(to_completion_kind(symbol));
@@ -885,7 +889,7 @@ fn completions_from_object(
                     modify_if_function(finished_file, symbol, &mut label, &mut insert_text)
                         .map_or((None, None), |(a, b)| (Some(a), Some(b)));
 
-                return CompletionItem {
+                return Some(CompletionItem {
                     label,
                     kind,
                     insert_text,
@@ -893,12 +897,12 @@ fn completions_from_object(
                     insert_text_format,
                     tags: symbol_tags(symbol),
                     ..Default::default()
-                };
+                });
             }
 
             let mut insert_text = Some(format!("[\"{label}\"]"));
             let additional_text_edits = Some(vec![TextEdit {
-                range: conversions::range(line_idx, prefix_range),
+                range: conversions::range(line_idx, prefix_range)?,
                 new_text: String::new(),
             }]);
 
@@ -906,7 +910,7 @@ fn completions_from_object(
                 modify_if_function(finished_file, symbol, &mut label, &mut insert_text)
                     .map_or((None, None), |(a, b)| (Some(a), Some(b)));
 
-            CompletionItem {
+            Some(CompletionItem {
                 label,
                 kind,
                 insert_text,
@@ -915,7 +919,7 @@ fn completions_from_object(
                 additional_text_edits,
                 tags: symbol_tags(symbol),
                 ..Default::default()
-            }
+            })
         })
         .collect()
 }
@@ -976,7 +980,7 @@ fn completions_from_object_as_string(
             true,
         )
         .into_iter()
-        .map(|(name, id)| {
+        .filter_map(|(name, id)| {
             let mut label = name.into_string();
             let symbol = finished_file.get(id);
             let kind = Some(to_completion_kind(symbol));
@@ -987,11 +991,11 @@ fn completions_from_object_as_string(
                     .map_or((None, None), |(a, b)| (Some(a), Some(b)));
 
             let text_edit = Some(CompletionTextEdit::Edit(TextEdit {
-                range: conversions::range(line_idx, replace_range),
+                range: conversions::range(line_idx, replace_range)?,
                 new_text: insert_text.expect("modify_if_function cannot convert Some to None"),
             }));
 
-            CompletionItem {
+            Some(CompletionItem {
                 label,
                 kind,
                 text_edit,
@@ -999,7 +1003,7 @@ fn completions_from_object_as_string(
                 insert_text_format,
                 tags: symbol_tags(symbol),
                 ..Default::default()
-            }
+            })
         })
         .collect()
 }
@@ -1010,7 +1014,9 @@ fn completions_inside_string(
     kind: StringKind,
     replace_range: TextRange,
 ) -> Vec<CompletionItem> {
-    let range = conversions::range(line_idx, replace_range);
+    let Some(range) = conversions::range(line_idx, replace_range) else {
+        return Vec::new();
+    };
 
     match kind {
         StringKind::Script => finished_file
@@ -1097,14 +1103,14 @@ fn completion_doc_tag(
         "@const",
         "@input",
     ];
-    let range = replace_range.map(|r| conversions::range(line_idx, r));
+    let range = replace_range.and_then(|r| conversions::range(line_idx, r));
     tags.into_iter()
         .map(|name| CompletionItem {
             label: name.to_owned(),
             kind: Some(CompletionItemKind::KEYWORD),
-            text_edit: range.map(|r| {
+            text_edit: range.map(|range| {
                 CompletionTextEdit::Edit(TextEdit {
-                    range: r,
+                    range,
                     new_text: name.to_owned(),
                 })
             }),
@@ -1285,10 +1291,12 @@ fn completion_doc_auto_generated(
         }
     };
 
-    let additional_text_edits = Some(vec![TextEdit {
-        range: conversions::range(line_idx, replace_range),
-        new_text: String::new(),
-    }]);
+    let additional_text_edits = conversions::range(line_idx, replace_range).map(|range| {
+        vec![TextEdit {
+            range,
+            new_text: String::new(),
+        }]
+    });
 
     vec![CompletionItem {
         label: "Autogenerated Doc Comment ...".to_owned(),

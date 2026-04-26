@@ -100,7 +100,9 @@ pub fn handle_semantic_tokens(
             }
         };
 
-        let lsp_range = conversions::range(line_idx, range);
+        let Some(lsp_range) = conversions::range(line_idx, range) else {
+            continue;
+        };
 
         let line = lsp_range.start.line;
         let start = lsp_range.start.character;
