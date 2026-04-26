@@ -3,11 +3,6 @@ use std::path::Path;
 use line_index::{LineIndex, TextRange, TextSize, WideEncoding, WideLineCol};
 use lsp_types::{Position, Range, Url};
 
-/// # Panics
-///
-/// Panics if the position is outside the bounds of the file.
-/// Shouldn't panic for positions coming from LSP if `line_idx`
-/// is in sync
 pub fn test_size(line_idx: &LineIndex, position: Position) -> Option<TextSize> {
     let wide = WideLineCol {
         line: position.line,
