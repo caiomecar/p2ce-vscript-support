@@ -16,17 +16,18 @@ use std::time::Instant;
 
 use anyhow::Result;
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
-use lsp_types::notification::Notification as _; // for METHOD consts
+use lsp_types::notification::{DidChangeConfiguration, Notification}; // for METHOD consts
 use lsp_types::request::{
     DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition, HoverRequest, InlayHintRequest,
     PrepareRenameRequest, References, Rename, Request, SemanticTokensFullRequest,
     SignatureHelpRequest,
 };
 use lsp_types::{
-    CompletionOptions, DiagnosticSeverity, DiagnosticTag, HoverProviderCapability, OneOf,
-    RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
-    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
-    SignatureHelpOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions,
+    CompletionOptions, DiagnosticSeverity, DiagnosticTag, DidChangeConfigurationParams,
+    HoverProviderCapability, OneOf, RenameOptions, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensServerCapabilities, SignatureHelpOptions, TypeDefinitionProviderCapability,
+    WorkDoneProgressOptions,
 };
 use resolver::{Database, DbConfig, File, FinishedFile, Source, line_index, parse};
 // for METHOD consts
@@ -231,6 +232,27 @@ fn handle_notification(
             file.set_text(db).to(text);
 
             publish_diagnostics(db, conn, file)?;
+        }
+        DidChangeConfiguration::METHOD => {
+            let p: DidChangeConfigurationParams = serde_json::from_value(note.params)?;
+            let settings = p.settings;
+
+            let tf2_root_path = settings
+                .get("tf2Root")
+                .and_then(|v| v.as_str())
+                .and_then(|v| {
+                    if v.is_empty() {
+                        None
+                    } else {
+                        Some(PathBuf::from(v))
+                    }
+                });
+
+            db.update_tf2_root(tf2_root_path);
+
+            for (file, _) in &db.all_files() {
+                publish_diagnostics(db, conn, *file)?;
+            }
         }
         _ => {}
     }

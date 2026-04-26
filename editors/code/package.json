@@ -75,11 +75,18 @@
         "path": "./syntaxes/sqDoc.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "tf2vscript.selectTF2Root",
+        "title": "Select TF2 Root Directory",
+        "category": "TF2 VScript"
+      }
+    ],
     "configuration": [
       {
         "title": "TF2 VScript",
         "properties": {
-          "TF2Vscript.TF2Root": {
+          "tf2vscript.tf2Root": {
             "type": "string",
             "default": "",
             "description": "Path to your Team Fortress 2 installation directory."

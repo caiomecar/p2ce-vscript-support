@@ -184,6 +184,11 @@ impl Database {
         this
     }
 
+    pub fn update_tf2_root(&mut self, path: Option<PathBuf>) {
+        self.tf2_root = path;
+        self.load_all_scripts();
+    }
+
     pub fn open_file(&self, path: &Path) -> Option<File> {
         let path = path.canonicalize().ok()?;
 
