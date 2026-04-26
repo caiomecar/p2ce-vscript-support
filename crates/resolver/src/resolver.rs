@@ -458,7 +458,7 @@ impl<'db> Resolver<'db> {
                     });
                     None
                 }
-                Err(ToPrimitiveError::NotSpecific) => None,
+                Err(ToPrimitiveError::WrongTypeWithUnknown | ToPrimitiveError::NotSpecific) => None,
             }
         } else {
             None
@@ -3339,9 +3339,48 @@ impl<'db> Resolver<'db> {
                 result
             }
             typ => {
-                let index = typ.type_flags();
-                if index.intersects(TypeFlags::STRING) {
+                let index_flags = typ.type_flags();
+                if index_flags.intersects(TypeFlags::STRING) {
                     return None;
+                }
+
+                match from.to_array() {
+                    Ok(id) => {
+                        if index_flags.intersects(TypeFlags::NUMBER) {
+                            return Some(ExpressionKind::Literal(self.get(id).typ.clone()));
+                        }
+                    }
+                    Err(ToPrimitiveError::WrongTypeWithUnknown) => {
+                        return None;
+                    }
+                    Err(ToPrimitiveError::NotSpecific) => {
+                        if index_flags.intersects(TypeFlags::NUMBER) {
+                            return None;
+                        }
+                    }
+                    Err(ToPrimitiveError::WrongType) => {
+                        if from.type_flags().intersects(TypeFlags::STRING)
+                            && index_flags.intersects(TypeFlags::NUMBER)
+                        {
+                            return Some(ExpressionKind::Literal(Type::INTEGER));
+                        }
+
+                        if from.type_flags().intersects(TypeFlags::HAS_MEMBERS_OR_ANY) {
+                            return None;
+                        }
+                    }
+                }
+
+                if !index_flags.intersects(TypeFlags::UNKNOWN) {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!(
+                            "Trying to index into '{}' using '{}'",
+                            self.type_to_str(&from),
+                            self.type_to_str(&typ)
+                        ),
+                        range: index.syntax().text_range(),
+                        severity: DiagnosticSeverity::Error,
+                    });
                 }
 
                 None
@@ -3993,10 +4032,7 @@ impl<'db> Resolver<'db> {
 
         if flags.intersects(TypeFlags::ARRAY_OR_STRING) {
             if let Some(with) = left
-                && !with
-                    .kind
-                    .type_flags()
-                    .intersects(TypeFlags::NUMBER | TypeFlags::UNKNOWN)
+                && !with.kind.type_flags().intersects(TypeFlags::NUMBER_OR_ANY)
             {
                 self.diagnostics.push(Diagnostic {
                     message: format!(
@@ -4296,8 +4332,31 @@ impl<'db> Resolver<'db> {
                 name,
                 expr_range,
             }) => {
+                let flags = parent.type_flags();
+                let name_flags = name.kind.type_flags();
+                if !name_flags.intersects(TypeFlags::NUMBER)
+                    || !flags.intersects(TypeFlags::ARRAY_OR_STRING)
+                {
+                    if !flags.intersects(TypeFlags::HAS_MEMBERS_OR_ANY)
+                        && !name_flags.intersects(TypeFlags::UNKNOWN)
+                    {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!(
+                                "Trying to index into '{}' using '{}'",
+                                self.type_to_str(&parent),
+                                self.type_to_str(&name.kind)
+                            ),
+                            range: expr_range,
+                            severity: DiagnosticSeverity::Error,
+                        });
+                    }
+                    return None;
+                }
+
+                let array = parent.to_array().ok()?;
+
                 let operand = TypeWithRange {
-                    kind: parent.clone(),
+                    kind: self.get(array).typ.clone(),
                     range: expr_range,
                 };
                 let typ = self.arithmetic(&operand, &right, operator)?;
@@ -4308,7 +4367,7 @@ impl<'db> Resolver<'db> {
                 };
 
                 let (operand, arguments) =
-                    to_operand_and_arguments(parent, expr_range, name.range, type_with_range);
+                    to_operand_and_arguments(name.kind, expr_range, name.range, type_with_range);
                 self.set(&operand, &arguments);
                 Some(typ)
             }
@@ -4551,7 +4610,7 @@ impl<'db> Resolver<'db> {
                 });
                 None
             }
-            Err(ToPrimitiveError::NotSpecific) => None,
+            Err(ToPrimitiveError::WrongTypeWithUnknown | ToPrimitiveError::NotSpecific) => None,
         }
     }
 

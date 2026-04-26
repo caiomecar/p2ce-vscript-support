@@ -19,7 +19,7 @@ macro_rules! primitive_accessor {
             let flags = self.type_flags();
             if !flags.intersects(TypeFlags::$flag) {
                 return Err(if flags.intersects(TypeFlags::UNKNOWN) {
-                    ToPrimitiveError::NotSpecific
+                    ToPrimitiveError::WrongTypeWithUnknown
                 } else {
                     ToPrimitiveError::WrongType
                 });
@@ -117,6 +117,7 @@ impl Default for Type {
 
 pub enum ToPrimitiveError {
     WrongType,
+    WrongTypeWithUnknown,
     NotSpecific,
 }
 
@@ -191,6 +192,13 @@ impl Type {
         INSTANCE,
         ClassId,
         Primitive::Instance(id) => id
+    );
+
+    primitive_accessor!(
+        to_array,
+        ARRAY,
+        ArrayId,
+        Primitive::Array(id) => id
     );
 
     primitive_accessor!(
