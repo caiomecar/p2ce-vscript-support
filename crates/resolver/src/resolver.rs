@@ -14,7 +14,7 @@ use sq_3_parser::{
         LiteralExpressionKind, LocalFunctionDeclaration, LocalVariableDeclaration, Member,
         MemberAccessExpression, MemberName, Name, Parameter, ParenthesisedExpression,
         PostfixUpdateExpression, PostfixUpdateOperator, PrefixUnaryExpression, PrefixUnaryOperator,
-        PrefixUpdateExpression, PrefixUpdateOperator, Property, RawCallExpression,
+        PrefixUpdateExpression, PrefixUpdateOperator, Property, QualifiedName, RawCallExpression,
         ResumeExpression, ReturnStatement, RootAccessExpression, SourceFile, Stmt, StringNameKind,
         SwitchClause, SwitchStatement, TableLiteralExpression, Tag, ThisExpression, ThrowStatement,
         TryStatement, TypeOfExpression, VariableDeclaration, WhileStatement, YieldStatement,
@@ -2525,43 +2525,17 @@ impl<'db> Resolver<'db> {
         self.container = save_symbol;
     }
 
-    fn function_statement(&mut self, stmt: &FunctionStatement) {
-        let id = self.collect_function(stmt);
-
-        let Some(qualified_name) = stmt.name() else {
-            return;
-        };
-
-        let mut parts = qualified_name.parts();
-
-        let Some(first) = parts.next().and_then(|p| get_name(&p)) else {
-            let Some(name) = get_name(&qualified_name) else {
-                return;
-            };
-
-            // Plain `function abc()`: declare in current container
-            let symbol = self.symbol(Symbol {
-                name: name.text().into(),
-                typ: Type::Primitive(Primitive::Function(Some(id))),
-                type_state: TypeState::Inferred,
-                name_range: name.text_range(),
-                range: stmt.syntax().text_range(),
-                ..Default::default()
-            });
-
-            if let Some(function) = self.get_mut(id) {
-                function.symbol = Some(symbol);
-            }
-
-            self.resolve_variable_doc(symbol, stmt);
-
-            self.add_current_container_member(name.text().into(), symbol);
-            return;
-        };
+    fn function_statement_container(
+        &mut self,
+        id: FunctionId,
+        name: &QualifiedName,
+    ) -> Option<Container> {
+        let mut parts = name.parts();
+        let first = get_name(&parts.next()?)?;
 
         let text = first.text();
 
-        let offset = qualified_name.syntax().text_range().end();
+        let offset = name.syntax().text_range().end();
 
         let members = self
             .members_of_container(
@@ -2608,7 +2582,7 @@ impl<'db> Resolver<'db> {
                     severity: DiagnosticSeverity::Information,
                 });
             }
-            return;
+            return None;
         };
 
         let mut typ = TypeWithRange {
@@ -2630,14 +2604,12 @@ impl<'db> Resolver<'db> {
             ];
 
             let NewSlotResult::CanAdd(container) = self.new_slot(&typ, &arguments) else {
-                return;
+                return None;
             };
 
-            let Some(name_token) = get_name(&segment) else {
-                return;
-            };
+            let name_token = get_name(&segment)?;
 
-            let Some(id) = self
+            let id = self
                 .members_of_container(
                     container,
                     FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
@@ -2650,10 +2622,7 @@ impl<'db> Resolver<'db> {
                     } else {
                         None
                     }
-                })
-            else {
-                return;
-            };
+                })?;
 
             let range = name_token.text_range();
             typ = TypeWithRange {
@@ -2663,9 +2632,7 @@ impl<'db> Resolver<'db> {
             self.new_reference(range, id);
         }
 
-        let Some(final_name) = get_name(&qualified_name) else {
-            return;
-        };
+        let final_name = get_name(name)?;
 
         let arguments = [
             TypeWithRange {
@@ -2678,7 +2645,22 @@ impl<'db> Resolver<'db> {
             },
         ];
 
-        let NewSlotResult::CanAdd(container) = self.new_slot(&typ, &arguments) else {
+        if let NewSlotResult::CanAdd(container) = self.new_slot(&typ, &arguments) {
+            Some(container)
+        } else {
+            None
+        }
+    }
+
+    fn function_statement(&mut self, stmt: &FunctionStatement) {
+        let id = self.collect_function(stmt);
+
+        let Some(qualified_name) = stmt.name() else {
+            return;
+        };
+
+        let container = self.function_statement_container(id, &qualified_name);
+        let Some(final_name) = get_name(&qualified_name) else {
             return;
         };
 
@@ -2691,14 +2673,20 @@ impl<'db> Resolver<'db> {
             ..Default::default()
         });
 
-        if let Some(function) = self.get_mut(id) {
-            function.symbol = Some(symbol);
-            function.container = container;
-        }
-
         self.resolve_variable_doc(symbol, stmt);
 
-        self.add_container_member(container, final_name.text().into(), symbol);
+        if let Some(container) = container {
+            if let Some(function) = self.get_mut(id) {
+                function.symbol = Some(symbol);
+                function.container = container;
+            }
+            self.add_container_member(container, final_name.text().into(), symbol);
+        } else {
+            if let Some(function) = self.get_mut(id) {
+                function.symbol = Some(symbol);
+            }
+            self.add_current_container_member(final_name.text().into(), symbol);
+        }
     }
 
     fn enum_statement(&mut self, stmt: &EnumStatement) {
