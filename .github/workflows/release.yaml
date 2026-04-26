@@ -1,12 +1,10 @@
 name: build-extension
-
 on:
   push:
 
 env:
   CARGO_INCREMENTAL: 0
   FETCH_DEPTH: 0
-
 jobs:
   build:
     strategy:
@@ -15,78 +13,77 @@ jobs:
           - os: ubuntu-latest
             rust-target: x86_64-unknown-linux-gnu
             code-target: linux-x64
-
           - os: windows-latest
             rust-target: x86_64-pc-windows-msvc
             code-target: win32-x64
-
           - os: macos-latest
             rust-target: x86_64-apple-darwin
             code-target: darwin-x64
-
           - os: macos-latest
             rust-target: aarch64-apple-darwin
             code-target: darwin-arm64
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v6.0.2
         with:
           fetch-depth: ${{ env.FETCH_DEPTH }}
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           target: ${{ matrix.rust-target }}
-
       - name: Build Server
         run: cargo build --release --target ${{ matrix.rust-target }}
-
       - name: Move Server
         shell: bash
         run: |
           mkdir -p editors/code/server
           BIN=tf2-vscript-ls
-
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             BIN="$BIN.exe"
           fi
-
           cp target/${{ matrix.rust-target }}/release/$BIN editors/code/server/
-
       - name: Move Standard Library
         shell: bash
         run: cp -r ./vscript_lib ./editors/code/vscript_lib
-
       - uses: actions/setup-node@v6.3.0
         with:
           node-version: 22
-
       - name: Install Dependencies
         run: npm ci
         working-directory: editors/code
-
       - name: Build Extension
         run: npm run build-release
         working-directory: editors/code
-
       - name: Package VS Code Extension
         run: npx vsce package --target ${{ matrix.code-target }}
         working-directory: editors/code
-
       - name: Upload VSIX
         uses: actions/upload-artifact@v7.0.0
         with:
           name: tf2-vscript-support-${{ matrix.code-target }}
           path: editors/code/*.vsix
 
-      # - name: Publish to VS Code Marketplace
-      #   run: npx vsce publish -p ${{ secrets.MARKETPLACE_TOKEN }} --packagePath *.vsix
-      #   working-directory: editors/code
-
-      # - name: Publish to Open VSX
-      #   run: npx ovsx publish *.vsix -p ${{ secrets.OPENVSX_TOKEN }}
-      #   working-directory: editors/code
-
-
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')  # only runs on v* tags
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download All VSIXs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tf2-vscript-support-*
+          merge-multiple: true
+          path: vsix
+      - name: Publish to VS Code Marketplace
+        run: |
+          for vsix in vsix/*.vsix; do
+            npx vsce publish -p ${{ secrets.MARKETPLACE_TOKEN }} --packagePath "$vsix"
+          done
+      - name: Publish to Open VSX
+        run: |
+          for vsix in vsix/*.vsix; do
+            npx ovsx publish "$vsix" -p ${{ secrets.OPENVSX_TOKEN }}
+          done
