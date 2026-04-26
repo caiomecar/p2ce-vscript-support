@@ -98,7 +98,6 @@ export function activate(context: vscode.ExtensionContext) {
 
     client.start();
 
-    // Register the command
     context.subscriptions.push(
         vscode.commands.registerCommand('tf2vscript.selectTF2Root', selectTF2Root)
     );
