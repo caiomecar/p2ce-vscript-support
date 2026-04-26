@@ -48,10 +48,9 @@ macro_rules! dispatch_union {
             }
             Type::Primitive(prim) => $self.$single_method( *prim, $operand.range, $($extra,)* true),
             Type::Union(union) =>  {
-                let primitives = union.primitives.clone();
-                for prim in primitives {
+                for prim in union.primitives.iter() {
                     if let Some(result) = $self.$single_method(
-                        prim,
+                        *prim,
                         $operand.range,
                         $($extra,)*
                         false,
@@ -1120,10 +1119,9 @@ impl<'db> Resolver<'db> {
                 Some(error_keyword),
             ),
             Type::Union(union) => {
-                let primitives = union.primitives.clone();
-                for prim in primitives {
+                for prim in union.primitives.iter() {
                     if let Some(result) = self.call_metamethod_primitive(
-                        prim,
+                        *prim,
                         operand.range,
                         metamethod,
                         arguments,
@@ -1195,10 +1193,9 @@ impl<'db> Resolver<'db> {
             }
             Type::Primitive(prim) => self.new_slot_primitive(*prim, operand.range, arguments, true),
             Type::Union(union) => {
-                let types = union.primitives.clone();
                 let mut allowed = false;
-                for prim in types {
-                    match self.new_slot_primitive(prim, operand.range, arguments, false) {
+                for prim in union.primitives.iter() {
+                    match self.new_slot_primitive(*prim, operand.range, arguments, false) {
                         NewSlotResult::Allowed => allowed = true,
                         NewSlotResult::CanAdd(id) => return NewSlotResult::CanAdd(id),
                         NewSlotResult::NotAllowed => {}

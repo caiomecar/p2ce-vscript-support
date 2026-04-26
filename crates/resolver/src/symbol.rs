@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rustc_hash::FxHashMap;
 use sq_3_parser::TextRange;
 use string_literals::StringLiteralValues;
@@ -14,7 +16,7 @@ macro_rules! primitive_accessor {
         /// # Errors
         /// If the information couldn't be extracted
         pub fn $name(&self) -> Result<$ret, ToPrimitiveError> {
-            if !self.type_flags().contains(TypeFlags::$flag) {
+            if !self.type_flags().intersects(TypeFlags::$flag) {
                 return Err(ToPrimitiveError::WrongType);
             }
 
@@ -51,7 +53,7 @@ impl Symbol {
     pub const fn is_modifiable(&self) -> bool {
         match self.kind {
             SymbolKind::Local(_) | SymbolKind::Property(_) => {
-                !self.flags.contains(SymbolFlags::CONST)
+                !self.flags.intersects(SymbolFlags::CONST)
             }
             _ => false,
         }
@@ -268,7 +270,7 @@ impl Primitive {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Union {
     pub flags: TypeFlags,
-    pub primitives: Vec<Primitive>,
+    pub primitives: Arc<[Primitive]>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -406,7 +408,7 @@ pub fn merge_types(left: &Type, right: &Type) -> Type {
             let mut primitives = Vec::new();
             let mut right_used = vec![false; right.primitives.len()];
 
-            for left in &left.primitives {
+            for left in left.primitives.iter() {
                 let mut merged = false;
 
                 for (i, right) in right.primitives.iter().enumerate() {
@@ -435,7 +437,7 @@ pub fn merge_types(left: &Type, right: &Type) -> Type {
             }
 
             Type::Union(Union {
-                primitives,
+                primitives: primitives.into(),
                 flags: left.flags | right.flags,
             })
         }
@@ -456,18 +458,24 @@ pub fn merge_types(left: &Type, right: &Type) -> Type {
                 // After we've successfully merged the required type just extend the list
                 // with the remaining types from the iterator
                 primitives.extend(iter);
-                return Type::Union(Union { flags, primitives });
+                return Type::Union(Union {
+                    flags,
+                    primitives: primitives.into(),
+                });
             }
             // No merge was successful -> just add a new type to the end of the list
             primitives.push(*other);
-            Type::Union(Union { flags, primitives })
+            Type::Union(Union {
+                flags,
+                primitives: primitives.into(),
+            })
         }
         (Type::Primitive(left), Type::Primitive(right)) => {
             if let Some(typ) = merge_primitives(*left, *right) {
                 return Type::Primitive(typ);
             }
 
-            let primitives = vec![*left, *right];
+            let primitives = Arc::new([*left, *right]);
             let flags = left.type_flags() | right.type_flags();
 
             Type::Union(Union { flags, primitives })
