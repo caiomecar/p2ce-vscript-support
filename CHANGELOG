@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.0.6]
+- Fix invalid handling of new class properties, add @static tag
+- Stop producing most of the errors when type is not explicitly stated
+
 ## [3.0.5]
 - Fix array of tables not being parsed properly
 
