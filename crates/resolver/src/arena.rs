@@ -226,7 +226,7 @@ pub struct StringLiteralData {
 pub struct Scope {
     pub range: TextRange,
     pub locals: SymbolTable,
-    pub parent: Option<Idx<Scope>>,
+    pub parent: Option<Idx<Self>>,
     pub function: Option<Idx<FunctionData>>,
 }
 

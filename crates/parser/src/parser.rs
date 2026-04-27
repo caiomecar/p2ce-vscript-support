@@ -141,6 +141,9 @@ impl Parser {
             });
         }
         self.consumed_index = self.lookahead_index;
+    }
+
+    const fn reset_comments(&mut self) {
         self.preceding_comments_index = None;
         self.has_preceding_new_line = false;
     }
@@ -148,16 +151,21 @@ impl Parser {
     /// Adds the marker as the last element to the events array
     fn start(&mut self) -> Marker {
         if let Some(comments_index) = self.preceding_comments_index {
+            self.reset_comments();
+
             let save_lookahead = self.lookahead_index;
             self.lookahead_index = comments_index;
             self.consume_to_lookahead();
 
             let index = self.events.len();
             self.events.push(Event::Pending);
+
             self.lookahead_index = save_lookahead;
             self.consume_to_lookahead();
+
             Marker(index)
         } else {
+            self.reset_comments();
             self.consume_to_lookahead();
             let index = self.events.len();
             self.events.push(Event::Pending);
@@ -167,13 +175,12 @@ impl Parser {
 
     fn start_without_comment_attachment(&mut self) -> Marker {
         if let Some(comments_index) = self.preceding_comments_index {
-            let save_has_new_line = self.has_new_line_after_comment;
             let save_lookahead = self.lookahead_index;
             self.lookahead_index = comments_index;
             self.consume_to_lookahead();
             self.lookahead_index = save_lookahead;
-            self.has_new_line_after_comment = save_has_new_line;
         } else {
+            self.reset_comments();
             self.consume_to_lookahead();
         }
 
@@ -347,6 +354,7 @@ impl Parser {
         }
         self.prev_token = self.tokens[self.lookahead_index];
         self.lookahead_index += 1;
+        self.reset_comments();
         self.consume_to_lookahead();
         self.skip_trivia();
     }

@@ -621,20 +621,16 @@ pub trait Source {
         }
 
         if filter_by_static {
-            let avoid_static = if for_instance {
-                PropertyKind::Yes
-            } else {
-                PropertyKind::No
-            };
-
             // Just not overwriting the 'members' with symbols that don't pass the filter is not enough
             // Internally the name will be overwritten, but if we don't overwrite it on our side we will
             // show a misleading symbol. Instead we can avoid showing these names to the user by removing
             // them from the table
             for (name, id) in additional {
                 let symbol = self.get(id);
-                if let SymbolKind::Property(statik) = symbol.kind
-                    && statik == avoid_static
+                if matches!(
+                    symbol.kind,
+                    SymbolKind::Property(PropertyKind::ClassMember | PropertyKind::NewSlot)
+                ) && for_instance == symbol.flags.intersects(SymbolFlags::STATIC)
                 {
                     members.remove(&name);
                 } else {
@@ -802,8 +798,8 @@ pub trait Source {
         };
         match s.kind {
             SymbolKind::Local(_) => str.push_str("local "),
-            SymbolKind::Property(statik) => {
-                if statik == PropertyKind::Yes {
+            SymbolKind::Property(_) => {
+                if s.flags.intersects(SymbolFlags::STATIC) {
                     str.push_str("static ");
                 }
             }

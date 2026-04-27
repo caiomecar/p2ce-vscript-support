@@ -47,9 +47,10 @@ bitflags::bitflags! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
     pub struct SymbolFlags: u8 {
         const CONST = 1 << 0;
-        const HIDE = 1 << 1;
-        const DEPRECATED = 1 << 2;
-        const PRIVATE = 1 << 3;
+        const STATIC = 1 << 1;
+        const HIDE = 1 << 2;
+        const DEPRECATED = 1 << 3;
+        const PRIVATE = 1 << 4;
     }
 }
 
@@ -316,10 +317,9 @@ pub enum LocalKind {
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum PropertyKind {
     #[default]
-    NoSupport,
+    Member,
     NewSlot,
-    No,
-    Yes,
+    ClassMember,
     Embedded,
 }
 

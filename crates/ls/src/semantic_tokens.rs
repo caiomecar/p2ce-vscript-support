@@ -51,12 +51,16 @@ pub fn handle_semantic_tokens(
         let symbol = finished_file.get(id);
         let mut modifiers = TokenModifier::empty();
 
-        if symbol.flags.contains(SymbolFlags::CONST) {
+        if symbol.flags.intersects(SymbolFlags::CONST) {
             modifiers |= TokenModifier::READONLY;
         }
 
-        if symbol.flags.contains(SymbolFlags::DEPRECATED) {
+        if symbol.flags.intersects(SymbolFlags::DEPRECATED) {
             modifiers |= TokenModifier::DEPRECATED;
+        }
+
+        if symbol.flags.intersects(SymbolFlags::STATIC) {
+            modifiers |= TokenModifier::STATIC;
         }
 
         let token_type = match symbol.kind {
@@ -74,10 +78,6 @@ pub fn handle_semantic_tokens(
             SymbolKind::Property(kind) => {
                 if kind == PropertyKind::Embedded && range == symbol.name_range {
                     continue;
-                }
-
-                if kind == PropertyKind::Yes {
-                    modifiers |= TokenModifier::STATIC;
                 }
 
                 match symbol.typ {

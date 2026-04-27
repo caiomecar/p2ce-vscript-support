@@ -579,7 +579,7 @@ impl<'db> Resolver<'db> {
         &mut self,
         member: &impl IsClassMember,
         method_id: Option<FunctionId>,
-    ) -> PropertyKind {
+    ) -> bool {
         if let Container::Class(id) = self.container
             && member.static_keyword().is_none()
         {
@@ -587,9 +587,9 @@ impl<'db> Resolver<'db> {
                 func.container = Container::Instance(id);
             }
 
-            PropertyKind::No
+            true
         } else {
-            PropertyKind::Yes
+            false
         }
     }
 
@@ -1202,7 +1202,7 @@ impl<'db> Resolver<'db> {
                 let Some(id) = id else {
                     return NewSlotResult::Allowed;
                 };
-                NewSlotResult::CanAdd(Container::Class(id))
+                NewSlotResult::CanAdd(Container::Instance(id))
             }
             Primitive::Table(id) => {
                 let Some(id) = id else {
@@ -1327,7 +1327,7 @@ impl<'db> Resolver<'db> {
 
     fn no_support(&mut self, repr: &str, keyword: &str, range: TextRange) {
         self.diagnostics.push(Diagnostic {
-            message: format!("'{repr}' does not support {keyword}",),
+            message: format!("'{repr}' does not support {keyword}"),
             range,
             severity: DiagnosticSeverity::Error,
         });
@@ -1821,6 +1821,11 @@ impl<'db> Resolver<'db> {
                         symbol.flags |= SymbolFlags::DEPRECATED;
                     }
                 }
+                Tag::Static(_) => {
+                    if let Some(symbol) = self.get_mut(symbol) {
+                        symbol.flags |= SymbolFlags::STATIC;
+                    }
+                }
                 _ => {}
             }
         }
@@ -1949,6 +1954,11 @@ impl<'db> Resolver<'db> {
                         symbol.type_state = TypeState::Explicit;
                     }
                 }
+                Tag::Static(_) => {
+                    if let Container::Instance(id) = self.arena[entry.idx].container {
+                        self.arena[entry.idx].container = Container::Class(id);
+                    }
+                }
                 _ => {}
             }
         }
@@ -2018,6 +2028,22 @@ impl<'db> Resolver<'db> {
         let trace = self.deferred_functions.remove(&idx)?;
 
         Some(DeferredFunctionEntry { idx, trace })
+    }
+
+    fn set_symbol(&mut self, typ: &Type, symbol: SymbolId) {
+        if let Ok(id) = typ.to_class()
+            && let Some(class) = self.get_mut(id)
+            && class.symbol.is_none()
+        {
+            class.symbol = Some(symbol);
+        }
+
+        if let Ok(id) = typ.to_function()
+            && let Some(function) = self.get_mut(id)
+            && function.symbol.is_none()
+        {
+            function.symbol = Some(symbol);
+        }
     }
 
     fn get_member_name(&mut self, name: MemberName) -> Option<(TextRange, Box<str>)> {
@@ -2117,7 +2143,7 @@ impl<'db> Resolver<'db> {
             Member::Property(property) => self.collect_class_property(property),
             Member::Method(method) => {
                 let id = self.collect_function(method);
-                let statik = self.try_swap_to_instance(method, Some(id));
+                let did_swap = self.try_swap_to_instance(method, Some(id));
 
                 let Some(name) = get_name(method) else {
                     return;
@@ -2127,7 +2153,12 @@ impl<'db> Resolver<'db> {
                     name: name.text().into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
                     type_state: TypeState::Inferred,
-                    kind: SymbolKind::Property(statik),
+                    kind: SymbolKind::Property(PropertyKind::ClassMember),
+                    flags: if did_swap {
+                        SymbolFlags::default()
+                    } else {
+                        SymbolFlags::STATIC
+                    },
                     name_range: name.text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
@@ -2143,7 +2174,7 @@ impl<'db> Resolver<'db> {
             }
             Member::Constructor(constructor) => {
                 let id = self.collect_function(constructor);
-                let statik = self.try_swap_to_instance(constructor, Some(id));
+                let did_swap = self.try_swap_to_instance(constructor, Some(id));
 
                 let Some(keyword) = constructor.constructor_keyword() else {
                     return;
@@ -2153,7 +2184,12 @@ impl<'db> Resolver<'db> {
                     name: "constructor".into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
                     type_state: TypeState::Inferred,
-                    kind: SymbolKind::Property(statik),
+                    kind: SymbolKind::Property(PropertyKind::ClassMember),
+                    flags: if did_swap {
+                        SymbolFlags::default()
+                    } else {
+                        SymbolFlags::STATIC
+                    },
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
@@ -2220,7 +2256,7 @@ impl<'db> Resolver<'db> {
             }
         });
 
-        let statik = self.try_swap_to_instance(property, typ.to_function().ok());
+        let did_swap = self.try_swap_to_instance(property, typ.to_function().ok());
 
         let Some(name) = property.name() else {
             return;
@@ -2240,7 +2276,12 @@ impl<'db> Resolver<'db> {
             name: text.clone(),
             typ,
             type_state,
-            kind: SymbolKind::Property(statik),
+            kind: SymbolKind::Property(PropertyKind::ClassMember),
+            flags: if did_swap {
+                SymbolFlags::default()
+            } else {
+                SymbolFlags::STATIC
+            },
             name_range,
             range: property.syntax().text_range(),
             ..Default::default()
@@ -2536,7 +2577,7 @@ impl<'db> Resolver<'db> {
                 kind: Type::Primitive(Primitive::Class(Some(class))),
                 range: stmt.syntax().text_range(),
             },
-            PropertyKind::NoSupport,
+            PropertyKind::Member,
         );
 
         let save_symbol = self.container;
@@ -2698,16 +2739,16 @@ impl<'db> Resolver<'db> {
         self.resolve_variable_doc(symbol, stmt);
 
         if let Some(container) = container {
-            if let Some(function) = self.get_mut(id) {
-                function.symbol = Some(symbol);
-                function.container = container;
-            }
             self.add_container_member(container, final_name.text().into(), symbol);
+            if let Some(function) = self.get_mut(id) {
+                function.container = container;
+                function.symbol = Some(symbol);
+            }
         } else {
+            self.add_current_container_member(final_name.text().into(), symbol);
             if let Some(function) = self.get_mut(id) {
                 function.symbol = Some(symbol);
             }
-            self.add_current_container_member(final_name.text().into(), symbol);
         }
     }
 
@@ -2873,7 +2914,7 @@ impl<'db> Resolver<'db> {
         let value = stmt.value().map_or_else(
             || TypeWithRange {
                 range: stmt.syntax().text_range(),
-                kind: Type::default(),
+                kind: Type::NULL,
             },
             |v| self.expr_to_type_with_range(&v),
         );
@@ -3775,12 +3816,7 @@ impl<'db> Resolver<'db> {
 
                 self.resolve_variable_doc(symbol, expr);
 
-                if let Ok(id) = value.kind.to_class()
-                    && let Some(class) = self.get_mut(id)
-                    && class.symbol.is_none()
-                {
-                    class.symbol = Some(symbol);
-                }
+                self.set_symbol(&value.kind, symbol);
 
                 if let NewSlotResult::CanAdd(container) = result {
                     self.add_container_member(container, new_key, symbol);
@@ -3841,13 +3877,6 @@ impl<'db> Resolver<'db> {
                         range: expr.syntax().text_range(),
                         ..Default::default()
                     });
-
-                    if let Ok(id) = value.kind.to_class()
-                        && let Some(class) = self.get_mut(id)
-                        && class.symbol.is_none()
-                    {
-                        class.symbol = Some(symbol);
-                    }
 
                     self.resolve_variable_doc(symbol, expr);
 

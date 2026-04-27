@@ -252,6 +252,7 @@ pub enum SyntaxKind {
     DeprecatedTag,
     ConstTag,
     InputTag,
+    StaticTag,
 
     __Last,
 }

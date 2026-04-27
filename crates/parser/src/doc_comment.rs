@@ -235,6 +235,7 @@ impl<'a> DocComment<'a> {
             "hide" => SyntaxKind::HideTag,
             "const" => SyntaxKind::ConstTag,
             "input" => SyntaxKind::InputTag,
+            "static" => SyntaxKind::StaticTag,
             _ => {
                 self.errors.push(SyntaxError {
                     message: format!("Unknown tag '{tag_text}'"),
