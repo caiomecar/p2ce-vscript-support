@@ -2180,7 +2180,6 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
-                    kind: SymbolKind::Property(PropertyKind::ClassMember),
                     flags: if did_swap {
                         SymbolFlags::default()
                     } else {
@@ -2210,7 +2209,6 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
-                    kind: SymbolKind::Property(PropertyKind::ClassMember),
                     flags: if did_swap {
                         SymbolFlags::default()
                     } else {
@@ -2248,6 +2246,7 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ: typ.add_unknown(),
+            kind: SymbolKind::Property(PropertyKind::NameOnLhs),
             name_range,
             range: property.syntax().text_range(),
             ..Default::default()
@@ -2276,7 +2275,7 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ: typ.add_unknown(),
-            kind: SymbolKind::Property(PropertyKind::ClassMember),
+            kind: SymbolKind::Property(PropertyKind::NameOnLhs),
             flags: if did_swap {
                 SymbolFlags::default()
             } else {
@@ -2377,7 +2376,7 @@ impl<'db> Resolver<'db> {
             let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                 let id = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::NULL,
+                    typ: Type::NULL.add_unknown(),
                     kind: SymbolKind::Local(LocalKind::Variable),
                     name_range: name.text_range(),
                     range: var.syntax().text_range(),
@@ -2395,7 +2394,7 @@ impl<'db> Resolver<'db> {
             let typ = self.expr_to_type(&expr);
             let id = self.symbol(Symbol {
                 name: name.text().into(),
-                typ,
+                typ: typ.add_unknown(),
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: var.syntax().text_range(),
@@ -2418,7 +2417,7 @@ impl<'db> Resolver<'db> {
 
         let symbol = self.symbol(Symbol {
             name: name.text().into(),
-            typ: Type::Primitive(Primitive::Function(Some(id))),
+            typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
             kind: SymbolKind::Local(LocalKind::Function),
             name_range: name.text_range(),
             range: decl.syntax().text_range(),
@@ -2497,7 +2496,7 @@ impl<'db> Resolver<'db> {
         {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
-                typ: key_type,
+                typ: key_type.add_unknown(),
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: key.syntax().text_range(),
@@ -2514,7 +2513,7 @@ impl<'db> Resolver<'db> {
         {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
-                typ: value_type,
+                typ: value_type.add_unknown(),
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: value.syntax().text_range(),
@@ -2571,7 +2570,7 @@ impl<'db> Resolver<'db> {
                 kind: Type::Primitive(Primitive::Class(Some(class))),
                 range: stmt.syntax().text_range(),
             },
-            PropertyKind::Member,
+            PropertyKind::NameOnLhs,
         );
 
         let save_symbol = self.container;
@@ -3955,7 +3954,7 @@ impl<'db> Resolver<'db> {
             },
         );
 
-        self.expr_new_symbol(expr, left, right, PropertyKind::NewSlot);
+        self.expr_new_symbol(expr, left, right, PropertyKind::NameOnLhs);
 
         right_kind
     }

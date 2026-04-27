@@ -3,7 +3,7 @@ use lsp_types::{
     MarkupKind,
 };
 use resolver::{
-    Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, Type, line_index,
+    Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, TypeFlags, line_index,
 };
 
 use crate::conversions;
@@ -30,13 +30,13 @@ pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<
                 symbol.kind,
                 SymbolKind::Local(
                     LocalKind::Exception | LocalKind::Parameter | LocalKind::Variable
-                ) | SymbolKind::Property(PropertyKind::NewSlot)
+                ) | SymbolKind::Property(PropertyKind::NameOnLhs)
             ) {
                 return None;
             }
 
             // skip if type is unknown or null - nothing useful to show
-            if matches!(symbol.typ, Type::UNKNOWN | Type::NULL) {
+            if TypeFlags::UNKNOWN_OR_NULL.contains(symbol.typ.type_flags()) {
                 return None;
             }
 

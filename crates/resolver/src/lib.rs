@@ -627,11 +627,7 @@ pub trait Source {
             // them from the table
             for (name, id) in additional {
                 let symbol = self.get(id);
-                if matches!(
-                    symbol.kind,
-                    SymbolKind::Property(PropertyKind::ClassMember | PropertyKind::NewSlot)
-                ) && for_instance == symbol.flags.intersects(SymbolFlags::STATIC)
-                {
+                if for_instance == symbol.flags.intersects(SymbolFlags::STATIC) {
                     members.remove(&name);
                 } else {
                     members.insert(name, id);

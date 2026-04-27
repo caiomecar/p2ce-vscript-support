@@ -363,9 +363,9 @@ pub enum LocalKind {
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum PropertyKind {
     #[default]
-    Member,
-    NewSlot,
-    ClassMember,
+    Default,
+    // e.g abc <- {}
+    NameOnLhs,
     Embedded,
 }
 

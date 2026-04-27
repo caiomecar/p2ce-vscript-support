@@ -1220,9 +1220,10 @@ fn completion_doc_auto_generated(
 
                 let symbol = finished_file.get(*param);
 
-                let typ = match symbol.typ {
-                    Type::UNKNOWN | Type::NULL => &Type::Any,
-                    _ => &symbol.typ,
+                let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(symbol.typ.type_flags()) {
+                    &Type::Any
+                } else {
+                    typ
                 };
 
                 let name = &symbol.name;
@@ -1241,7 +1242,7 @@ fn completion_doc_auto_generated(
                 TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
                     last_index += 1;
 
-                    let typ = if *typ == Type::UNKNOWN {
+                    let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
                         &Type::Any
                     } else {
                         typ
@@ -1261,7 +1262,7 @@ fn completion_doc_auto_generated(
                 TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
                     last_index += 1;
 
-                    let typ = if *typ == Type::UNKNOWN {
+                    let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
                         &Type::Any
                     } else {
                         typ
@@ -1281,7 +1282,7 @@ fn completion_doc_auto_generated(
                 TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
                     last_index += 1;
 
-                    let typ = if *typ == Type::UNKNOWN {
+                    let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
                         &Type::Any
                     } else {
                         typ
