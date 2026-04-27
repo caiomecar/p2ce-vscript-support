@@ -35,7 +35,7 @@ macro_rules! primitive_accessor {
 pub struct Symbol {
     pub name: Box<str>,
     pub typ: Type,
-    pub type_state: TypeState,
+    pub is_type_explicit: bool,
     pub kind: SymbolKind,
     pub name_range: TextRange,
     pub range: TextRange,
@@ -110,6 +110,56 @@ pub enum Type {
     Union(Union),
 }
 
+pub enum DisplayType {
+    Function,
+    Class,
+    Variable,
+    Constant,
+    Field,
+    Enum,
+    EnumMember,
+}
+
+impl From<&Symbol> for DisplayType {
+    fn from(value: &Symbol) -> Self {
+        match &value.typ {
+            Type::Enum(_) => Self::Enum,
+            typ => match Primitive::try_from(typ) {
+                Ok(Primitive::Class(_)) => Self::Class,
+                Ok(Primitive::Function(_)) => Self::Function,
+                _ => match value.kind {
+                    SymbolKind::Local(_) => Self::Variable,
+                    SymbolKind::Constant => Self::Constant,
+                    SymbolKind::Property(_) => Self::Field,
+                    SymbolKind::Enum => Self::Enum,
+                    SymbolKind::EnumMember => Self::EnumMember,
+                },
+            },
+        }
+    }
+}
+
+impl TryFrom<&Type> for Primitive {
+    type Error = ();
+    fn try_from(value: &Type) -> Result<Self, Self::Error> {
+        match value {
+            Type::Union(union) => {
+                let mut new = union
+                    .primitives
+                    .iter()
+                    .filter(|prim| !matches!(prim, Self::Null | Self::Unknown))
+                    .copied();
+
+                new.next()
+                    .and_then(|first| new.next().is_none().then_some(first))
+                    .ok_or(())
+            }
+            Type::Primitive(prim) => Ok(*prim),
+            Type::Enum(_) | Type::Any => Err(()),
+        }
+    }
+}
+
 impl Default for Type {
     fn default() -> Self {
         Self::Primitive(Primitive::default())
@@ -158,6 +208,11 @@ impl Type {
                 .find_map(|p| func(*p)),
             Self::Primitive(prim) => func(*prim),
         }
+    }
+
+    #[must_use]
+    pub fn add_unknown(&self) -> Self {
+        merge_types(self, &Self::UNKNOWN)
     }
 
     primitive_accessor!(
@@ -287,15 +342,6 @@ pub struct Union {
     pub primitives: Arc<[Primitive]>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum TypeState {
-    #[default]
-    NotAssigned,
-    Inferred,
-    // From doc
-    Explicit,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     Local(LocalKind),
@@ -351,9 +397,11 @@ bitflags::bitflags! {
 }
 
 impl TypeFlags {
-    pub const NUMBER: Self = Self::INTEGER.union(Self::FLOAT);
+    pub const UNKNOWN_OR_NULL: Self = Self::UNKNOWN.union(Self::NULL);
 
+    pub const NUMBER: Self = Self::INTEGER.union(Self::FLOAT);
     pub const NUMBER_OR_ANY: Self = Self::NUMBER.union(Self::UNKNOWN);
+
     pub const ARRAY_OR_STRING: Self = Self::ARRAY.union(Self::STRING);
 
     pub const INSTANCE_OR_ANY: Self = Self::INSTANCE.union(Self::UNKNOWN);

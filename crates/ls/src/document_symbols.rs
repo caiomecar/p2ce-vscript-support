@@ -4,7 +4,7 @@ use lsp_types::{
     SymbolTag,
 };
 use resolver::{
-    Database, FinishedFile, Primitive, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind, Type,
+    Database, DisplayType, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind,
     line_index,
 };
 
@@ -49,16 +49,14 @@ pub fn handle_document_symbols(
             return;
         };
 
-        let kind = match symbol.typ {
-            Type::Enum(_) => LspSymbolKind::ENUM,
-            Type::Primitive(Primitive::Function(_)) => LspSymbolKind::FUNCTION,
-            Type::Primitive(Primitive::Class(_)) => LspSymbolKind::CLASS,
-            _ => match symbol.kind {
-                SymbolKind::Constant => LspSymbolKind::CONSTANT,
-                SymbolKind::EnumMember => LspSymbolKind::ENUM_MEMBER,
-                SymbolKind::Property(_) => LspSymbolKind::FIELD,
-                _ => LspSymbolKind::VARIABLE,
-            },
+        let kind = match DisplayType::from(symbol) {
+            DisplayType::Function => LspSymbolKind::FUNCTION,
+            DisplayType::Class => LspSymbolKind::CLASS,
+            DisplayType::Variable => LspSymbolKind::VARIABLE,
+            DisplayType::Constant => LspSymbolKind::CONSTANT,
+            DisplayType::Field => LspSymbolKind::FIELD,
+            DisplayType::Enum => LspSymbolKind::ENUM,
+            DisplayType::EnumMember => LspSymbolKind::ENUM_MEMBER,
         };
 
         let name = if symbol.name.is_empty() {

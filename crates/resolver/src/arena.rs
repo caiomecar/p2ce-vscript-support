@@ -6,7 +6,7 @@ use line_index::{TextRange, TextSize};
 use crate::{
     File,
     db::{Db, source_symbol},
-    symbol::{Primitive, Symbol, SymbolTable, Type, TypeState},
+    symbol::{Primitive, Symbol, SymbolTable, Type},
 };
 
 pub trait ArenaId: Clone + Copy + PartialEq + Eq {
@@ -190,16 +190,29 @@ pub struct EnumData {
 pub struct FunctionData {
     pub symbol: Option<SymbolId>,
     pub range: TextRange,
-    pub ret: Type,
-    pub ret_state: TypeState,
+    pub ret: TypeState,
     pub container: Container,
     pub bindenv: Option<Container>,
     pub params: Vec<SymbolId>,
     pub params_state: ParamsState,
-    pub yields: Type,
-    pub yields_state: TypeState,
-    pub throws: Type,
-    pub throws_state: TypeState,
+    pub yields: TypeState,
+    pub throws: TypeState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeState {
+    Absent,
+    NotExplicit(Type),
+    Explicit(Type),
+}
+
+impl From<&TypeState> for Type {
+    fn from(value: &TypeState) -> Self {
+        match value {
+            TypeState::Absent => Self::UNKNOWN,
+            TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => typ.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

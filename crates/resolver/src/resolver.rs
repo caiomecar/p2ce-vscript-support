@@ -29,11 +29,12 @@ use crate::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ImportTarget, ParamsState, Scope, ScopeId, SourceArena,
         StringLiteralData, StringLiteralId, SymbolId, TableData, TableId, TypeConversionError,
+        TypeState,
     },
     db::{Db, SpecialFunction},
     symbol::{
         LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
-        SymbolTable, ToPrimitiveError, Type, TypeFlags, TypeState, insert_symbol, merge_types,
+        SymbolTable, ToPrimitiveError, Type, TypeFlags, insert_symbol, merge_types,
     },
 };
 
@@ -365,7 +366,7 @@ impl<'db> Resolver<'db> {
                         let id = collector.symbol(Symbol {
                             name: "self".into(),
                             typ: Type::Primitive(Primitive::Instance(base_entity)),
-                            type_state: TypeState::Explicit,
+                            is_type_explicit: true,
                             kind: SymbolKind::Property(PropertyKind::Embedded),
                             name_range: t.tag_item().expect("").syntax().text_range(),
                             range: t.tag_item().expect("").syntax().text_range(),
@@ -698,7 +699,7 @@ impl<'db> Resolver<'db> {
                         return None;
                     };
 
-                    let Type::Primitive(Primitive::Class(id)) = self.get(id).typ else {
+                    let Ok(Primitive::Class(id)) = Primitive::try_from(&self.get(id).typ) else {
                         return None;
                     };
 
@@ -902,27 +903,46 @@ impl<'db> Resolver<'db> {
     fn check_or_update_type(
         &mut self,
         current: &Type,
-        current_state: TypeState,
+        is_type_explicit: bool,
         new: NewType,
         source: CheckTypeSource,
     ) -> Option<Type> {
-        match current_state {
-            TypeState::NotAssigned => Some(match new {
-                NewType::Explicit { typ, .. } => typ,
-                NewType::NotExplicit(new) => new.kind,
-            }),
-            TypeState::Inferred => match new {
-                NewType::NotExplicit(new) => Some(merge_types(current, &new.kind)),
+        if is_type_explicit {
+            match new {
+                NewType::Explicit { typ, .. } => Some(typ),
+                NewType::NotExplicit(new) => self.check_type(current, &new.kind, source, new.range),
+            }
+        } else {
+            match new {
+                NewType::NotExplicit(new) => {
+                    let flags = current.type_flags();
+                    if flags == TypeFlags::UNKNOWN_OR_NULL {
+                        Some(new.kind.add_unknown())
+                    } else if flags == TypeFlags::NULL {
+                        Some(new.kind)
+                    } else {
+                        Some(merge_types(current, &new.kind))
+                    }
+                }
                 NewType::Explicit { typ, value_range } => Some(
                     self.check_type(&typ, current, source, value_range)
                         .unwrap_or(typ),
                 ),
-            },
-            TypeState::Explicit => match new {
-                NewType::Explicit { typ, .. } => Some(typ),
-                NewType::NotExplicit(new) => self.check_type(current, &new.kind, source, new.range),
-            },
+            }
         }
+        // match current_state {
+        //     TypeState::NotAssigned => Some(match new {
+        //         NewType::Explicit { typ, .. } => typ,
+        //         NewType::NotExplicit(new) => Some(merge_types(&Type::UNKNOWN, &new.kind)),
+        //     }),
+        //     TypeState::Inferred => match new {
+        //         NewType::NotExplicit(new) => Some(merge_types(current, &new.kind)),
+        //         NewType::Explicit { typ, value_range } => Some(
+        //             self.check_type(&typ, current, source, value_range)
+        //                 .unwrap_or(typ),
+        //         ),
+        //     },
+        // }
     }
 
     fn collect_params(
@@ -986,8 +1006,16 @@ impl<'db> Resolver<'db> {
 
                     let symbol = self.symbol(Symbol {
                         name: name.text().into(),
-                        typ,
-                        type_state: TypeState::Inferred,
+                        // We don't know for sure whether default value is of the only type the parameter
+                        // can take. Even though we infer the parameter at the call site we're not guaranteed
+                        // to consider all types at the first call. So Unknown is added unless the type is
+                        // explicitly specified
+                        // ```
+                        // local function abc(wow = null) { wow.AcceptInput(...) };
+                        // abc(null) // This causes the function body to error
+                        // abc(GetListenServerHost())
+                        // ```
+                        typ: typ.add_unknown(),
                         kind: SymbolKind::Local(LocalKind::Parameter),
                         name_range: name.text_range(),
                         range: var.syntax().text_range(),
@@ -1021,7 +1049,6 @@ impl<'db> Resolver<'db> {
                         let symbol = self.symbol(Symbol {
                             name: "vargv".into(),
                             typ: Type::Primitive(Primitive::Array(Some(vargv_array))),
-                            type_state: TypeState::Inferred,
                             kind: SymbolKind::Local(LocalKind::VariedArgs),
                             name_range: var_args.syntax().text_range(),
                             range: var_args.syntax().text_range(),
@@ -1368,20 +1395,23 @@ impl<'db> Resolver<'db> {
         }
 
         if !operand_flags.intersects(TypeFlags::ARITHMETIC) {
-            if !operand_flags.intersects(TypeFlags::UNKNOWN) {
+            if should_error && !operand_flags.intersects(TypeFlags::UNKNOWN) {
                 self.no_support(&self.primitive_to_str(operand), keyword, range);
             }
 
             if !with_flags.intersects(TypeFlags::ARITHMETIC)
                 && !with_flags.intersects(TypeFlags::UNKNOWN)
             {
-                self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
+                if should_error {
+                    self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
+                }
+                return None;
             }
             // Stuff like
             // player: unknown
             // player.EyeAngles() * 30 will output integer
             // which is not correct and will lead us to error
-            return None;
+            return Some(with.kind.add_unknown());
         }
 
         if operand_flags.intersects(TypeFlags::INTEGER) && with_flags.intersects(TypeFlags::INTEGER)
@@ -1453,7 +1483,12 @@ impl<'db> Resolver<'db> {
                 Some((Type::INTEGER, typ))
             }
             Primitive::Generator(id) => {
-                let typ = id.map_or(Type::UNKNOWN, |id| self.get(id).yields.clone());
+                let typ = id
+                    .and_then(|id| match &self.get(id).yields {
+                        TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => Some(typ.clone()),
+                        TypeState::Absent => None,
+                    })
+                    .unwrap_or(Type::UNKNOWN);
 
                 Some((Type::INTEGER, typ))
             }
@@ -1522,16 +1557,12 @@ impl<'db> Resolver<'db> {
 
                         let Some(new_typ) = self.check_or_update_type(
                             &self.get(id).typ.clone(),
-                            self.get(vargv).type_state,
+                            self.get(vargv).is_type_explicit,
                             NewType::NotExplicit(argument),
                             CheckTypeSource::VarArgs,
                         ) else {
                             continue;
                         };
-
-                        if let Some(symbol) = self.get_mut(vargv) {
-                            symbol.type_state = TypeState::Inferred;
-                        }
 
                         if let Some(array) = self.get_mut(id) {
                             array.typ = new_typ;
@@ -1541,7 +1572,7 @@ impl<'db> Resolver<'db> {
 
                     let Some(new) = self.check_or_update_type(
                         &self.get(param).typ.clone(),
-                        self.get(param).type_state,
+                        self.get(param).is_type_explicit,
                         NewType::NotExplicit(argument),
                         CheckTypeSource::Parameter,
                     ) else {
@@ -1550,7 +1581,6 @@ impl<'db> Resolver<'db> {
 
                     if let Some(param) = self.get_mut(param) {
                         param.typ = new;
-                        param.type_state = TypeState::Inferred;
                     }
                 }
 
@@ -1609,8 +1639,8 @@ impl<'db> Resolver<'db> {
                     None => {}
                 }
 
-                Some(if self.get(id).yields_state == TypeState::NotAssigned {
-                    self.get(id).ret.clone()
+                Some(if self.get(id).yields == TypeState::Absent {
+                    (&self.get(id).ret).into()
                 } else {
                     Type::Primitive(Primitive::Generator(Some(id)))
                 })
@@ -1730,12 +1760,9 @@ impl<'db> Resolver<'db> {
                 bindenv,
                 params: Vec::new(),
                 params_state: ParamsState::NoDefault,
-                ret: Type::UNKNOWN,
-                ret_state: TypeState::NotAssigned,
-                throws: Type::UNKNOWN,
-                throws_state: TypeState::NotAssigned,
-                yields: Type::UNKNOWN,
-                yields_state: TypeState::NotAssigned,
+                ret: TypeState::Absent,
+                throws: TypeState::Absent,
+                yields: TypeState::Absent,
             }),
         );
 
@@ -1794,7 +1821,7 @@ impl<'db> Resolver<'db> {
 
                     if let Some(typ) = self.check_or_update_type(
                         &self.get(symbol).typ.clone(),
-                        self.get(symbol).type_state,
+                        self.get(symbol).is_type_explicit,
                         NewType::Explicit {
                             typ: doc_type,
                             value_range: self.get(symbol).range,
@@ -1803,7 +1830,7 @@ impl<'db> Resolver<'db> {
                     ) && let Some(symbol) = self.get_mut(symbol)
                     {
                         symbol.typ = typ;
-                        symbol.type_state = TypeState::Explicit;
+                        symbol.is_type_explicit = true;
                     }
                 }
                 Tag::Const(_) => {
@@ -1854,8 +1881,7 @@ impl<'db> Resolver<'db> {
                     };
 
                     if let Some(doc_type) = self.doc_type(typ.types(), offset) {
-                        self.arena[entry.idx].ret = doc_type;
-                        self.arena[entry.idx].ret_state = TypeState::Explicit;
+                        self.arena[entry.idx].ret = TypeState::Explicit(doc_type);
                     }
                 }
                 Tag::Param(tag) => {
@@ -1897,7 +1923,7 @@ impl<'db> Resolver<'db> {
 
                     if let Some(typ) = self.check_or_update_type(
                         &self.get(param_id).typ.clone(),
-                        self.get(param_id).type_state,
+                        self.get(param_id).is_type_explicit,
                         NewType::Explicit {
                             typ: doc_type,
                             value_range: self.get(param_id).range,
@@ -1906,7 +1932,7 @@ impl<'db> Resolver<'db> {
                     ) && let Some(param) = self.get_mut(param_id)
                     {
                         param.typ = typ;
-                        param.type_state = TypeState::Explicit;
+                        param.is_type_explicit = true;
                     }
                 }
                 Tag::Throw(tag) => {
@@ -1915,8 +1941,7 @@ impl<'db> Resolver<'db> {
                     };
 
                     if let Some(doc_type) = self.doc_type(typ.types(), offset) {
-                        self.arena[entry.idx].throws = doc_type;
-                        self.arena[entry.idx].throws_state = TypeState::Explicit;
+                        self.arena[entry.idx].throws = TypeState::Explicit(doc_type);
                     }
                 }
                 Tag::Yield(tag) => {
@@ -1925,8 +1950,7 @@ impl<'db> Resolver<'db> {
                     };
 
                     if let Some(doc_type) = self.doc_type(typ.types(), offset) {
-                        self.arena[entry.idx].yields = doc_type;
-                        self.arena[entry.idx].yields_state = TypeState::Explicit;
+                        self.arena[entry.idx].yields = TypeState::Explicit(doc_type);
                     }
                 }
                 Tag::VarArgs(tag) => {
@@ -1951,7 +1975,6 @@ impl<'db> Resolver<'db> {
                     let array_id = self.array(ArrayData { typ });
                     if let Some(symbol) = self.get_mut(id) {
                         symbol.typ = Type::Primitive(Primitive::Array(Some(array_id)));
-                        symbol.type_state = TypeState::Explicit;
                     }
                 }
                 Tag::Static(_) => {
@@ -1989,22 +2012,29 @@ impl<'db> Resolver<'db> {
             FunctionBody::Expr(expr) => {
                 let new_ret = self.expr_to_type_with_range(&expr);
 
+                let (ret, is_explicit) = match self.arena[entry.idx].ret.clone() {
+                    TypeState::Absent => {
+                        self.arena[entry.idx].ret = TypeState::NotExplicit(new_ret.kind);
+                        return;
+                    }
+                    TypeState::Explicit(typ) => (typ, true),
+                    TypeState::NotExplicit(typ) => (typ, false),
+                };
+
                 if let Some(new) = self.check_or_update_type(
-                    &self.arena[entry.idx].ret.clone(),
-                    self.arena[entry.idx].ret_state,
+                    &ret,
+                    is_explicit,
                     NewType::NotExplicit(new_ret),
                     CheckTypeSource::Return,
                 ) {
-                    self.arena[entry.idx].ret = new;
-                    self.arena[entry.idx].ret_state = TypeState::Inferred;
+                    self.arena[entry.idx].ret = TypeState::Explicit(new);
                 }
             }
             FunctionBody::Stmt(stmt) => {
                 self.collect_stmt(&stmt);
 
-                if self.arena[entry.idx].ret_state == TypeState::NotAssigned {
-                    self.arena[entry.idx].ret = Type::NULL;
-                    self.arena[entry.idx].ret_state = TypeState::Inferred;
+                if self.arena[entry.idx].ret == TypeState::Absent {
+                    self.arena[entry.idx].ret = TypeState::NotExplicit(Type::NULL);
                 }
             }
         }
@@ -2096,8 +2126,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))),
-                    type_state: TypeState::Inferred,
+                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
                     name_range: name.text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
@@ -2120,8 +2149,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))),
-                    type_state: TypeState::Inferred,
+                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
@@ -2151,8 +2179,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))),
-                    type_state: TypeState::Inferred,
+                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
                     kind: SymbolKind::Property(PropertyKind::ClassMember),
                     flags: if did_swap {
                         SymbolFlags::default()
@@ -2182,8 +2209,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))),
-                    type_state: TypeState::Inferred,
+                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
                     kind: SymbolKind::Property(PropertyKind::ClassMember),
                     flags: if did_swap {
                         SymbolFlags::default()
@@ -2207,15 +2233,9 @@ impl<'db> Resolver<'db> {
     }
 
     fn collect_table_property(&mut self, property: &Property) {
-        let typ = property.value().map_or(Type::UNKNOWN, |v| {
-            let typ = self.expr_to_type(&v);
-            // This is not actually correct but it eases out false positive errors
-            if typ == Type::NULL {
-                Type::UNKNOWN
-            } else {
-                typ
-            }
-        });
+        let typ = property
+            .value()
+            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
 
         let Some(name) = property.name() else {
             return;
@@ -2225,16 +2245,9 @@ impl<'db> Resolver<'db> {
             return;
         };
 
-        let type_state = if typ == Type::UNKNOWN {
-            TypeState::NotAssigned
-        } else {
-            TypeState::Inferred
-        };
-
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ,
-            type_state,
+            typ: typ.add_unknown(),
             name_range,
             range: property.syntax().text_range(),
             ..Default::default()
@@ -2246,15 +2259,9 @@ impl<'db> Resolver<'db> {
     }
 
     fn collect_class_property(&mut self, property: &Property) {
-        let typ = property.value().map_or(Type::UNKNOWN, |v| {
-            let typ = self.expr_to_type(&v);
-            // This is not actually correct but it eases out false positive errors
-            if typ == Type::NULL {
-                Type::UNKNOWN
-            } else {
-                typ
-            }
-        });
+        let typ = property
+            .value()
+            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
 
         let did_swap = self.try_swap_to_instance(property, typ.to_function().ok());
 
@@ -2266,16 +2273,9 @@ impl<'db> Resolver<'db> {
             return;
         };
 
-        let type_state = if typ == Type::UNKNOWN {
-            TypeState::NotAssigned
-        } else {
-            TypeState::Inferred
-        };
-
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ,
-            type_state,
+            typ: typ.add_unknown(),
             kind: SymbolKind::Property(PropertyKind::ClassMember),
             flags: if did_swap {
                 SymbolFlags::default()
@@ -2317,7 +2317,6 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ,
-            type_state: TypeState::Inferred,
             kind: SymbolKind::EnumMember,
             name_range,
             range: property.syntax().text_range(),
@@ -2397,7 +2396,6 @@ impl<'db> Resolver<'db> {
             let id = self.symbol(Symbol {
                 name: name.text().into(),
                 typ,
-                type_state: TypeState::Inferred,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: var.syntax().text_range(),
@@ -2421,7 +2419,6 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: name.text().into(),
             typ: Type::Primitive(Primitive::Function(Some(id))),
-            type_state: TypeState::Inferred,
             kind: SymbolKind::Local(LocalKind::Function),
             name_range: name.text_range(),
             range: decl.syntax().text_range(),
@@ -2462,7 +2459,6 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: name.text().into(),
             typ,
-            type_state: TypeState::Inferred,
             kind: SymbolKind::Constant,
             name_range: name.text_range(),
             range: stmt.syntax().text_range(),
@@ -2502,7 +2498,6 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: key_type,
-                type_state: TypeState::Inferred,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: key.syntax().text_range(),
@@ -2520,7 +2515,6 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: value_type,
-                type_state: TypeState::Inferred,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: value.syntax().text_range(),
@@ -2729,8 +2723,7 @@ impl<'db> Resolver<'db> {
 
         let symbol = self.symbol(Symbol {
             name: final_name.text().into(),
-            typ: Type::Primitive(Primitive::Function(Some(id))),
-            type_state: TypeState::Inferred,
+            typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
             name_range: final_name.text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
@@ -2759,7 +2752,6 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: Type::Enum(enum_),
-                type_state: TypeState::Inferred,
                 kind: SymbolKind::Enum,
                 name_range: name.text_range(),
                 range: stmt.syntax().text_range(),
@@ -2932,14 +2924,25 @@ impl<'db> Resolver<'db> {
             return;
         };
 
+        let (ret, is_explicit) = match self.arena[function].ret.clone() {
+            TypeState::Absent => {
+                self.arena[function].ret = TypeState::NotExplicit(value.kind);
+                return;
+            }
+            TypeState::Explicit(typ) => (typ, true),
+            TypeState::NotExplicit(typ) => (typ, false),
+        };
+
         if let Some(new) = self.check_or_update_type(
-            &self.arena[function].ret.clone(),
-            self.arena[function].ret_state,
-            NewType::NotExplicit(value),
-            CheckTypeSource::Return,
+            &ret,
+            is_explicit,
+            NewType::NotExplicit(TypeWithRange {
+                kind: value.kind,
+                range: stmt.syntax().text_range(),
+            }),
+            CheckTypeSource::Throw,
         ) {
-            self.arena[function].ret = new;
-            self.arena[function].ret_state = TypeState::Inferred;
+            self.arena[function].ret = TypeState::NotExplicit(new);
         }
     }
 
@@ -2961,14 +2964,22 @@ impl<'db> Resolver<'db> {
             return;
         };
 
+        let (yields, is_explicit) = match self.arena[function].yields.clone() {
+            TypeState::Absent => {
+                self.arena[function].yields = TypeState::NotExplicit(value.kind);
+                return;
+            }
+            TypeState::Explicit(typ) => (typ, true),
+            TypeState::NotExplicit(typ) => (typ, false),
+        };
+
         if let Some(new) = self.check_or_update_type(
-            &self.arena[function].yields.clone(),
-            self.arena[function].yields_state,
+            &yields,
+            is_explicit,
             NewType::NotExplicit(value),
             CheckTypeSource::Yield,
         ) {
-            self.arena[function].yields = new;
-            self.arena[function].yields_state = TypeState::Inferred;
+            self.arena[function].yields = TypeState::NotExplicit(new);
         }
     }
 
@@ -3014,8 +3025,7 @@ impl<'db> Resolver<'db> {
             && let Some(name) = get_name(&binding)
         {
             let symbol = self.symbol(Symbol {
-                typ: Type::STRING,
-                type_state: TypeState::Inferred,
+                typ: Type::Any,
                 name: name.text().into(),
                 kind: SymbolKind::Local(LocalKind::Exception),
                 name_range: name.text_range(),
@@ -3037,7 +3047,7 @@ impl<'db> Resolver<'db> {
 
     fn throw_statement(&mut self, stmt: &ThrowStatement) {
         // mark current function as exception throwing
-        let typ = stmt
+        let value = stmt
             .value()
             .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
 
@@ -3046,17 +3056,25 @@ impl<'db> Resolver<'db> {
             return;
         };
 
+        let (throws, is_explicit) = match self.arena[function].throws.clone() {
+            TypeState::Absent => {
+                self.arena[function].throws = TypeState::NotExplicit(value);
+                return;
+            }
+            TypeState::Explicit(typ) => (typ, true),
+            TypeState::NotExplicit(typ) => (typ, false),
+        };
+
         if let Some(new) = self.check_or_update_type(
-            &self.arena[function].throws.clone(),
-            self.arena[function].throws_state,
+            &throws,
+            is_explicit,
             NewType::NotExplicit(TypeWithRange {
-                kind: typ,
+                kind: value,
                 range: stmt.syntax().text_range(),
             }),
             CheckTypeSource::Throw,
         ) {
-            self.arena[function].throws = new;
-            self.arena[function].throws_state = TypeState::Inferred;
+            self.arena[function].throws = TypeState::NotExplicit(new);
         }
     }
 
@@ -3798,16 +3816,9 @@ impl<'db> Resolver<'db> {
                     return;
                 }
 
-                let type_state = if value.kind == Type::NULL {
-                    TypeState::NotAssigned
-                } else {
-                    TypeState::Inferred
-                };
-
                 let symbol = self.symbol(Symbol {
                     name: new_key.clone(),
-                    typ: value.kind.clone(),
-                    type_state,
+                    typ: value.kind.add_unknown(),
                     kind: SymbolKind::Property(property_kind),
                     name_range,
                     range: expr.syntax().text_range(),
@@ -3862,16 +3873,9 @@ impl<'db> Resolver<'db> {
 
                     let name = self.get(symbol).name.clone();
 
-                    let type_state = if value.kind == Type::NULL {
-                        TypeState::NotAssigned
-                    } else {
-                        TypeState::Inferred
-                    };
-
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
-                        typ: value.kind.clone(),
-                        type_state,
+                        typ: value.kind.add_unknown(),
                         kind: SymbolKind::Property(property_kind),
                         name_range,
                         range: expr.syntax().text_range(),
@@ -4027,13 +4031,12 @@ impl<'db> Resolver<'db> {
 
                 if let Some(new) = self.check_or_update_type(
                     &self.get(symbol).typ.clone(),
-                    self.get(symbol).type_state,
+                    self.get(symbol).is_type_explicit,
                     NewType::NotExplicit(right),
                     CheckTypeSource::Variable,
                 ) && let Some(symbol) = self.get_mut(symbol)
                 {
                     symbol.typ = new;
-                    symbol.type_state = TypeState::Inferred;
                 }
             }
             Some(AssignmentLeftHandSide::NonStringName {
@@ -4357,13 +4360,12 @@ impl<'db> Resolver<'db> {
 
                 if let Some(new) = self.check_or_update_type(
                     &self.get(symbol).typ.clone(),
-                    self.get(symbol).type_state,
+                    self.get(symbol).is_type_explicit,
                     NewType::NotExplicit(type_with_range),
                     CheckTypeSource::Variable,
                 ) && let Some(symbol) = self.get_mut(symbol)
                 {
                     symbol.typ = new;
-                    symbol.type_state = TypeState::Inferred;
                 }
                 Some(typ)
             }
@@ -4641,7 +4643,7 @@ impl<'db> Resolver<'db> {
     fn resume_expression(&mut self, expr: &ResumeExpression) -> NullableExprKind {
         let typ = self.expr_to_type(&expr.operand()?);
         match typ.to_generator() {
-            Ok(id) => Some(ExpressionKind::Literal(self.get(id).yields.clone())),
+            Ok(id) => Some(ExpressionKind::Literal((&self.get(id).yields).into())),
             Err(ToPrimitiveError::WrongType) => {
                 self.diagnostics.push(Diagnostic {
                     message: "Only generators can be resumed".to_owned(),

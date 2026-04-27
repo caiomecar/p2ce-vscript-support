@@ -4,9 +4,9 @@ use lsp_types::{
     CompletionResponse, CompletionTextEdit, InsertTextFormat, TextEdit,
 };
 use resolver::{
-    Database, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers, Primitive,
-    ScopeId, Source, StringKind, Symbol, SymbolFlags, SymbolKind, Type, TypeFlags, TypeState,
-    line_index, parse,
+    Database, DisplayType, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers,
+    Primitive, ScopeId, Source, StringKind, Symbol, SymbolFlags, SymbolKind, Type, TypeFlags,
+    TypeState, line_index, parse,
 };
 use sq_3_parser::{
     AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize,
@@ -766,7 +766,7 @@ fn modify_if_function(
 ) -> Option<(InsertTextFormat, Command)> {
     // we don't use finished_file.to_function_id since
     // we don't want () autocompletion on classes and such
-    let Type::Primitive(Primitive::Function(id)) = symbol.typ else {
+    let Ok(Primitive::Function(id)) = Primitive::try_from(&symbol.typ) else {
         return None;
     };
 
@@ -826,18 +826,15 @@ fn symbol_tags(symbol: &Symbol) -> Option<Vec<CompletionItemTag>> {
         .then(|| vec![CompletionItemTag::DEPRECATED])
 }
 
-const fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
-    match symbol.typ {
-        Type::Enum(_) => CompletionItemKind::ENUM,
-        Type::Primitive(Primitive::Function(_)) => CompletionItemKind::FUNCTION,
-        Type::Primitive(Primitive::Class(_)) => CompletionItemKind::CLASS,
-        _ => match symbol.kind {
-            SymbolKind::Local(_) => CompletionItemKind::VARIABLE,
-            SymbolKind::Constant => CompletionItemKind::CONSTANT,
-            SymbolKind::Property(_) => CompletionItemKind::FIELD,
-            SymbolKind::Enum => CompletionItemKind::ENUM,
-            SymbolKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
-        },
+fn to_completion_kind(symbol: &Symbol) -> CompletionItemKind {
+    match DisplayType::from(symbol) {
+        DisplayType::Function => CompletionItemKind::FUNCTION,
+        DisplayType::Class => CompletionItemKind::CLASS,
+        DisplayType::Variable => CompletionItemKind::VARIABLE,
+        DisplayType::Constant => CompletionItemKind::CONSTANT,
+        DisplayType::Field => CompletionItemKind::FIELD,
+        DisplayType::Enum => CompletionItemKind::ENUM,
+        DisplayType::EnumMember => CompletionItemKind::ENUM_MEMBER,
     }
 }
 
@@ -1162,7 +1159,7 @@ fn completions_doc_type(offset: TextSize, finished_file: &FinishedFile<'_>) -> V
         "property_array",
     ];
 
-    let symbols = finished_file.symbols_at(offset, true);
+    let symbols = finished_file.symbols_at(offset, false);
 
     tags.into_iter()
         .map(|name| CompletionItem {
@@ -1172,8 +1169,8 @@ fn completions_doc_type(offset: TextSize, finished_file: &FinishedFile<'_>) -> V
         })
         .chain(symbols.into_iter().filter_map(|(name, id)| {
             if !matches!(
-                finished_file.get(id).typ,
-                Type::Primitive(Primitive::Class(_))
+                Primitive::try_from(&finished_file.get(id).typ),
+                Ok(Primitive::Class(_))
             ) {
                 return None;
             }
@@ -1212,11 +1209,11 @@ fn completion_doc_auto_generated(
     replace_range: TextRange,
 ) -> Vec<CompletionItem> {
     #[allow(clippy::literal_string_with_formatting_args)]
-    let text = match typ {
-        Type::Primitive(Primitive::Function(Some(id))) => {
+    let text = match Primitive::try_from(typ) {
+        Ok(Primitive::Function(Some(id))) => {
             let mut text = "/**\n * ${1:Description}".to_owned();
             let mut last_index = 1;
-            let func = finished_file.get(*id);
+            let func = finished_file.get(id);
             for param in &func.params {
                 last_index += 1;
 
@@ -1238,52 +1235,65 @@ fn completion_doc_auto_generated(
                 );
             }
 
-            if func.ret != Type::NULL {
-                last_index += 1;
+            match &func.ret {
+                TypeState::Absent => {}
+                TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                    last_index += 1;
 
-                let typ = match func.ret {
-                    Type::UNKNOWN => &Type::Any,
-                    _ => &func.ret,
-                };
+                    let typ = if *typ == Type::UNKNOWN {
+                        &Type::Any
+                    } else {
+                        typ
+                    };
 
-                let _ = write!(
-                    text,
-                    "\n * @returns {{${{{}:{}}}}}",
-                    last_index,
-                    finished_file.type_to_str(typ)
-                );
+                    let _ = write!(
+                        text,
+                        "\n * @returns {{${{{}:{}}}}}",
+                        last_index,
+                        finished_file.type_to_str(typ)
+                    );
+                }
             }
 
-            if func.throws_state != TypeState::NotAssigned {
-                last_index += 1;
+            match &func.throws {
+                TypeState::Absent => {}
+                TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                    last_index += 1;
 
-                let typ = match func.throws {
-                    Type::UNKNOWN => &Type::Any,
-                    _ => &func.throws,
-                };
+                    let typ = if *typ == Type::UNKNOWN {
+                        &Type::Any
+                    } else {
+                        typ
+                    };
 
-                let _ = write!(
-                    text,
-                    "\n * @throws {{${{{}:{}}}}}",
-                    last_index,
-                    finished_file.type_to_str(typ)
-                );
+                    let _ = write!(
+                        text,
+                        "\n * @throws {{${{{}:{}}}}}",
+                        last_index,
+                        finished_file.type_to_str(typ)
+                    );
+                }
             }
 
-            if func.yields_state != TypeState::NotAssigned {
-                let typ = match func.yields {
-                    Type::UNKNOWN => &Type::Any,
-                    _ => &func.yields,
-                };
+            match &func.yields {
+                TypeState::Absent => {}
+                TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                    last_index += 1;
 
-                let _ = write!(
-                    text,
-                    "\n * @yields {{${{{}:{}}}}}",
-                    last_index + 1,
-                    finished_file.type_to_str(typ)
-                );
+                    let typ = if *typ == Type::UNKNOWN {
+                        &Type::Any
+                    } else {
+                        typ
+                    };
+
+                    let _ = write!(
+                        text,
+                        "\n * @yields {{${{{}:{}}}}}",
+                        last_index + 1,
+                        finished_file.type_to_str(typ)
+                    );
+                }
             }
-
             let _ = write!(text, "\n */");
             text
         }

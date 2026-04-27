@@ -1,7 +1,7 @@
 use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 use resolver::{
-    Database, FinishedFile, LocalKind, Primitive, PropertyKind, Source, SymbolFlags, SymbolKind,
-    Type, line_index,
+    Database, DisplayType, FinishedFile, LocalKind, PropertyKind, Source, SymbolFlags, SymbolKind,
+    line_index,
 };
 
 use crate::conversions;
@@ -64,9 +64,9 @@ pub fn handle_semantic_tokens(
         }
 
         let token_type = match symbol.kind {
-            SymbolKind::Local(kind) => match symbol.typ {
-                Type::Primitive(Primitive::Function(_)) => TokenType::Function,
-                Type::Primitive(Primitive::Class(_)) => TokenType::Class,
+            SymbolKind::Local(kind) => match DisplayType::from(symbol) {
+                DisplayType::Function => TokenType::Function,
+                DisplayType::Class => TokenType::Class,
                 _ => {
                     if kind == LocalKind::Parameter {
                         TokenType::Parameter
@@ -80,9 +80,9 @@ pub fn handle_semantic_tokens(
                     continue;
                 }
 
-                match symbol.typ {
-                    Type::Primitive(Primitive::Function(_)) => TokenType::Function,
-                    Type::Primitive(Primitive::Class(_)) => TokenType::Class,
+                match DisplayType::from(symbol) {
+                    DisplayType::Function => TokenType::Function,
+                    DisplayType::Class => TokenType::Class,
                     _ => TokenType::Property,
                 }
             }

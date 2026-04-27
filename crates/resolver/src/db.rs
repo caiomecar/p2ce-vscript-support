@@ -10,10 +10,10 @@ use salsa::Setter;
 use sq_3_parser::Parse;
 
 use crate::{
-    FinishedFile, Source, SourceSymbol, SymbolId, Type,
+    FinishedFile, Source, SourceSymbol, SymbolId,
     arena::{ArenaId, ClassId, FunctionId},
     resolver::Resolver,
-    symbol::{FlatSymbolTable, Primitive, to_flat_symbol_table},
+    symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
 #[salsa::input]
@@ -236,14 +236,12 @@ impl Database {
 
         let scripts = root.join("tf/scripts/vscripts");
         let Ok(scripts) = scripts.canonicalize() else {
-            return Err("Couldn't canonicalize path");
+            return Err(
+                "Couldn't resolve path: TF2 installation path contains no 'tf/scripts/vscripts'",
+            );
         };
 
-        if scripts.exists() {
-            Ok(scripts)
-        } else {
-            Err("Couldn't resolve path: TF2 installation path contains no 'tf/scripts/vscripts'")
-        }
+        Ok(scripts)
     }
 
     fn load_all_scripts(&self) {
@@ -277,8 +275,9 @@ impl Database {
                 continue;
             };
 
-            let Type::Primitive(Primitive::Function(Some(function_id))) =
-                source_symbol(self, builtins).arena[symbol.idx()].typ
+            let Ok(function_id) = source_symbol(self, builtins).arena[symbol.idx()]
+                .typ
+                .to_function()
             else {
                 eprintln!(
                     "Standard library symbol '{path:?}' has a wrong type. (Expected 'function')"
@@ -313,7 +312,7 @@ impl Database {
 
         let source = source_symbol(self, file);
 
-        let Type::Primitive(Primitive::Class(Some(id))) = source.arena[symbol.idx()].typ else {
+        let Ok(id) = source.arena[symbol.idx()].typ.to_class() else {
             panic!("'{name}' member is not of type 'class'");
         };
 
@@ -338,8 +337,9 @@ impl Database {
                 continue;
             };
 
-            let Type::Primitive(Primitive::Function(Some(function_id))) =
-                source_symbol(self, lib).arena[symbol.idx()].typ
+            let Ok(id) = source_symbol(self, lib).arena[symbol.idx()]
+                .typ
+                .to_function()
             else {
                 eprintln!(
                     "Standard library symbol '{path:?}' has a wrong type. (Expected 'function')"
@@ -347,7 +347,7 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(function_id, special_function);
+            self.native_functions.insert(id, special_function);
         }
 
         self.squirrel_lib = Some(lib);
@@ -368,8 +368,9 @@ impl Database {
                 continue;
             };
 
-            let Type::Primitive(Primitive::Function(Some(function_id))) =
-                source_symbol(self, lib).arena[symbol.idx()].typ
+            let Ok(id) = source_symbol(self, lib).arena[symbol.idx()]
+                .typ
+                .to_function()
             else {
                 eprintln!(
                     "Standard library symbol '{path:?}' has a wrong type. (Expected 'function')"
@@ -377,14 +378,12 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(function_id, special_function);
+            self.native_functions.insert(id, special_function);
         }
 
         if let Some(symbol) = self.find_symbol(lib, &["CBaseEntity"]) {
-            if let Type::Primitive(Primitive::Class(maybe_id)) =
-                source_symbol(self, lib).arena[symbol.idx()].typ
-            {
-                self.base_entity_class = maybe_id;
+            if let Ok(id) = source_symbol(self, lib).arena[symbol.idx()].typ.to_class() {
+                self.base_entity_class = Some(id);
             } else {
                 eprintln!(
                     "Standard library symbol 'CBaseEntity' has a wrong type. (Expected 'class')",
@@ -402,8 +401,7 @@ impl Database {
         'inner: for part in path {
             let members = match last {
                 Some(id) => {
-                    if let Type::Primitive(Primitive::Class(Some(id))) = source.arena[id.idx()].typ
-                    {
+                    if let Ok(id) = source.arena[id.idx()].typ.to_class() {
                         if id.file() != file {
                             eprintln!(
                                 "Standard library symbol in '{path:?}' is defined externally"
