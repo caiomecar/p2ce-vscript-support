@@ -1103,6 +1103,7 @@ fn completion_doc_tag(
         "@const",
         "@input",
         "@extends ",
+        "@static",
     ];
     let range = replace_range.and_then(|r| conversions::range(line_idx, r));
     tags.into_iter()
