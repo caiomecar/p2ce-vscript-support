@@ -647,7 +647,7 @@ fn context_completions(
                 });
             };
 
-            if !ast::DocType::can_cast(parent.kind()) {
+            if !ast::DocTagType::can_cast(parent.kind()) {
                 return Some(ContextCompletions::DocTag {
                     replace_range: None,
                 });
@@ -1223,7 +1223,7 @@ fn completion_doc_auto_generated(
                 let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(symbol.typ.type_flags()) {
                     &Type::Any
                 } else {
-                    typ
+                    &symbol.typ
                 };
 
                 let name = &symbol.name;
