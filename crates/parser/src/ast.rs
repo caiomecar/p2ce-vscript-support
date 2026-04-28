@@ -1079,7 +1079,8 @@ ast_enum!(Tag {
     Deprecated(DeprecatedTag),
     Const(ConstTag),
     Input(InputTag),
-    Static(StaticTag)
+    Static(StaticTag),
+    This(ThisTag),
 });
 
 impl HasDescription for Tag {}
@@ -1115,6 +1116,11 @@ ast_node!(TypeTag, TypeTag);
 impl HasDescription for TypeTag {}
 impl IsTag for TypeTag {}
 impl HasType for TypeTag {}
+
+ast_node!(ThisTag, ThisTag);
+impl HasDescription for ThisTag {}
+impl IsTag for ThisTag {}
+impl HasType for ThisTag {}
 
 ast_node!(ThrowTag, ThrowTag);
 impl HasDescription for ThrowTag {}

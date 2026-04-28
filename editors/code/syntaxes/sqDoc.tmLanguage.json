@@ -94,6 +94,10 @@
       "match": "(?<![_A-Za-z])local\\b"
     },
     {
+      "name": "storage.modifier.static.squirrel",
+      "match": "(?<![_A-Za-z])static\\b"
+    },
+    {
       "match": "(?<![_A-Za-z])(function)\\s+(\\w+)\\b",
       "captures": {
         "1": {
@@ -127,7 +131,7 @@
       }
     },
     {
-      "match": "(\\w+)\\s*\\??:\\s*(\\w+(?:\\s*\\|\\s*\\w+)*)",
+      "match": "(\\w+)\\s*\\??:\\s*([^,)\n]*)",
       "captures": {
         "1": {
           "name": "variable.other.squirrel"

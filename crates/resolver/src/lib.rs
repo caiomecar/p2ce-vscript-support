@@ -885,7 +885,7 @@ pub trait Source {
             {
                 label.push('?');
             }
-            if param.typ != Type::Primitive(Primitive::Unknown) {
+            if param.typ != Type::UNKNOWN {
                 let _ = write!(&mut label, ": {}", self.type_to_str(&param.typ));
             }
             let end = label.len();
@@ -931,11 +931,12 @@ pub trait Source {
             }
             ReturnState::This(typ) => {
                 if let Some(typ) = typ
-                    && !matches!(typ, Type::Primitive(Primitive::Unknown | Primitive::Null))
+                    && *typ != Type::Primitive(Primitive::Unknown)
                 {
-                    let _ = write!(&mut label, " -> {}", self.type_to_str(typ));
+                    let _ = write!(&mut label, " -> {} | this", self.type_to_str(typ));
+                } else {
+                    label.push_str(" -> this");
                 }
-                label.push_str("|this");
             }
         }
 

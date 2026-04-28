@@ -257,6 +257,7 @@ pub enum SyntaxKind {
     ConstTag,
     InputTag,
     StaticTag,
+    ThisTag,
 
     __Last,
 }

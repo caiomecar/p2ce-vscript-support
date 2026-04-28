@@ -102,7 +102,7 @@
               }
             },
             {
-              "match": "((@)(?:type|vargv|varargs|returns?|throws?|yields?))(?:\\s+((\\{)[^}\n]*(\\})))?",
+              "match": "((@)(?:type|vargv|varargs|returns?|throws?|yields?|extends|this))(?:\\s+((\\{)[^}\n]*(\\})))?",
               "captures": {
                 "1": {
                   "name": "keyword.documentation.sqdoc"

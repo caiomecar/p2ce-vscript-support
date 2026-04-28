@@ -224,7 +224,7 @@ impl<'a> DocComment<'a> {
                 SyntaxKind::ParamTag
             }
             "type" => {
-                self.possible_type();
+                self.parse_tag_type();
                 SyntaxKind::TypeTag
             }
             "returns" | "return" => {
@@ -244,8 +244,12 @@ impl<'a> DocComment<'a> {
                 SyntaxKind::VarArgsTag
             }
             "extends" => {
-                self.possible_type();
+                self.parse_tag_type();
                 SyntaxKind::ExtendsTag
+            }
+            "this" => {
+                self.parse_tag_type();
+                SyntaxKind::ThisTag
             }
             "entity" => SyntaxKind::EntityTag,
             "native" => SyntaxKind::NativeTag,
@@ -312,13 +316,17 @@ impl<'a> DocComment<'a> {
     }
 
     fn parse_tag_type(&mut self) {
+        self.skip_trivia();
+
         let m = self.start();
 
-        assert_eq!(self.char_token(SyntaxKind::DocOpenBrace), Some('{'));
-        self.parse_types();
-        self.expect('}', SyntaxKind::DocCloseBrace);
-
-        self.finish(m, SyntaxKind::DocTagType);
+        if self.expect('{', SyntaxKind::DocOpenBrace) {
+            self.parse_types();
+            self.expect('}', SyntaxKind::DocCloseBrace);
+            self.finish(m, SyntaxKind::DocTagType);
+        } else {
+            self.drop(m);
+        }
     }
 
     fn body(&mut self) {

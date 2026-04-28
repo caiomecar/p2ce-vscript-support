@@ -639,7 +639,10 @@ fn context_completions(
             }
         }
 
-        SyntaxKind::DocOpenBrace | SyntaxKind::DocPipe => Some(ContextCompletions::DocType),
+        SyntaxKind::DocOpenBracket
+        | SyntaxKind::DocCloseBracket
+        | SyntaxKind::DocOpenBrace
+        | SyntaxKind::DocPipe => Some(ContextCompletions::DocType),
         SyntaxKind::DocCloseBrace => {
             let Some(parent) = token.parent() else {
                 return Some(ContextCompletions::DocTag {
@@ -1238,7 +1241,7 @@ fn completion_doc_auto_generated(
             }
 
             match &func.ret {
-                ReturnState::This(_) | ReturnState::Absent => {}
+                ReturnState::Absent => {}
                 ReturnState::Explicit(typ) | ReturnState::NotExplicit(typ) => {
                     last_index += 1;
 
@@ -1254,6 +1257,25 @@ fn completion_doc_auto_generated(
                         last_index,
                         finished_file.type_to_str(typ)
                     );
+                }
+                ReturnState::This(typ) => {
+                    last_index += 1;
+                    if let Some(typ) = typ {
+                        let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
+                            &Type::Any
+                        } else {
+                            typ
+                        };
+
+                        let _ = write!(
+                            text,
+                            "\n * @returns {{${{{} | this:{}}}}}",
+                            last_index,
+                            finished_file.type_to_str(typ)
+                        );
+                    } else {
+                        let _ = write!(text, "\n * @returns {{${{this:{last_index}}}}}");
+                    }
                 }
             }
 

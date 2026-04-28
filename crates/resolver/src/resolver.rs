@@ -707,7 +707,7 @@ impl<'db> Resolver<'db> {
                                     range: name.syntax().text_range(),
                                     severity: DiagnosticSeverity::Information,
                                 });
-                                return None;
+                                return Some(Type::UNKNOWN);
                             };
 
                             let Ok(id) = &self.get(id).typ.to_class() else {
@@ -1979,6 +1979,28 @@ impl<'db> Resolver<'db> {
                     if let Some(symbol) = self.get_mut(id) {
                         symbol.typ = Type::Primitive(Primitive::Array(Some(array)));
                         symbol.is_type_explicit = true;
+                    }
+                }
+                Tag::This(tag) => {
+                    let Some(tag_type) = tag.typ() else {
+                        continue;
+                    };
+
+                    let Some(typ) = self.doc_type(tag_type.types(), offset).0 else {
+                        continue;
+                    };
+
+                    if let Ok(container) = Container::try_from(&typ) {
+                        self.arena[entry.idx].bindenv = Some(container);
+                    } else if !typ.type_flags().intersects(TypeFlags::UNKNOWN) {
+                        self.diagnostics.push(Diagnostic {
+                            message: format!(
+                                "Trying to use '{}' as function's environment",
+                                self.type_to_str(&typ)
+                            ),
+                            range: tag_type.syntax().text_range(),
+                            severity: DiagnosticSeverity::Warning,
+                        });
                     }
                 }
                 Tag::Static(_) => {
