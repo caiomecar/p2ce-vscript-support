@@ -4846,6 +4846,28 @@ class Vector2D {
     constructor(x = 0.0, y = 0.0);
 
     /**
+     * Returns the sum of both classes's members.
+     * @param {Vector2D} other
+     * @returns {Vector2D}
+     */
+    function _add(other);
+
+    /**
+     * Returns the subtraction of both classes's members.
+     * @param {Vector2D} other
+     * @returns {Vector2D}
+     */
+    function _sub(other);
+
+    /**
+     * Returns the multiplication of a Vector against a scalar.
+     * @param {float} other
+     * @returns {Vector2D}
+     */
+    function _mul(other);
+
+
+    /**
      * The scalar product of two vectors.
      * @param {Vector2D} factor
      * @returns {float}
@@ -4886,6 +4908,27 @@ class Vector4D {
      * @param {float} w
      */
     constructor(x = 0.0, y = 0.0, z = 0.0, w = 0.0);
+
+    /**
+     * Returns the sum of both classes's members.
+     * @param {Vector4D} other
+     * @returns {Vector4D}
+     */
+    function _add(other);
+
+    /**
+     * Returns the subtraction of both classes's members.
+     * @param {Vector4D} other
+     * @returns {Vector4D}
+     */
+    function _sub(other);
+
+    /**
+     * Returns the multiplication of a Vector against a scalar.
+     * @param {float} other
+     * @returns {Vector4D}
+     */
+    function _mul(other);
 
     /**
      * The scalar product of two vectors.
