@@ -181,7 +181,7 @@ class array {
     /**
      * Adds an item to the end of the array.
      * @param {any} item
-     * @returns {array} array itself
+     * @returns {this}
      */
     function append(item);
 
@@ -191,20 +191,20 @@ class array {
      * The provided func can accept up to 3 arguments: array item value (required),
      * array item index (optional), reference to the array itself (optional).
      * @param {function} func
-     * @returns {array} array itself
+     * @returns {this}
      */
     function apply(func);
 
     /**
      * Removes all of the items from the array.
-     * @returns {array} array itself
+     * @returns {this} array itself
      */
     function clear();
 
     /**
      * Combines two arrays into one.
      * @param {array} other
-     * @returns {array}
+     * @returns {this}
      */
     function extend(other);
 
@@ -227,7 +227,7 @@ class array {
      * Inserts an item into the array at the specified index.
      * @param {integer} index
      * @param {any} item
-     * @returns {array} array itself
+     * @returns {this}
      */
     function insert(index, item);
 
@@ -243,7 +243,7 @@ class array {
      * The provided func can accept up to 3 arguments: array item value (required),
      * array item index (optional), reference to the array itself (optional).
      * @param {function} func
-     * @returns {array}
+     * @returns {this}
      */
     function map(func);
 
@@ -257,7 +257,7 @@ class array {
     /**
      * Adds an item to the end of the array.
      * @param {any} item
-     * @returns {array} array itself
+     * @returns {this}
      */
     function push(item);
 
@@ -267,16 +267,15 @@ class array {
      * until all items have been combined into a single value which the method returns.
      * @param {function} func `function(pre_value: any, current_value: any) -> any`
      * @param {any} init
-     * @returns {any}
+     * @returns {this}
      */
     function reduce(func, init = null);
 
     /**
      * Returns and removes an array item at the specified index.
-     * Throws an exception if the index is outside the array's boundaries.
      * @param {integer} index
      * @returns {any}
-     * @throws {string}
+     * @throws {string} if the index is outside the array's boundaries
      */
     function remove(index);
 
@@ -285,13 +284,13 @@ class array {
      * In case of increasing, fills the new spots with the fill parameter.
      * @param {integer} new_size
      * @param {any} fill
-     * @returns {array} array itself
+     * @returns {this}
      */
     function resize(new_size, fill = null);
 
     /**
-     * Reverses the order of the elements in the array.class itself
-     * @returns {array} array itself
+     * Reverses the order of the elements in the array.
+     * @returns {this}
      */
     function reverse();
 
@@ -299,13 +298,12 @@ class array {
      * Creates a new array from the array. Copies elements from start_index to end_index.
      * The new array includes the element at start_index, but excludes the one at end_index.
      * If end_index is not specified, copies until the last element.
-     * If the provided start or end index is beyond the array, an exception is thrown.
      * If the numbers are negative the count will start from the end of the array
      * (e.g. -2 represents a second last element).
      * @param {integer} start_index
      * @param {integer} end_index
      * @returns {array}
-     * @throws {string}
+     * @throws {string} if the provided start or end index is beyond the array
      */
     function slice(start_index, end_index = -1);
 
@@ -317,15 +315,14 @@ class array {
      * should be placed before the second, 1 if it should follow, or 0 if they are equivalent.
      * The spaceship operator <=> may come in handy, e.g. arr.sort(\@(a, b) a.distance <=> b.distance).
      * @param {function} compare `function(a: any, b: any) -> integer`
-     * @returns {array} array itself
+     * @returns {this}
      */
     function sort(compare = @(a, b) a <=> b);
 
     /**
      * Returns the value at the end of the array.
-     * Throws an exception if the array is empty.
      * @returns {any}
-     * @throws {string}
+     * @throws {string} if the array is empty.
      */
     function top();
 

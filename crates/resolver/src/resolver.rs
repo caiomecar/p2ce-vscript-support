@@ -6,11 +6,11 @@ use sq_3_parser::{
         self, ArrayLiteralExpression, BaseExpression, BinaryExpression, BinaryOperator,
         BlockStatement, BreakStatement, CallExpression, ClassExpression, ClassStatement,
         CloneExpression, ConditionalExpression, ConstStatement, ContinueStatement,
-        DeleteExpression, DoWhileStatement, DocComment, DocTypeName, ElementAccessExpression,
+        DeleteExpression, DoWhileStatement, DocComment, DocType, ElementAccessExpression,
         EnumStatement, Expr, ExpressionStatement, ExpressionWrapper, ForEachStatement,
         ForInitialiserKind, ForStatement, FunctionBody, FunctionExpression, FunctionStatement,
-        HasBody, HasDescription, HasDoc, HasName, HasOperand, HasType, IfStatement, IsClass,
-        IsClassMember, IsFunction, IsTag, LambdaExpression, LiteralExpression,
+        HasBody, HasDescription, HasDoc, HasName, HasOperand, HasType, HasTypes, IfStatement,
+        IsClass, IsClassMember, IsFunction, IsTag, LambdaExpression, LiteralExpression,
         LiteralExpressionKind, LocalFunctionDeclaration, LocalVariableDeclaration, Member,
         MemberAccessExpression, MemberName, Name, Parameter, ParenthesisedExpression,
         PostfixUpdateExpression, PostfixUpdateOperator, PrefixUnaryExpression, PrefixUnaryOperator,
@@ -27,11 +27,11 @@ use crate::{
     NullableExprKind, Source, SourceSymbol, TypeWithRange,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
-        FunctionData, FunctionId, ImportTarget, ParamsState, Scope, ScopeId, SourceArena,
-        StringLiteralData, StringLiteralId, SymbolId, TableData, TableId, TypeConversionError,
-        TypeState,
+        FunctionData, FunctionId, ImportTarget, ParamsState, ReturnState, Scope, ScopeId,
+        SourceArena, StringLiteralData, StringLiteralId, SymbolId, TableData, TableId,
+        TypeConversionError, TypeState,
     },
-    db::{Db, SpecialFunction},
+    db::{Db, NativeFunction},
     symbol::{
         LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
         SymbolTable, ToPrimitiveError, Type, TypeFlags, insert_symbol, merge_types,
@@ -47,11 +47,11 @@ macro_rules! dispatch_union {
                 $self.no_support("enum", $error_keyword, $operand.range);
                 None
             }
-            Type::Primitive(prim) => $self.$single_method( *prim, $operand.range, $($extra,)* true),
+            Type::Primitive(prim) => $self.$single_method( prim.clone(), $operand.range, $($extra,)* true),
             Type::Union(union) =>  {
                 for prim in union.primitives.iter() {
                     if let Some(result) = $self.$single_method(
-                        *prim,
+                        prim.clone(),
                         $operand.range,
                         $($extra,)*
                         false,
@@ -475,8 +475,8 @@ impl<'db> Resolver<'db> {
         )
     }
 
-    fn array(&mut self, array: ArrayData) -> ArrayId {
-        ArrayId::new(self.file, self.arena.alloc(array))
+    fn array(&mut self, kind: Type) -> ArrayId {
+        ArrayId::new(self.file, self.arena.alloc(ArrayData { kind }))
     }
 
     fn string(&mut self, token_result: &(StringNameKind, SyntaxToken)) -> StringLiteralId {
@@ -663,68 +663,91 @@ impl<'db> Resolver<'db> {
         locals.or_else(consts).or_else(members).or_else(root)
     }
 
-    fn doc_type_single(&mut self, name: &DocTypeName, offset: TextSize) -> Option<Type> {
-        let identifier = name.identifier()?;
-        let text = identifier.text();
-        let typ = match text {
-            "any" => Type::Any,
-            "int" | "integer" => Type::INTEGER,
-            "float" => Type::FLOAT,
-            "string" => Type::STRING,
-            "bool" | "boolean" => Type::BOOL,
-            "null" => Type::NULL,
-            "instance" => Type::INSTANCE,
-            "array" => Type::ARRAY,
-            "table" => Type::TABLE,
-            "class" => Type::CLASS,
-            "function" => Type::FUNCTION,
-            "generator" => Type::GENERATOR,
-            "thread" => Type::THREAD,
-            "weakref" => Type::WEAKREF,
-            _ => {
-                if let Ok(kind) = text.parse::<StringKind>() {
-                    Type::Primitive(Primitive::String {
-                        kind,
-                        literal: None,
-                    })
-                } else {
-                    let Some(id) = self.resolve_name(text, offset) else {
-                        self.diagnostics.push(Diagnostic {
-                            message: format!(
-                                "Couldn't find type '{identifier}', defaulting to using 'unknown'"
-                            ),
-                            range: name.syntax().text_range(),
-                            severity: DiagnosticSeverity::Information,
-                        });
+    fn doc_type_single(
+        &mut self,
+        typ: &DocType,
+        offset: TextSize,
+        found_this: &mut bool,
+    ) -> Option<Type> {
+        match typ {
+            DocType::Name(name) => {
+                let identifier = name.identifier()?;
+                let text = identifier.text();
+                let typ = match text {
+                    "any" => Type::Any,
+                    "int" | "integer" => Type::INTEGER,
+                    "float" => Type::FLOAT,
+                    "string" => Type::STRING,
+                    "bool" | "boolean" => Type::BOOL,
+                    "null" => Type::NULL,
+                    "instance" => Type::INSTANCE,
+                    "array" => Type::ARRAY,
+                    "table" => Type::TABLE,
+                    "class" => Type::CLASS,
+                    "function" => Type::FUNCTION,
+                    "generator" => Type::GENERATOR,
+                    "thread" => Type::THREAD,
+                    "weakref" => Type::WEAKREF,
+                    "this" => {
+                        *found_this = true;
                         return None;
-                    };
+                    }
+                    _ => {
+                        if let Ok(kind) = text.parse::<StringKind>() {
+                            Type::Primitive(Primitive::String {
+                                kind,
+                                literal: None,
+                            })
+                        } else {
+                            let Some(id) = self.resolve_name(text, offset) else {
+                                self.diagnostics.push(Diagnostic {
+                                    message: format!(
+                                        "Couldn't find type '{identifier}', defaulting to using 'unknown'"
+                                    ),
+                                    range: name.syntax().text_range(),
+                                    severity: DiagnosticSeverity::Information,
+                                });
+                                return None;
+                            };
 
-                    let Ok(Primitive::Class(id)) = Primitive::try_from(&self.get(id).typ) else {
-                        return None;
-                    };
+                            let Ok(id) = &self.get(id).typ.to_class() else {
+                                return None;
+                            };
 
-                    Type::Primitive(Primitive::Instance(id))
+                            Type::Primitive(Primitive::Instance(Some(*id)))
+                        }
+                    }
+                };
+
+                if let Some(symbol) = self.type_to_symbol(&typ) {
+                    self.new_reference(name.syntax().text_range(), symbol);
                 }
+
+                Some(typ)
             }
-        };
-
-        if let Some(symbol) = self.type_to_symbol(&typ) {
-            self.new_reference(name.syntax().text_range(), symbol);
+            DocType::Array(array) => {
+                let typ = self
+                    .doc_type(array.types(), offset)
+                    .0
+                    .unwrap_or(Type::UNKNOWN);
+                Some(Type::Primitive(Primitive::Array(Some(self.array(typ)))))
+            }
         }
-
-        Some(typ)
     }
 
     fn doc_type(
         &mut self,
-        mut types: impl Iterator<Item = DocTypeName>,
+        mut types: impl Iterator<Item = DocType>,
         offset: TextSize,
-    ) -> Option<Type> {
-        let first = types.next()?;
+    ) -> (Option<Type>, bool) {
+        let Some(first) = types.next() else {
+            return (None, false);
+        };
+        let mut found_this = false;
 
-        let mut last_type = self.doc_type_single(&first, offset);
+        let mut last_type = self.doc_type_single(&first, offset, &mut found_this);
         for typ in types {
-            let Some(next_type) = self.doc_type_single(&typ, offset) else {
+            let Some(next_type) = self.doc_type_single(&typ, offset, &mut found_this) else {
                 continue;
             };
 
@@ -735,7 +758,7 @@ impl<'db> Resolver<'db> {
             }
         }
 
-        last_type
+        (last_type, found_this)
     }
 
     fn check_type(
@@ -828,9 +851,9 @@ impl<'db> Resolver<'db> {
                 let id = *id.as_ref()?;
                 Some(Type::Primitive(Primitive::Table(Some(id))))
             }
-            (Type::Primitive(Primitive::Array(_)), Type::Primitive(Primitive::Array(id))) => {
-                let id = *id.as_ref()?;
-                Some(Type::Primitive(Primitive::Array(Some(id))))
+            (Type::Primitive(Primitive::Array(_)), Type::Primitive(Primitive::Array(kind))) => {
+                let kind = kind.as_ref()?;
+                Some(Type::Primitive(Primitive::Array(Some(*kind))))
             }
             (Type::Primitive(Primitive::Function(_)), Type::Primitive(Primitive::Function(id))) => {
                 let id = *id.as_ref()?;
@@ -1045,10 +1068,10 @@ impl<'db> Resolver<'db> {
                 }
                 Parameter::Ellipsis(var_args) => match params_state {
                     ParamsState::NoDefault => {
-                        let vargv_array = self.array(ArrayData { typ: Type::UNKNOWN });
+                        let array = self.array(Type::UNKNOWN);
                         let symbol = self.symbol(Symbol {
                             name: "vargv".into(),
-                            typ: Type::Primitive(Primitive::Array(Some(vargv_array))),
+                            typ: Type::Primitive(Primitive::Array(Some(array))),
                             kind: SymbolKind::Local(LocalKind::VariedArgs),
                             name_range: var_args.syntax().text_range(),
                             range: var_args.syntax().text_range(),
@@ -1112,7 +1135,7 @@ impl<'db> Resolver<'db> {
 
                 // possibly change error_range.start() to the real offset parameter?
                 let Some(member) =
-                    self.find_member(Container::Table(delegate_idx), metamethod, range.start())
+                    self.find_member(Container::Table(delegate_idx), metamethod, range.end())
                 else {
                     if let Some(keyword) = error_keyword {
                         self.diagnostics.push(Diagnostic {
@@ -1164,7 +1187,7 @@ impl<'db> Resolver<'db> {
             Primitive::Unknown => None,
             _ => {
                 if let Some(keyword) = error_keyword {
-                    self.no_support(&self.primitive_to_str(callable), keyword, range);
+                    self.no_support(&self.primitive_to_str(&callable), keyword, range);
                 }
                 None
             }
@@ -1396,7 +1419,7 @@ impl<'db> Resolver<'db> {
 
         if !operand_flags.intersects(TypeFlags::ARITHMETIC) {
             if should_error && !operand_flags.intersects(TypeFlags::UNKNOWN) {
-                self.no_support(&self.primitive_to_str(operand), keyword, range);
+                self.no_support(&self.primitive_to_str(&operand), keyword, range);
             }
 
             if !with_flags.intersects(TypeFlags::ARITHMETIC)
@@ -1436,7 +1459,7 @@ impl<'db> Resolver<'db> {
                 self.no_support(
                     &format!(
                         "{}' and '{}",
-                        &self.primitive_to_str(operand),
+                        &self.primitive_to_str(&operand),
                         &self.type_to_str(&with.kind)
                     ),
                     keyword,
@@ -1478,17 +1501,12 @@ impl<'db> Resolver<'db> {
                 self.call_metamethod_primitive(iterable, range, "_nexti", &arguments, None);
                 Some((Type::UNKNOWN, Type::UNKNOWN))
             }
-            Primitive::Array(id) => {
-                let typ = id.map_or(Type::UNKNOWN, |id| self.get(id).typ.clone());
+            Primitive::Array(kind) => {
+                let typ = kind.map_or(Type::UNKNOWN, |id| self.get(id).kind.clone());
                 Some((Type::INTEGER, typ))
             }
             Primitive::Generator(id) => {
-                let typ = id
-                    .and_then(|id| match &self.get(id).yields {
-                        TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => Some(typ.clone()),
-                        TypeState::Absent => None,
-                    })
-                    .unwrap_or(Type::UNKNOWN);
+                let typ = id.map_or(Type::UNKNOWN, |id| Type::from(&self.get(id).yields));
 
                 Some((Type::INTEGER, typ))
             }
@@ -1556,7 +1574,7 @@ impl<'db> Resolver<'db> {
                         };
 
                         let Some(new_typ) = self.check_or_update_type(
-                            &self.get(id).typ.clone(),
+                            &self.get(id).kind.clone(),
                             self.get(vargv).is_type_explicit,
                             NewType::NotExplicit(argument),
                             CheckTypeSource::VarArgs,
@@ -1565,7 +1583,7 @@ impl<'db> Resolver<'db> {
                         };
 
                         if let Some(array) = self.get_mut(id) {
-                            array.typ = new_typ;
+                            array.kind = new_typ;
                         }
                         continue;
                     };
@@ -1609,38 +1627,19 @@ impl<'db> Resolver<'db> {
                     self.resolve_deferred_function_entry(&data);
                 }
 
-                match self.db.check_native(id) {
-                    Some(SpecialFunction::IncludeScript | SpecialFunction::DoIncludeScript) => {
-                        self.include_script(arguments);
-                    }
-                    Some(SpecialFunction::GetRootTable) => {
-                        // Overrides return
-                        return Some(Type::Primitive(Primitive::Table(Some(self.root_table()))));
-                    }
-                    Some(SpecialFunction::GetConstTable) => {
-                        // Overrides return
-                        return Some(Type::Primitive(Primitive::Table(Some(self.const_table()))));
-                    }
-                    Some(SpecialFunction::NewThread) => {
-                        if let Some(first) = arguments.first()
-                            && let Ok(id) = first.kind.to_function()
-                        {
-                            return Some(Type::Primitive(Primitive::Thread(Some(id))));
-                        }
-                        return Some(Type::THREAD);
-                    }
-                    Some(SpecialFunction::SetDelegate) => {
-                        self.set_delegate(context, arguments);
-                        return Some(context.clone());
-                    }
-                    Some(SpecialFunction::Bindenv) => {
-                        return Some(self.bindenv(context, arguments));
-                    }
-                    None => {}
+                if let Some(native) = self.db.check_native(id)
+                    && let Some(override_return) = self.native_function(native, context, arguments)
+                {
+                    return Some(override_return);
                 }
 
                 Some(if self.get(id).yields == TypeState::Absent {
-                    (&self.get(id).ret).into()
+                    match &self.get(id).ret {
+                        ReturnState::Absent => Type::UNKNOWN,
+                        ReturnState::Explicit(typ) | ReturnState::NotExplicit(typ) => typ.clone(),
+                        ReturnState::This(Some(typ)) => merge_types(context, typ),
+                        ReturnState::This(None) => context.clone(),
+                    }
                 } else {
                     Type::Primitive(Primitive::Generator(Some(id)))
                 })
@@ -1760,7 +1759,7 @@ impl<'db> Resolver<'db> {
                 bindenv,
                 params: Vec::new(),
                 params_state: ParamsState::NoDefault,
-                ret: TypeState::Absent,
+                ret: ReturnState::Absent,
                 throws: TypeState::Absent,
                 yields: TypeState::Absent,
             }),
@@ -1815,7 +1814,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(doc_type) = self.doc_type(typ.types(), offset) else {
+                    let Some(doc_type) = self.doc_type(typ.types(), offset).0 else {
                         continue;
                     };
 
@@ -1880,8 +1879,12 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
-                        self.arena[entry.idx].ret = TypeState::Explicit(doc_type);
+                    let (doc_type, found_this) = self.doc_type(typ.types(), offset);
+
+                    if found_this {
+                        self.arena[entry.idx].ret = ReturnState::This(doc_type);
+                    } else if let Some(typ) = doc_type {
+                        self.arena[entry.idx].ret = ReturnState::Explicit(typ);
                     }
                 }
                 Tag::Param(tag) => {
@@ -1917,7 +1920,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(doc_type) = self.doc_type(typ.types(), offset) else {
+                    let Some(doc_type) = self.doc_type(typ.types(), offset).0 else {
                         continue;
                     };
 
@@ -1940,7 +1943,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
+                    if let Some(doc_type) = self.doc_type(typ.types(), offset).0 {
                         self.arena[entry.idx].throws = TypeState::Explicit(doc_type);
                     }
                 }
@@ -1949,7 +1952,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
+                    if let Some(doc_type) = self.doc_type(typ.types(), offset).0 {
                         self.arena[entry.idx].yields = TypeState::Explicit(doc_type);
                     }
                 }
@@ -1968,13 +1971,14 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(typ) = self.doc_type(typ.types(), offset) else {
+                    let Some(typ) = self.doc_type(typ.types(), offset).0 else {
                         continue;
                     };
 
-                    let array_id = self.array(ArrayData { typ });
+                    let array = self.array(typ);
                     if let Some(symbol) = self.get_mut(id) {
-                        symbol.typ = Type::Primitive(Primitive::Array(Some(array_id)));
+                        symbol.typ = Type::Primitive(Primitive::Array(Some(array)));
+                        symbol.is_type_explicit = true;
                     }
                 }
                 Tag::Static(_) => {
@@ -2008,17 +2012,32 @@ impl<'db> Resolver<'db> {
         let save_continue = self.can_continue;
         self.can_continue = false;
 
+        self.process_deferred_function_body(&body, entry.idx);
+
+        self.container = save_container;
+        self.scope = save_scope;
+        self.function = save_function;
+        self.dead_code = save_dead_code;
+        self.can_break = save_break;
+        self.can_continue = save_continue;
+    }
+
+    fn process_deferred_function_body(&mut self, body: &FunctionBody, idx: Idx<FunctionData>) {
         match body {
             FunctionBody::Expr(expr) => {
-                let new_ret = self.expr_to_type_with_range(&expr);
+                let new_ret = self.expr_to_type_with_range(expr);
 
-                let (ret, is_explicit) = match self.arena[entry.idx].ret.clone() {
-                    TypeState::Absent => {
-                        self.arena[entry.idx].ret = TypeState::NotExplicit(new_ret.kind);
+                let (ret, is_explicit) = match self.arena[idx].ret.clone() {
+                    ReturnState::Absent => {
+                        self.arena[idx].ret = ReturnState::NotExplicit(new_ret.kind);
                         return;
                     }
-                    TypeState::Explicit(typ) => (typ, true),
-                    TypeState::NotExplicit(typ) => (typ, false),
+                    ReturnState::Explicit(typ) => (typ, true),
+                    // fix later
+                    ReturnState::This(typ) => {
+                        (typ.map_or(Type::UNKNOWN, |t| t.add_unknown()), true)
+                    }
+                    ReturnState::NotExplicit(typ) => (typ, false),
                 };
 
                 if let Some(new) = self.check_or_update_type(
@@ -2027,24 +2046,17 @@ impl<'db> Resolver<'db> {
                     NewType::NotExplicit(new_ret),
                     CheckTypeSource::Return,
                 ) {
-                    self.arena[entry.idx].ret = TypeState::Explicit(new);
+                    self.arena[idx].ret = ReturnState::Explicit(new);
                 }
             }
             FunctionBody::Stmt(stmt) => {
-                self.collect_stmt(&stmt);
+                self.collect_stmt(stmt);
 
-                if self.arena[entry.idx].ret == TypeState::Absent {
-                    self.arena[entry.idx].ret = TypeState::NotExplicit(Type::NULL);
+                if self.arena[idx].ret == ReturnState::Absent {
+                    self.arena[idx].ret = ReturnState::NotExplicit(Type::NULL);
                 }
             }
         }
-
-        self.container = save_container;
-        self.scope = save_scope;
-        self.function = save_function;
-        self.dead_code = save_dead_code;
-        self.can_break = save_break;
-        self.can_continue = save_continue;
     }
 
     fn deferred_entry(&mut self, id: FunctionId) -> Option<DeferredFunctionEntry> {
@@ -2074,6 +2086,67 @@ impl<'db> Resolver<'db> {
         {
             function.symbol = Some(symbol);
         }
+    }
+
+    fn native_function(
+        &mut self,
+        kind: NativeFunction,
+        context: &Type,
+        arguments: &[TypeWithRange],
+    ) -> Option<Type> {
+        match kind {
+            NativeFunction::CopySelf => return Some(context.clone()),
+            NativeFunction::IncludeScript | NativeFunction::DoIncludeScript => {
+                self.include_script(arguments);
+            }
+            NativeFunction::GetRootTable => {
+                return Some(Type::Primitive(Primitive::Table(Some(self.root_table()))));
+            }
+            NativeFunction::GetConstTable => {
+                return Some(Type::Primitive(Primitive::Table(Some(self.const_table()))));
+            }
+            NativeFunction::NewThread => {
+                if let Some(first) = arguments.first()
+                    && let Ok(id) = first.kind.to_function()
+                {
+                    return Some(Type::Primitive(Primitive::Thread(Some(id))));
+                }
+                return Some(Type::THREAD);
+            }
+            NativeFunction::SetDelegate => {
+                self.set_delegate(context, arguments);
+                return Some(context.clone());
+            }
+            NativeFunction::Bindenv => {
+                return Some(self.bindenv(context, arguments));
+            }
+            NativeFunction::Array => {
+                let second = arguments
+                    .get(1)
+                    .map_or(Type::NULL, |t| t.kind.clone())
+                    .add_unknown();
+
+                return Some(Type::Primitive(Primitive::Array(Some(self.array(second)))));
+            }
+            // NativeFunction::ArrayAppend => {}
+            NativeFunction::ArrayExtend => {
+                let id = context.to_array().ok()?;
+                let other = arguments.first()?;
+                let other_id = other.kind.to_array().ok()?;
+                let typ = self.get(id).kind.clone();
+                let other_typ = self.get(other_id).kind.clone();
+                let new = self.array(merge_types(&typ, &other_typ));
+                return Some(Type::Primitive(Primitive::Array(Some(new))));
+            }
+            // NativeFunction::ArrayFind => todo!(),
+            // NativeFunction::ArrayInsert => todo!(),
+            NativeFunction::ArrayReturnItem => {
+                let id = context.to_array().ok()?;
+                return Some(self.get(id).kind.clone());
+            } // NativeFunction::ArrayPush => todo!(),
+              // NativeFunction::ArrayResize => todo!(),
+        }
+        None
     }
 
     fn get_member_name(&mut self, name: MemberName) -> Option<(TextRange, Box<str>)> {
@@ -2570,7 +2643,7 @@ impl<'db> Resolver<'db> {
                 kind: Type::Primitive(Primitive::Class(Some(class))),
                 range: stmt.syntax().text_range(),
             },
-            PropertyKind::NameOnLhs,
+            PropertyKind::Default,
         );
 
         let save_symbol = self.container;
@@ -2868,18 +2941,19 @@ impl<'db> Resolver<'db> {
                 SwitchClause::Case(case) => {
                     if let Some(test) = case.test() {
                         let case_type = self.expr_to_type_with_range(&test);
-                        if let Some(flags) = discriminant_flags {
-                            let case_flags = case_type.kind.type_flags();
-                            if !(case_flags.intersects(flags)
+                        let case_flags = case_type.kind.type_flags();
+                        if let Some(flags) = discriminant_flags
+                            && !case_flags.intersects(TypeFlags::UNKNOWN)
+                            && !flags.intersects(TypeFlags::UNKNOWN)
+                            && !(case_flags.intersects(flags)
                                 || case_flags.intersects(TypeFlags::NUMBER)
                                     && flags.intersects(TypeFlags::NUMBER))
-                            {
-                                self.diagnostics.push(Diagnostic {
+                        {
+                            self.diagnostics.push(Diagnostic {
                                     message: format!("Case of type '{}' is incompitable with the discriminant of type '{}'", self.type_to_str(&case_type.kind), self.type_to_str(typ.as_ref().expect("If we have flags then we must have the type"))),
                                     range: case_type.range,
                                     severity: DiagnosticSeverity::Warning,
                                 });
-                            }
                         }
                     }
 
@@ -2924,12 +2998,13 @@ impl<'db> Resolver<'db> {
         };
 
         let (ret, is_explicit) = match self.arena[function].ret.clone() {
-            TypeState::Absent => {
-                self.arena[function].ret = TypeState::NotExplicit(value.kind);
+            ReturnState::Absent => {
+                self.arena[function].ret = ReturnState::NotExplicit(value.kind);
                 return;
             }
-            TypeState::Explicit(typ) => (typ, true),
-            TypeState::NotExplicit(typ) => (typ, false),
+            ReturnState::Explicit(typ) => (typ, true),
+            ReturnState::This(typ) => (typ.map_or(Type::UNKNOWN, |t| t.add_unknown()), false),
+            ReturnState::NotExplicit(typ) => (typ, false),
         };
 
         if let Some(new) = self.check_or_update_type(
@@ -2939,9 +3014,9 @@ impl<'db> Resolver<'db> {
                 kind: value.kind,
                 range: stmt.syntax().text_range(),
             }),
-            CheckTypeSource::Throw,
+            CheckTypeSource::Return,
         ) {
-            self.arena[function].ret = TypeState::NotExplicit(new);
+            self.arena[function].ret = ReturnState::NotExplicit(new);
         }
     }
 
@@ -3260,9 +3335,7 @@ impl<'db> Resolver<'db> {
             typ = merge_types(&typ, &next_type);
         }
 
-        ExpressionKind::Literal(Type::Primitive(Primitive::Array(Some(
-            self.array(ArrayData { typ }),
-        ))))
+        ExpressionKind::Literal(Type::Primitive(Primitive::Array(Some(self.array(typ)))))
     }
 
     fn name_expression(&mut self, expr: &Name) -> NullableExprKind {
@@ -3416,7 +3489,7 @@ impl<'db> Resolver<'db> {
                 match from.to_array() {
                     Ok(id) => {
                         if index_flags.intersects(TypeFlags::NUMBER) {
-                            return Some(ExpressionKind::Literal(self.get(id).typ.clone()));
+                            return Some(ExpressionKind::Literal(self.get(id).kind.clone()));
                         }
                     }
                     Err(ToPrimitiveError::WrongTypeWithUnknown) => {
@@ -4394,10 +4467,10 @@ impl<'db> Resolver<'db> {
                     return None;
                 }
 
-                let array = parent.to_array().ok()?;
+                let id = parent.to_array().ok()?;
 
                 let operand = TypeWithRange {
-                    kind: self.get(array).typ.clone(),
+                    kind: self.get(id).kind.clone(),
                     range: expr_range,
                 };
                 let typ = self.arithmetic(&operand, &right, operator)?;

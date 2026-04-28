@@ -42,7 +42,7 @@ pub struct Database {
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
     base_entity_class: Option<ClassId>,
-    native_functions: FxHashMap<FunctionId, SpecialFunction>,
+    native_functions: FxHashMap<FunctionId, NativeFunction>,
 }
 
 pub struct Builtin {
@@ -67,12 +67,26 @@ pub struct Builtins {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SpecialFunction {
-    SetDelegate,
-    Bindenv,
+pub enum NativeFunction {
     GetRootTable,
     GetConstTable,
+
+    SetDelegate,
+    Bindenv,
+
     NewThread,
+
+    CopySelf,
+
+    Array,
+    ArrayExtend,
+    // Need to find a way to check whether the type is explicit or not
+    // ArrayFind,
+    // ArrayAppend,
+    // ArrayInsert,
+    ArrayReturnItem,
+    // ArrayPush,
+    // ArrayResize,
     IncludeScript,
     DoIncludeScript,
 }
@@ -85,7 +99,7 @@ pub trait Db: salsa::Database {
     fn squirrel_lib(&self) -> Option<File>;
     fn vscript_lib(&self) -> Option<File>;
     fn base_entity_class(&self) -> Option<ClassId>;
-    fn check_native(&self, id: FunctionId) -> Option<SpecialFunction>;
+    fn check_native(&self, id: FunctionId) -> Option<NativeFunction>;
 }
 
 impl salsa::Database for Database {}
@@ -166,7 +180,7 @@ impl Db for Database {
         self.base_entity_class
     }
 
-    fn check_native(&self, id: FunctionId) -> Option<SpecialFunction> {
+    fn check_native(&self, id: FunctionId) -> Option<NativeFunction> {
         self.native_functions.get(&id).copied()
     }
 }
@@ -267,11 +281,28 @@ impl Database {
             .set_text(self)
             .with_durability(salsa::Durability::HIGH);
 
-        for (special_function, path) in [
-            (SpecialFunction::SetDelegate, ["table", "setdelegate"]),
-            (SpecialFunction::Bindenv, ["function_", "bindenv"]),
+        for (native_function, path) in [
+            (
+                NativeFunction::SetDelegate,
+                ["table", "setdelegate"].as_slice(),
+            ),
+            (NativeFunction::Bindenv, ["function_", "bindenv"].as_slice()),
+            // (NativeFunction::ArrayAppend, ["array", "append"].as_slice()),
+            (NativeFunction::ArrayExtend, ["array", "extend"].as_slice()),
+            // (NativeFunction::ArrayFind, ["array", "find"].as_slice()),
+            // (NativeFunction::ArrayInsert, ["array", "insert"].as_slice()),
+            (NativeFunction::ArrayReturnItem, ["array", "pop"].as_slice()),
+            // (NativeFunction::ArrayPush, ["array", "push"].as_slice()),
+            (
+                NativeFunction::ArrayReturnItem,
+                ["array", "remove"].as_slice(),
+            ),
+            // (NativeFunction::ArrayResize, ["array", "resize"].as_slice()),
+            (NativeFunction::CopySelf, ["array", "filter"].as_slice()),
+            (NativeFunction::CopySelf, ["array", "map"].as_slice()),
+            (NativeFunction::CopySelf, ["array", "slice"].as_slice()),
         ] {
-            let Some(symbol) = self.find_symbol(builtins, &path) else {
+            let Some(symbol) = self.find_symbol(builtins, path) else {
                 continue;
             };
 
@@ -285,7 +316,7 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(function_id, special_function);
+            self.native_functions.insert(function_id, native_function);
         }
 
         self.builtins = Some(Builtins {
@@ -328,12 +359,13 @@ impl Database {
         };
 
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
-        for (special_function, path) in [
-            (SpecialFunction::NewThread, ["newthread"]),
-            (SpecialFunction::GetRootTable, ["getroottable"]),
-            (SpecialFunction::GetConstTable, ["getconsttable"]),
+        for (native_function, path) in [
+            (NativeFunction::Array, ["array"].as_slice()),
+            (NativeFunction::NewThread, ["newthread"].as_slice()),
+            (NativeFunction::GetRootTable, ["getroottable"].as_slice()),
+            (NativeFunction::GetConstTable, ["getconsttable"].as_slice()),
         ] {
-            let Some(symbol) = self.find_symbol(lib, &path) else {
+            let Some(symbol) = self.find_symbol(lib, path) else {
                 continue;
             };
 
@@ -347,7 +379,7 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(id, special_function);
+            self.native_functions.insert(id, native_function);
         }
 
         self.squirrel_lib = Some(lib);
@@ -360,11 +392,14 @@ impl Database {
 
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
 
-        for (special_function, path) in [
-            (SpecialFunction::IncludeScript, ["IncludeScript"]),
-            (SpecialFunction::DoIncludeScript, ["DoIncludeScript"]),
+        for (native_function, path) in [
+            (NativeFunction::IncludeScript, ["IncludeScript"].as_slice()),
+            (
+                NativeFunction::DoIncludeScript,
+                ["DoIncludeScript"].as_slice(),
+            ),
         ] {
-            let Some(symbol) = self.find_symbol(lib, &path) else {
+            let Some(symbol) = self.find_symbol(lib, path) else {
                 continue;
             };
 
@@ -378,7 +413,7 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(id, special_function);
+            self.native_functions.insert(id, native_function);
         }
 
         if let Some(symbol) = self.find_symbol(lib, &["CBaseEntity"]) {

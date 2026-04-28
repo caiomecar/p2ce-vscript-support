@@ -55,6 +55,26 @@ impl<'a> DocComment<'a> {
         });
     }
 
+    fn char_token(&mut self, kind: SyntaxKind) -> Option<char> {
+        let start = self.start_token();
+        let char = self.next();
+        self.finish_token(start, kind);
+        char
+    }
+
+    fn expect(&mut self, ch: char, kind: SyntaxKind) -> bool {
+        if self.peek() != Some(ch) {
+            self.errors.push(SyntaxError {
+                message: format!("Expected '{ch}'"),
+                range: self.next_char_range(),
+            });
+            return false;
+        }
+
+        self.char_token(kind);
+        true
+    }
+
     fn next(&mut self) -> Option<char> {
         let ch = self.peek()?;
         self.pos += TextSize::new(u32::try_from(ch.len_utf8()).unwrap_or(u32::MAX));
@@ -168,7 +188,7 @@ impl<'a> DocComment<'a> {
     fn possible_type(&mut self) -> bool {
         self.skip_trivia();
         if self.peek() == Some('{') {
-            self.parse_type();
+            self.parse_tag_type();
             true
         } else {
             false
@@ -181,9 +201,7 @@ impl<'a> DocComment<'a> {
 
         let item = self.start();
 
-        let start = self.start_token();
-        assert_eq!(self.next(), Some('@'));
-        self.finish_token(start, SyntaxKind::DocAt);
+        assert_eq!(self.char_token(SyntaxKind::DocAt), Some('@'));
 
         let ident_range = self.identifier("Expected tag's name".to_owned());
         let tag_text = &self.text[ident_range];
@@ -249,47 +267,58 @@ impl<'a> DocComment<'a> {
         self.finish(tag, kind);
     }
 
-    fn parse_type(&mut self) {
-        let m = self.start();
-
-        let start = self.start_token();
-        assert_eq!(self.next(), Some('{'));
-        self.finish_token(start, SyntaxKind::DocOpenBrace);
+    fn parse_types(&mut self) {
+        self.skip_trivia();
+        // if !first_necessary
+        //     && !self
+        //         .peek()
+        //         .is_some_and(|ch| ch.is_alphabetic() || ch == '_' || ch == '[')
+        // {
+        //     return;
+        // }
 
         loop {
-            self.skip_trivia();
-            let name = self.start();
-            let ident = self.identifier("Expected type's name".to_owned());
-            if ident.is_empty() {
-                self.drop(name);
+            let m = self.start();
+            if self.peek() == Some('[') {
+                assert_eq!(self.char_token(SyntaxKind::DocOpenBracket), Some('['));
+                self.parse_types();
+                self.expect(']', SyntaxKind::DocCloseBracket);
+
+                self.finish(m, SyntaxKind::DocTypeArray);
             } else {
-                self.finish(name, SyntaxKind::DocTypeName);
+                let ident = self.identifier("Expected type's name".to_owned());
+                if ident.is_empty() {
+                    self.drop(m);
+                } else {
+                    self.finish(m, SyntaxKind::DocTypeName);
+                }
             }
 
             self.skip_trivia();
             match self.peek() {
                 Some('|') => {
-                    let start = self.start_token();
-                    self.next();
-                    self.finish_token(start, SyntaxKind::DocPipe);
+                    self.char_token(SyntaxKind::DocPipe);
+                    self.skip_trivia();
                 }
-                Some('}') => {
-                    let start = self.start_token();
-                    self.next();
-                    self.finish_token(start, SyntaxKind::DocCloseBrace);
-                    break;
-                }
-                Some(ch) if ch.is_alphabetic() || ch == '_' => {
+                Some(ch) if ch.is_alphabetic() || ch == '_' || ch == '[' => {
                     self.errors.push(SyntaxError {
                         message: "Expected '|' between types".to_owned(),
                         range: self.next_char_range(),
                     });
                 }
-                _ => break,
+                _ => return,
             }
         }
+    }
 
-        self.finish(m, SyntaxKind::DocType);
+    fn parse_tag_type(&mut self) {
+        let m = self.start();
+
+        assert_eq!(self.char_token(SyntaxKind::DocOpenBrace), Some('{'));
+        self.parse_types();
+        self.expect('}', SyntaxKind::DocCloseBrace);
+
+        self.finish(m, SyntaxKind::DocTagType);
     }
 
     fn body(&mut self) {
@@ -305,9 +334,7 @@ impl<'a> DocComment<'a> {
     }
 
     fn new_line(&mut self) {
-        let start = self.start_token();
-        assert_eq!(self.next(), Some('\n'));
-        self.finish_token(start, SyntaxKind::DocNewLine);
+        assert_eq!(self.char_token(SyntaxKind::DocNewLine), Some('\n'));
         self.after_new_line();
     }
 
@@ -315,9 +342,7 @@ impl<'a> DocComment<'a> {
         self.skip_trivia();
         match self.peek() {
             Some('*') => {
-                let start = self.start_token();
-                self.next();
-                self.finish_token(start, SyntaxKind::DocAsterisk);
+                self.char_token(SyntaxKind::DocAsterisk);
                 self.skip_trivia();
             }
             Some(_) => {

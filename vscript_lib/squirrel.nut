@@ -107,7 +107,7 @@ function print(message);
 
 /**
  * Runs the garbage collector and returns an array containing all unreachable objects found. Returns null if none are found.
- * @returns {array}
+ * @returns {[any]}
  */
 function resurrectunreachable();
 
@@ -333,7 +333,7 @@ function rstrip(str);
  * @param {string} str
  * @param {string} separator
  * @param {bool} skip_empty
- * @returns {array}
+ * @returns {[string]}
  */
 function split(str, separator, skip_empty = false);
 
@@ -356,7 +356,7 @@ function strip(str);
  * Returns a new array of the given length where each element is set to fill.
  * @param {integer} length
  * @param {any} fill
- * @returns {array}
+ * @returns {[any]}
  */
 function array(length, fill = null);
 

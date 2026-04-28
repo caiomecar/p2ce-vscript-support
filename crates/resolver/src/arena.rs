@@ -190,7 +190,7 @@ pub struct EnumData {
 pub struct FunctionData {
     pub symbol: Option<SymbolId>,
     pub range: TextRange,
-    pub ret: TypeState,
+    pub ret: ReturnState,
     pub container: Container,
     pub bindenv: Option<Container>,
     pub params: Vec<SymbolId>,
@@ -204,6 +204,14 @@ pub enum TypeState {
     Absent,
     NotExplicit(Type),
     Explicit(Type),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReturnState {
+    Absent,
+    NotExplicit(Type),
+    Explicit(Type),
+    This(Option<Type>),
 }
 
 impl From<&TypeState> for Type {
@@ -225,7 +233,7 @@ pub enum ParamsState {
 
 #[derive(Debug, PartialEq)]
 pub struct ArrayData {
-    pub typ: Type,
+    pub kind: Type,
 }
 
 #[derive(Debug, PartialEq, Eq)]

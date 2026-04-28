@@ -123,9 +123,11 @@ pub enum SyntaxKind {
     DocAsteriskSlash,
     DocNewLine,
     DocAt,
-    DocOpenBrace,
     DocPipe,
+    DocOpenBrace,
     DocCloseBrace,
+    DocOpenBracket,
+    DocCloseBracket,
     DocIdentifier,
     DocText,
 
@@ -233,10 +235,12 @@ pub enum SyntaxKind {
     DocDescription,
     DocDescriptionLine,
 
-    DocTagItem,
     DocName,
+    DocTagItem,
+    DocTagType,
     DocType,
     DocTypeName,
+    DocTypeArray,
 
     UnknownTag,
     ParamTag,

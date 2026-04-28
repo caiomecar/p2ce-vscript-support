@@ -18,7 +18,9 @@ use crate::{
     symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
-pub use arena::{ArenaId, FunctionData, FunctionId, ParamsState, ScopeId, SymbolId, TypeState};
+pub use arena::{
+    ArenaId, FunctionData, FunctionId, ParamsState, ReturnState, ScopeId, SymbolId, TypeState,
+};
 pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
 pub use symbol::{
     DisplayType, LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
@@ -714,7 +716,7 @@ pub trait Source {
                     Primitive::Unknown => return None,
                 })
             },
-            |prim| prim != Primitive::Null,
+            |prim| !matches!(prim, Primitive::Null),
         )
     }
 
@@ -738,7 +740,7 @@ pub trait Source {
         self.expr_kind_to_type(self.expr_kind_at(text_range))
     }
 
-    fn primitive_to_str(&self, primitive: Primitive) -> Box<str> {
+    fn primitive_to_str(&self, primitive: &Primitive) -> Box<str> {
         match primitive {
             Primitive::Unknown => "unknown".into(),
             Primitive::Integer(_) => "integer".into(),
@@ -748,15 +750,26 @@ pub trait Source {
             Primitive::Null => "null".into(),
             Primitive::Instance(id) => {
                 if let Some(id) = id
-                    && let Some(symbol) = self.get(id).symbol
+                    && let Some(symbol) = self.get(*id).symbol
                 {
                     self.get(symbol).name.clone()
                 } else {
                     "instance".into()
                 }
             }
+            Primitive::Array(kind) => {
+                let Some(id) = kind else {
+                    return "array".into();
+                };
 
-            Primitive::Array(_) => "array".into(),
+                let kind = &self.get(*id).kind;
+
+                if *kind == Type::UNKNOWN {
+                    return "array".into();
+                }
+
+                format!("[{}]", self.type_to_str(kind)).into_boxed_str()
+            }
             Primitive::Table(_) => "table".into(),
             Primitive::Class(_) => "class".into(),
             Primitive::Function(_) => "function".into(),
@@ -770,12 +783,12 @@ pub trait Source {
         match typ {
             Type::Any => "any".into(),
             Type::Enum(_) => "enum".into(),
-            Type::Primitive(prim) => self.primitive_to_str(*prim),
+            Type::Primitive(prim) => self.primitive_to_str(prim),
             Type::Union(id) => id
                 .primitives
                 .iter()
                 .filter(|prim| **prim != Primitive::Unknown)
-                .map(|prim| self.primitive_to_str(*prim))
+                .map(|prim| self.primitive_to_str(prim))
                 .collect::<Vec<_>>()
                 .join("|")
                 .into_boxed_str(),
@@ -889,10 +902,11 @@ pub trait Source {
             let start = label.len();
             label.push_str("...vargv");
             let symbol = self.get(id);
-            if let Type::Primitive(Primitive::Array(Some(id))) = symbol.typ {
-                let array = self.get(id);
-                if array.typ != Type::Primitive(Primitive::Unknown) {
-                    let _ = write!(&mut label, ": {}", self.type_to_str(&array.typ));
+            if let Type::Primitive(Primitive::Array(Some(id))) = &symbol.typ {
+                let typ = &self.get(*id).kind;
+
+                if *typ != Type::UNKNOWN {
+                    let _ = write!(&mut label, ": {}", self.type_to_str(typ));
                 }
             }
             let end = label.len();
@@ -908,9 +922,21 @@ pub trait Source {
             label.push('!');
         }
 
-        let typ = (&func.ret).into();
-        if !matches!(typ, Type::Primitive(Primitive::Unknown | Primitive::Null)) {
-            let _ = write!(&mut label, " -> {}", self.type_to_str(&typ));
+        match &func.ret {
+            ReturnState::Absent => {}
+            ReturnState::NotExplicit(typ) | ReturnState::Explicit(typ) => {
+                if !matches!(typ, Type::Primitive(Primitive::Unknown | Primitive::Null)) {
+                    let _ = write!(&mut label, " -> {}", self.type_to_str(typ));
+                }
+            }
+            ReturnState::This(typ) => {
+                if let Some(typ) = typ
+                    && !matches!(typ, Type::Primitive(Primitive::Unknown | Primitive::Null))
+                {
+                    let _ = write!(&mut label, " -> {}", self.type_to_str(typ));
+                }
+                label.push_str("|this");
+            }
         }
 
         (label, param_ranges)

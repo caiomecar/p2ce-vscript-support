@@ -945,8 +945,14 @@ pub trait IsTag: AstNode<Language = SquirrelLanguage> {
 }
 
 pub trait HasType: AstNode<Language = SquirrelLanguage> {
-    fn typ(&self) -> Option<DocType> {
+    fn typ(&self) -> Option<DocTagType> {
         support::child(self.syntax())
+    }
+}
+
+pub trait HasTypes: AstNode<Language = SquirrelLanguage> {
+    fn types(&self) -> AstChildren<DocType> {
+        support::children(self.syntax())
     }
 }
 
@@ -1041,13 +1047,13 @@ impl DocName {
     }
 }
 
-ast_node!(DocType, DocType);
-impl DocType {
-    #[must_use]
-    pub fn types(&self) -> AstChildren<DocTypeName> {
-        support::children(&self.0)
-    }
-}
+ast_node!(DocTagType, DocTagType);
+impl HasTypes for DocTagType {}
+
+ast_enum!(DocType {
+    Name(DocTypeName),
+    Array(DocTypeArray)
+});
 
 ast_node!(DocTypeName, DocTypeName);
 impl DocTypeName {
@@ -1056,6 +1062,9 @@ impl DocTypeName {
         support::token(&self.0, SyntaxKind::DocIdentifier)
     }
 }
+
+ast_node!(DocTypeArray, DocTypeArray);
+impl HasTypes for DocTypeArray {}
 
 ast_enum!(Tag {
     Return(ReturnTag),

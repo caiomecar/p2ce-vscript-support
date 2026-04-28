@@ -5,8 +5,8 @@ use lsp_types::{
 };
 use resolver::{
     Database, DisplayType, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers,
-    Primitive, ScopeId, Source, StringKind, Symbol, SymbolFlags, SymbolKind, Type, TypeFlags,
-    TypeState, line_index, parse,
+    Primitive, ReturnState, ScopeId, Source, StringKind, Symbol, SymbolFlags, SymbolKind, Type,
+    TypeFlags, TypeState, line_index, parse,
 };
 use sq_3_parser::{
     AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize,
@@ -1238,8 +1238,8 @@ fn completion_doc_auto_generated(
             }
 
             match &func.ret {
-                TypeState::Absent => {}
-                TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                ReturnState::This(_) | ReturnState::Absent => {}
+                ReturnState::Explicit(typ) | ReturnState::NotExplicit(typ) => {
                     last_index += 1;
 
                     let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
