@@ -145,7 +145,7 @@ impl Parser {
 
     const fn reset_comments(&mut self) {
         self.preceding_comments_index = None;
-        self.has_preceding_new_line = false;
+        self.has_new_line_after_comment = false;
     }
 
     /// Adds the marker as the last element to the events array
@@ -442,13 +442,15 @@ impl Parser {
         self.bump();
     }
 
-    /// Example: `ASSIGNMENT_OPERATOR` = [=, :, <-]
+    /// Example: `INIT_OPERATOR` = [=, :, <-, (==, +=, -=, *=, /=, %=)]
     /// There are recovery sets that contain possible tokens that user could've written
     /// Only 1 of those tokens is correct depending on what we're parsing
     /// The recovery strategy is to check whether we're at this sort of set and then
     /// pass the proper token into this function that will either proceed without errors
     /// or wrap the incorrect token into the error node and proceed as if we've read
-    /// the correct operator
+    /// the correct operator. Note that some member can never be valid for any context
+    /// (marked with () in the concrete example), these are included just to improve the
+    /// recovery for common mistakes
     /// ```
     /// use sq_3_parser::ast::*;
     /// use sq_3_parser::*;
