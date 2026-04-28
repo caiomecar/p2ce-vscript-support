@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.7]
+- Fix lambda expressions causing panics
+- Add typed array support
+- Add @this tag
+- Add missing Vector2D/Vector4D metamethods
+
 ## [3.0.6]
 - Fix invalid handling of new class properties, add @static tag
 - Stop producing most of the errors when type is not explicitly stated
