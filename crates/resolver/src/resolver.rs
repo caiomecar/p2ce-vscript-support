@@ -453,7 +453,10 @@ impl<'db> Resolver<'db> {
                 Ok(id) => Some(id),
                 Err(ToPrimitiveError::WrongType) => {
                     self.diagnostics.push(Diagnostic {
-                        message: format!("Trying to inherit from '{}'", self.type_to_str(&typ)),
+                        message: format!(
+                            "Trying to inherit from '{}'",
+                            self.type_to_str_generic(&typ)
+                        ),
                         range: expr.syntax().text_range(),
                         ..Default::default()
                     });
@@ -607,7 +610,7 @@ impl<'db> Resolver<'db> {
         } else {
             format!(
                 "'{}' has no member named '{}'",
-                self.type_to_str(obj),
+                self.type_to_str_generic(obj),
                 member_name
             )
         };
@@ -1165,8 +1168,9 @@ impl<'db> Resolver<'db> {
                     self.find_member(Container::Instance(id), metamethod, range.start())
                 else {
                     if let Some(keyword) = error_keyword {
+                        let repr = self.primitive_to_str(&callable);
                         self.diagnostics.push(Diagnostic {
-                            message: format!("'instance' does not support {keyword}: class has no '{metamethod}' metamethod"),
+                            message: format!("'{repr}' does not support {keyword}: class has no '{metamethod}' metamethod"),
                             range,
                             ..Default::default()
                         });
@@ -1187,7 +1191,7 @@ impl<'db> Resolver<'db> {
             Primitive::Unknown => None,
             _ => {
                 if let Some(keyword) = error_keyword {
-                    self.no_support(&self.primitive_to_str(&callable), keyword, range);
+                    self.no_support(self.primitive_to_str_generic(&callable), keyword, range);
                 }
                 None
             }
@@ -1230,7 +1234,7 @@ impl<'db> Resolver<'db> {
                 }
                 if should_error && !union.flags.intersects(TypeFlags::UNKNOWN) {
                     self.no_support(
-                        &self.type_to_str(&operand.kind),
+                        &self.type_to_str_generic(&operand.kind),
                         error_keyword,
                         operand.range,
                     );
@@ -1306,7 +1310,7 @@ impl<'db> Resolver<'db> {
 
                 if !union.flags.intersects(TypeFlags::UNKNOWN) {
                     self.no_support(
-                        &self.type_to_str(&operand.kind),
+                        &self.type_to_str_generic(&operand.kind),
                         "new slot operator",
                         operand.range,
                     );
@@ -1419,14 +1423,14 @@ impl<'db> Resolver<'db> {
 
         if !operand_flags.intersects(TypeFlags::ARITHMETIC) {
             if should_error && !operand_flags.intersects(TypeFlags::UNKNOWN) {
-                self.no_support(&self.primitive_to_str(&operand), keyword, range);
+                self.no_support(self.primitive_to_str_generic(&operand), keyword, range);
             }
 
             if !with_flags.intersects(TypeFlags::ARITHMETIC)
                 && !with_flags.intersects(TypeFlags::UNKNOWN)
             {
                 if should_error {
-                    self.no_support(&self.type_to_str(&with.kind), keyword, with.range);
+                    self.no_support(&self.type_to_str_generic(&with.kind), keyword, with.range);
                 }
                 return None;
             }
@@ -1459,8 +1463,8 @@ impl<'db> Resolver<'db> {
                 self.no_support(
                     &format!(
                         "{}' and '{}",
-                        &self.primitive_to_str(&operand),
-                        &self.type_to_str(&with.kind)
+                        &self.primitive_to_str_generic(&operand),
+                        &self.type_to_str_generic(&with.kind)
                     ),
                     keyword,
                     with.range,
@@ -1734,7 +1738,7 @@ impl<'db> Resolver<'db> {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
-                                self.type_to_str(&typ)
+                                self.type_to_str_generic(&typ)
                             ),
                             range,
                             severity: DiagnosticSeverity::Warning,
@@ -1996,7 +2000,7 @@ impl<'db> Resolver<'db> {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
-                                self.type_to_str(&typ)
+                                self.type_to_str_generic(&typ)
                             ),
                             range: tag_type.syntax().text_range(),
                             severity: DiagnosticSeverity::Warning,
@@ -2591,7 +2595,7 @@ impl<'db> Resolver<'db> {
         {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
-                typ: key_type.add_unknown(),
+                typ: key_type,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: key.syntax().text_range(),
@@ -2608,7 +2612,7 @@ impl<'db> Resolver<'db> {
         {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
-                typ: value_type.add_unknown(),
+                typ: value_type,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 range: value.syntax().text_range(),
@@ -2943,7 +2947,7 @@ impl<'db> Resolver<'db> {
                 self.diagnostics.push(Diagnostic {
                     message: format!(
                         "Discriminant of type '{}' depends on the variable addresses",
-                        self.type_to_str(&disc.kind)
+                        self.type_to_str_generic(&disc.kind)
                     ),
                     range: disc.range,
                     severity: DiagnosticSeverity::Warning,
@@ -2972,10 +2976,14 @@ impl<'db> Resolver<'db> {
                                     && flags.intersects(TypeFlags::NUMBER))
                         {
                             self.diagnostics.push(Diagnostic {
-                                    message: format!("Case of type '{}' is incompitable with the discriminant of type '{}'", self.type_to_str(&case_type.kind), self.type_to_str(typ.as_ref().expect("If we have flags then we must have the type"))),
-                                    range: case_type.range,
-                                    severity: DiagnosticSeverity::Warning,
-                                });
+                                message: format!(
+                                    "Case of type '{}' is incompitable with the discriminant of type '{}'",
+                                    self.type_to_str(&case_type.kind),
+                                    self.type_to_str(typ.as_ref().expect("If we have flags then we must have the type")
+                                )),
+                                range: case_type.range,
+                                severity: DiagnosticSeverity::Warning,
+                            });
                         }
                     }
 
@@ -3539,8 +3547,8 @@ impl<'db> Resolver<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: format!(
                             "Trying to index into '{}' using '{}'",
-                            self.type_to_str(&from),
-                            self.type_to_str(&typ)
+                            self.type_to_str_generic(&from),
+                            self.type_to_str_generic(&typ)
                         ),
                         range: index.syntax().text_range(),
                         severity: DiagnosticSeverity::Error,
@@ -4174,8 +4182,8 @@ impl<'db> Resolver<'db> {
                 self.diagnostics.push(Diagnostic {
                     message: format!(
                         "Trying to index into '{}' using '{}' (only integers are applicable)",
-                        self.type_to_str(&right.kind),
-                        self.type_to_str(&with.kind)
+                        self.type_to_str_generic(&right.kind),
+                        self.type_to_str_generic(&with.kind)
                     ),
                     range: with.range,
                     severity: DiagnosticSeverity::Warning,
@@ -4185,7 +4193,7 @@ impl<'db> Resolver<'db> {
             self.diagnostics.push(Diagnostic {
                 message: format!(
                     "Indexing into '{}' will always return false",
-                    self.type_to_str(&right.kind)
+                    self.type_to_str_generic(&right.kind)
                 ),
                 range: right.range,
                 severity: DiagnosticSeverity::Warning,
@@ -4203,13 +4211,27 @@ impl<'db> Resolver<'db> {
                 .type_flags()
                 .intersects(TypeFlags::INSTANCE_OR_ANY)
         {
-            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as left-hand side of 'instanceof' operator (only 'instance' is applicable)", self.type_to_str(&left.kind)), range: left.range, ..Default::default() });
+            self.diagnostics.push(Diagnostic {
+                message: format!(
+                    "Using '{}' as left-hand side of 'instanceof' operator (only 'instance' is applicable)",
+                    self.type_to_str_generic(&left.kind)
+                ),
+                range: left.range,
+                ..Default::default()
+            });
         }
 
         if let Some(right) = right
             && !right.kind.type_flags().intersects(TypeFlags::CLASS_OR_ANY)
         {
-            self.diagnostics.push(Diagnostic { message: format!("Using '{}' as right-hand side of 'instanceof' operator (only 'class' is applicable)", self.type_to_str(&right.kind)), range: right.range, ..Default::default() });
+            self.diagnostics.push(Diagnostic {
+                message: format!(
+                    "Using '{}' as right-hand side of 'instanceof' operator (only 'class' is applicable)",
+                    self.type_to_str_generic(&right.kind)
+                ),
+                range: right.range,
+                ..Default::default()
+            });
         }
 
         ExpressionKind::Literal(Type::BOOL)
@@ -4234,7 +4256,7 @@ impl<'db> Resolver<'db> {
             self.diagnostics.push(Diagnostic {
                 message: format!(
                     "'{}' does not support comparison",
-                    self.type_to_str(&comparable.kind),
+                    self.type_to_str_generic(&comparable.kind),
                 ),
                 range: comparable.range,
                 ..Default::default()
@@ -4316,8 +4338,8 @@ impl<'db> Resolver<'db> {
         self.diagnostics.push(Diagnostic {
             message: format!(
                 "'{}' does not support comparison with '{}'",
-                self.type_to_str(&left.kind),
-                self.type_to_str(&right.kind)
+                self.type_to_str_generic(&left.kind),
+                self.type_to_str_generic(&right.kind)
             ),
             range: right.range,
             ..Default::default()
@@ -4339,7 +4361,7 @@ impl<'db> Resolver<'db> {
             self.diagnostics.push(Diagnostic {
                 message: format!(
                     "'{}' does not support bitwise operations",
-                    self.type_to_str(&operand.kind),
+                    self.type_to_str_generic(&operand.kind),
                 ),
                 range: operand.range,
                 ..Default::default()
@@ -4479,8 +4501,8 @@ impl<'db> Resolver<'db> {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to index into '{}' using '{}'",
-                                self.type_to_str(&parent),
-                                self.type_to_str(&name.kind)
+                                self.type_to_str_generic(&parent),
+                                self.type_to_str_generic(&name.kind)
                             ),
                             range: expr_range,
                             severity: DiagnosticSeverity::Error,
@@ -4838,7 +4860,7 @@ impl<'db> Resolver<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: format!(
                             "Type '{}' cannot receive new members",
-                            self.type_to_str(&expr.kind)
+                            self.type_to_str_generic(&expr.kind)
                         ),
                         range: expr.range,
                         severity: DiagnosticSeverity::Warning,

@@ -1107,6 +1107,7 @@ fn completion_doc_tag(
         "@input",
         "@extends ",
         "@static",
+        "@this ",
     ];
     let range = replace_range.and_then(|r| conversions::range(line_idx, r));
     tags.into_iter()
@@ -1140,6 +1141,7 @@ fn completions_doc_type(offset: TextSize, finished_file: &FinishedFile<'_>) -> V
         "generator",
         "thread",
         "weakref",
+        "this",
         // string literals
         "script",
         "attribute",

@@ -27,14 +27,14 @@ class integer {
 
     /**
      * Returns the integer itself
-     * @returns {integer}
+     * @returns {this}
      * @hide
      */
     function tointeger();
 
     /**
      * Returns the integer itself
-     * @returns {integer}
+     * @returns {this}
      * @hide
      */
     function weakref();
@@ -62,7 +62,14 @@ class float {
 
     /**
      * Returns the float itself
-     * @returns {float}
+     * @returns {this}
+     * @hide
+     */
+    function tofloat();
+
+    /**
+     * Returns the float itself
+     * @returns {this}
      * @hide
      */
     function weakref();
@@ -89,7 +96,7 @@ class bool {
 
     /**
      * Returns the bool itself
-     * @returns {bool}
+     * @returns {this}
      * @hide
      */
     function weakref();
@@ -97,7 +104,7 @@ class bool {
 
 class string {
     /**
-     * Looks for the sub-string passed as its first parameter,starting at either the beginning
+     * Looks for the sub-string passed as its first parameter, starting at either the beginning
      * of the string or at a specific character index if one is provided as a second parameter.
      * If the sub-string is found, returns the index at which it first occurs, otherwise returns null.
      * @param {string} search_string
@@ -113,9 +120,9 @@ class string {
     function len();
 
     /**
-     * Creates a sub-string from a string. Copies characters from start_index to end_index.
-     * The sub-string includes the character at start_index, but excludes the one at end_index.
-     * If end_index is not specified, copies until the last character.
+     * Creates a sub-string from a string. Copies characters from `start_index` to `end_index`.
+     * The sub-string includes the character at start_index, but excludes the one at `end_index`.
+     * If `end_index` is not specified, copies until the last character.
      * If the provided start or end index is beyond the string, an exception is thrown.
      * If the numbers are negative the count will start from the end of the string
      * (e.g. -2 represents a second last character).
@@ -163,7 +170,7 @@ class string {
 
     /**
      * Returns the string itself
-     * @returns {string}
+     * @returns {this}
      * @hide
      */
     function tostring();
@@ -342,7 +349,7 @@ class array {
 class table {
     /**
      * Removes all of the items from the table.
-     * @returns {table} table itself
+     * @returns {this}
      */
     function clear();
 
@@ -399,7 +406,7 @@ class table {
      * Sets the value of the specified key without employing delegation
      * @param {any} key
      * @param {any} value
-     * @returns {table} table itself
+     * @returns {this}
      */
     function rawset(key, value);
 
@@ -407,7 +414,7 @@ class table {
      * Assigns the passed table as the target's new custom delegate.
      * To remove a delegate, pass null.
      * @param {table|null} delegate
-     * @returns {table} table itself
+     * @returns {this}
      */
     function setdelegate(delegate);
 
@@ -486,7 +493,7 @@ class function_ {
     /**
      * Sets the root table of the closure.
      * @param {table} root
-     * @returns {function} function itself
+     * @returns {this}
      */
     function setroot(root);
 
@@ -521,7 +528,7 @@ class class_ {
      * @param {any} value
      * @param {table} attributes
      * @param {bool} is_static
-     * @returns {class} class itself
+     * @returns {this}
      */
     function newmember(key, value, attributes = {}, is_static = false);
 
@@ -555,7 +562,7 @@ class class_ {
      * @param {any} value
      * @param {table} attributes
      * @param {bool} is_static
-     * @returns {class} class itself
+     * @returns {this}
      */
     function rawnewmember(key, value, attributes = {}, is_static = false);
 
@@ -563,7 +570,7 @@ class class_ {
      * Sets the value of the specified key without employing delegation.
      * @param {any} key
      * @param {any} value
-     * @returns {class} class itself
+     * @returns {this}
      */
     function rawset(key, value);
 
@@ -611,10 +618,10 @@ class instance {
     function rawin(key);
 
     /**
-     * Sets the value of the specified key without employing delegation. Returns the instance itself.
+     * Sets the value of the specified key without employing delegation.
      * @param {any} key
      * @param {any} value
-     * @returns {instance}
+     * @returns {this}
      */
     function rawset(key, value);
 

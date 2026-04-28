@@ -742,12 +742,6 @@ pub trait Source {
 
     fn primitive_to_str(&self, primitive: &Primitive) -> Box<str> {
         match primitive {
-            Primitive::Unknown => "unknown".into(),
-            Primitive::Integer(_) => "integer".into(),
-            Primitive::Float(_) => "float".into(),
-            Primitive::String { .. } => "string".into(),
-            Primitive::Bool(_) => "bool".into(),
-            Primitive::Null => "null".into(),
             Primitive::Instance(id) => {
                 if let Some(id) = id
                     && let Some(symbol) = self.get(*id).symbol
@@ -770,29 +764,55 @@ pub trait Source {
 
                 format!("[{}]", self.type_to_str(kind)).into_boxed_str()
             }
-            Primitive::Table(_) => "table".into(),
-            Primitive::Class(_) => "class".into(),
-            Primitive::Function(_) => "function".into(),
-            Primitive::Generator(_) => "generator".into(),
-            Primitive::Thread(_) => "thread".into(),
-            Primitive::Weakref => "weakref".into(),
+            _ => self.primitive_to_str_generic(primitive).into(),
         }
     }
 
-    fn type_to_str(&self, typ: &Type) -> Box<str> {
+    fn primitive_to_str_generic(&self, primitive: &Primitive) -> &'static str {
+        match primitive {
+            Primitive::Unknown => "unknown",
+            Primitive::Integer(_) => "integer",
+            Primitive::Float(_) => "float",
+            Primitive::String { .. } => "string",
+            Primitive::Bool(_) => "bool",
+            Primitive::Null => "null",
+            Primitive::Instance(_) => "instance",
+            Primitive::Array(_) => "array",
+            Primitive::Table(_) => "table",
+            Primitive::Class(_) => "class",
+            Primitive::Function(_) => "function",
+            Primitive::Generator(_) => "generator",
+            Primitive::Thread(_) => "thread",
+            Primitive::Weakref => "weakref",
+        }
+    }
+
+    fn type_to_str_impl(
+        &self,
+        typ: &Type,
+        prim_to_str: impl Fn(&Primitive) -> Box<str>,
+    ) -> Box<str> {
         match typ {
             Type::Any => "any".into(),
             Type::Enum(_) => "enum".into(),
-            Type::Primitive(prim) => self.primitive_to_str(prim),
+            Type::Primitive(prim) => prim_to_str(prim),
             Type::Union(id) => id
                 .primitives
                 .iter()
                 .filter(|prim| **prim != Primitive::Unknown)
-                .map(|prim| self.primitive_to_str(prim))
+                .map(prim_to_str)
                 .collect::<Vec<_>>()
                 .join("|")
                 .into_boxed_str(),
         }
+    }
+
+    fn type_to_str_generic(&self, typ: &Type) -> Box<str> {
+        self.type_to_str_impl(typ, |prim| self.primitive_to_str_generic(prim).into())
+    }
+
+    fn type_to_str(&self, typ: &Type) -> Box<str> {
+        self.type_to_str_impl(typ, |prim| self.primitive_to_str(prim))
     }
 
     fn symbol_markdown(&self, id: SymbolId) -> String {
