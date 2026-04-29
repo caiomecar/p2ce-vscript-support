@@ -569,7 +569,7 @@ fn context_completions(
             }
 
             let Some(member_access) = parent.parent() else {
-                return Some(ContextCompletions::Statement);
+                return Some(ContextCompletions::Expression);
             };
 
             Some(
