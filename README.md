@@ -47,10 +47,10 @@
 Functionality is mostly checked using a comprehensive set of scripts, there might be unknown bugs.
 Please report at https://github.com/ocet247/tf2-vscript-support/issues.
 
-Even though the language server implements type inference, the type might not always be predictable
-this may lead to incorrect hover, completions and overall state of the variable. By specifying the type
+Even though the language server implements type inference, the type might not always be predictable.
+This may lead to incorrect hover, completions and overall state of the variable. By specifying the type
 with a doc comment you make the server's job a lot easier, in addition to knowing the exact type you
-would also get diagnostics for doing incorrect operations on the type
+would also get diagnostics for doing incorrect operations on the variable
 
 
 # Credits
