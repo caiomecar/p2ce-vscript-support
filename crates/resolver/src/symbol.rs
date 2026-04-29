@@ -216,12 +216,13 @@ impl Type {
     }
 
     #[must_use]
+    pub const fn is_useful(&self) -> bool {
+        !TypeFlags::UNKNOWN_OR_NULL.contains(self.type_flags())
+    }
+
+    #[must_use]
     pub const fn null_to_any(&self) -> &Self {
-        if TypeFlags::UNKNOWN_OR_NULL.contains(self.type_flags()) {
-            &Self::Any
-        } else {
-            self
-        }
+        if self.is_useful() { self } else { &Self::Any }
     }
 
     primitive_accessor!(

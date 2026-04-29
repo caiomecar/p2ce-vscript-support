@@ -2,9 +2,7 @@ use lsp_types::{
     InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent,
     MarkupKind,
 };
-use resolver::{
-    Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, TypeFlags, line_index,
-};
+use resolver::{Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, line_index};
 
 use crate::conversions;
 
@@ -26,6 +24,10 @@ pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<
                 return None;
             }
 
+            if symbol.name.starts_with('_') {
+                return None;
+            }
+
             if !matches!(
                 symbol.kind,
                 SymbolKind::Local(
@@ -36,7 +38,7 @@ pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<
             }
 
             // skip if type is unknown or null - nothing useful to show
-            if TypeFlags::UNKNOWN_OR_NULL.contains(symbol.typ.type_flags()) {
+            if !symbol.typ.is_useful() {
                 return None;
             }
 
