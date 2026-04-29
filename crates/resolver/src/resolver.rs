@@ -1505,7 +1505,7 @@ impl<'db> Resolver<'db> {
                     range,
                 }];
                 self.call_metamethod_primitive(iterable, range, "_nexti", &arguments, None);
-                Some((Type::UNKNOWN, Type::UNKNOWN))
+                Some((Type::STRING.add_unknown(), Type::UNKNOWN))
             }
             Primitive::Array(kind) => {
                 let typ = kind.map_or(Type::UNKNOWN, |id| self.get(id).kind.clone());
@@ -1516,7 +1516,7 @@ impl<'db> Resolver<'db> {
 
                 Some((Type::INTEGER, typ))
             }
-            Primitive::Class(_) => Some((Type::UNKNOWN, Type::UNKNOWN)),
+            Primitive::Class(_) => Some((Type::STRING.add_unknown(), Type::UNKNOWN)),
             _ => {
                 let arguments = [TypeWithRange {
                     kind: Type::NULL,
@@ -2585,13 +2585,13 @@ impl<'db> Resolver<'db> {
             self.enter_scope(TextRange::empty(stmt.syntax().text_range().end()));
         }
 
-        let (key_type, value_type) =
-            stmt.iterable()
-                .map_or((Type::UNKNOWN, Type::UNKNOWN), |iterable| {
-                    let typ = self.expr_to_type_with_range(&iterable);
-                    self.iterable(&typ)
-                        .unwrap_or((Type::UNKNOWN, Type::UNKNOWN))
-                });
+        let (key_type, value_type) = stmt
+            .iterable()
+            .and_then(|iterable| {
+                let typ = self.expr_to_type_with_range(&iterable);
+                self.iterable(&typ)
+            })
+            .unwrap_or_else(|| (Type::STRING.add_unknown(), Type::UNKNOWN));
 
         if let Some(key) = stmt.key()
             && let Some(name) = get_name(&key)
