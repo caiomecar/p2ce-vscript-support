@@ -1,5 +1,6 @@
 mod completion;
 mod conversions;
+mod document_link;
 mod document_symbols;
 mod find_references;
 mod go_to_definition;
@@ -18,14 +19,14 @@ use anyhow::Result;
 use lsp_server::{Connection, Message, Request as ServerRequest, RequestId, Response};
 use lsp_types::notification::{DidChangeConfiguration, Notification}; // for METHOD consts
 use lsp_types::request::{
-    DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition, HoverRequest, InlayHintRequest,
-    PrepareRenameRequest, References, Rename, Request, SemanticTokensFullRequest,
+    DocumentLinkRequest, DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition, HoverRequest,
+    InlayHintRequest, PrepareRenameRequest, References, Rename, Request, SemanticTokensFullRequest,
     SignatureHelpRequest,
 };
 use lsp_types::{
     CompletionOptions, DiagnosticSeverity, DiagnosticTag, DidChangeConfigurationParams,
-    HoverProviderCapability, OneOf, RenameOptions, SemanticTokenModifier, SemanticTokenType,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    DocumentLinkOptions, HoverProviderCapability, OneOf, RenameOptions, SemanticTokenModifier,
+    SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
     SemanticTokensServerCapabilities, SignatureHelpOptions, TypeDefinitionProviderCapability,
     WorkDoneProgressOptions,
 };
@@ -48,6 +49,7 @@ use lsp_types::{
 use salsa::Setter;
 
 use crate::completion::handle_completions;
+use crate::document_link::handle_document_link;
 use crate::document_symbols::handle_document_symbols;
 use crate::find_references::handle_references;
 use crate::go_to_definition::handle_go_to_definition;
@@ -114,6 +116,10 @@ fn main() -> Result<()> {
         }),
         inlay_hint_provider: Some(OneOf::Left(true)),
         type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
+        document_link_provider: Some(DocumentLinkOptions {
+            resolve_provider: Some(false),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        }),
         ..Default::default()
     };
 
@@ -313,6 +319,11 @@ fn handle_request(db: &Database, conn: &Connection, req: ServerRequest) -> Resul
         GotoTypeDefinition::METHOD => {
             let params = serde_json::from_value(req.params)?;
             let result = handle_go_to_type_definition(db, params);
+            send_ok(conn, req.id, &result)?;
+        }
+        DocumentLinkRequest::METHOD => {
+            let params = serde_json::from_value(req.params)?;
+            let result = handle_document_link(db, params);
             send_ok(conn, req.id, &result)?;
         }
         _ => send_err(
