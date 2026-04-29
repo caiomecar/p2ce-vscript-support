@@ -47,7 +47,7 @@ pub fn handle_document_link(db: &Database, params: DocumentLinkParams) -> Vec<Do
             Some(DocumentLink {
                 range: conversions::range(line_idx, literal.unquoted_range)?,
                 target: Some(uri),
-                tooltip: Some("Follow link (ctrl + click)".to_owned()),
+                tooltip: Some("Open file".to_owned()),
                 data: None,
             })
         })
