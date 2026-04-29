@@ -7,7 +7,7 @@ authors = ["ocet247"]
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-salsa = "0.26.0"
+salsa = "0.26.1"
 rustc-hash = "2.1.1"
 line-index = "0.1.2"
 bitflags = "2"

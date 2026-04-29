@@ -2853,7 +2853,7 @@ impl<'db> Resolver<'db> {
             let symbol = self.symbol(Symbol {
                 name: name.text().into(),
                 typ: Type::Enum(enum_),
-                kind: SymbolKind::Enum,
+                kind: SymbolKind::Constant,
                 name_range: name.text_range(),
                 range: stmt.syntax().text_range(),
                 ..Default::default()

@@ -4838,6 +4838,12 @@ class QAngle {
 }
 
 class Vector2D {
+    /** @type {float} */
+    x = null
+
+    /** @type {float} */
+    y = null
+
     /**
      * Creates a new 2-dimensional vector with the specified Cartesian coordiantes.
      * @param {float} x
@@ -4900,6 +4906,18 @@ class Vector2D {
 }
 
 class Vector4D {
+    /** @type {float} */
+    x = null
+
+    /** @type {float} */
+    y = null
+
+    /** @type {float} */
+    z = null
+
+    /** @type {float} */
+    w = null
+
     /**
      * Creates a new 2-dimensional vector with the specified Cartesian coordiantes.
      * @param {float} x

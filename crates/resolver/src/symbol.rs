@@ -137,7 +137,6 @@ impl From<&Symbol> for DisplayType {
                     SymbolKind::Local(_) => Self::Variable,
                     SymbolKind::Constant => Self::Constant,
                     SymbolKind::Property(_) => Self::Field,
-                    SymbolKind::Enum => Self::Enum,
                     SymbolKind::EnumMember => Self::EnumMember,
                 },
             },
@@ -356,7 +355,6 @@ pub struct Union {
 pub enum SymbolKind {
     Local(LocalKind),
     Constant,
-    Enum,
     EnumMember,
     Property(PropertyKind),
 }

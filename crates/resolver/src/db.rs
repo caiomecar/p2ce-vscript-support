@@ -103,6 +103,7 @@ pub trait Db: salsa::Database {
 }
 
 impl salsa::Database for Database {}
+
 #[salsa::db]
 impl Db for Database {
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {

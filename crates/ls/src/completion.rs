@@ -950,7 +950,7 @@ fn completions_from_qualified_name(
             let symbol = finished_file.get(id);
             if matches!(
                 symbol.kind,
-                SymbolKind::Enum | SymbolKind::Local(_) | SymbolKind::Constant
+                SymbolKind::Local(_) | SymbolKind::Constant | SymbolKind::EnumMember
             ) {
                 return None;
             }

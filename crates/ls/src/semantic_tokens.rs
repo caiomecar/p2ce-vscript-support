@@ -1,7 +1,7 @@
 use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 use resolver::{
     Database, DisplayType, FinishedFile, LocalKind, PropertyKind, Source, SymbolFlags, SymbolKind,
-    line_index,
+    Type, line_index,
 };
 
 use crate::conversions;
@@ -86,17 +86,18 @@ pub fn handle_semantic_tokens(
                     _ => TokenType::Property,
                 }
             }
-            SymbolKind::Enum => {
-                modifiers |= TokenModifier::READONLY;
-                TokenType::Enum
-            }
             SymbolKind::EnumMember => {
                 modifiers |= TokenModifier::READONLY;
                 TokenType::EnumMember
             }
             SymbolKind::Constant => {
                 modifiers |= TokenModifier::READONLY;
-                TokenType::Variable
+
+                if matches!(symbol.typ, Type::Enum(_)) {
+                    TokenType::Enum
+                } else {
+                    TokenType::Variable
+                }
             }
         };
 

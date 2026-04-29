@@ -27,6 +27,8 @@ pub use symbol::{
     SymbolTable, ToPrimitiveError, Type, TypeFlags,
 };
 
+const MARKDOWN_MEMBER_LIMIT: usize = 5;
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Diagnostic {
     pub message: String,
@@ -826,6 +828,43 @@ pub trait Source {
             }
         };
 
+        let class_or_table_members = |str: &mut String, members| {
+            let members: Vec<_> = to_flat_symbol_table(members)
+                .into_iter()
+                .filter_map(|(name, id)| {
+                    let typ = &self.get(id).typ;
+                    if matches!(Primitive::try_from(typ), Ok(Primitive::Function(_))) {
+                        return None;
+                    }
+                    Some((name, typ))
+                })
+                .collect();
+
+            let total = members.len();
+
+            if total == 0 {
+                return false;
+            }
+
+            str.push_str(" {\n");
+
+            for (name, typ) in members.into_iter().take(MARKDOWN_MEMBER_LIMIT) {
+                let _ = writeln!(str, "\t{name}: {},", self.type_to_str(typ));
+            }
+
+            if total > MARKDOWN_MEMBER_LIMIT {
+                let _ = writeln!(
+                    str,
+                    "\t// ... {} more members",
+                    total - MARKDOWN_MEMBER_LIMIT
+                );
+            }
+
+            str.push('}');
+
+            true
+        };
+
         match s.kind {
             SymbolKind::Local(_) => str.push_str("local "),
             SymbolKind::Property(_) => {
@@ -833,13 +872,36 @@ pub trait Source {
                     str.push_str("static ");
                 }
             }
-            SymbolKind::Enum => {
-                let _ = write!(&mut str, "enum {}", s.name);
-                finish(&mut str);
-                return str;
-            }
             SymbolKind::Constant | SymbolKind::EnumMember => {
                 let type_text = match s.typ {
+                    Type::Enum(id) => {
+                        let _ = write!(str, "enum {}", s.name);
+
+                        let members = self.enum_members(id);
+                        let total = members.len();
+                        if total == 0 {
+                            finish(&mut str);
+                            return str;
+                        }
+                        str.push_str(" {\n");
+
+                        for (name, _) in members.into_iter().take(MARKDOWN_MEMBER_LIMIT) {
+                            let _ = writeln!(str, "\t{name},");
+                        }
+
+                        if total > MARKDOWN_MEMBER_LIMIT {
+                            let _ = writeln!(
+                                str,
+                                "\t// ... {} more members",
+                                total - MARKDOWN_MEMBER_LIMIT
+                            );
+                        }
+
+                        str.push('}');
+
+                        finish(&mut str);
+                        return str;
+                    }
                     Type::Primitive(Primitive::Integer(Some(value))) => value.to_string(),
                     Type::Primitive(Primitive::Float(Some(value))) => value.to_string(),
                     Type::Primitive(Primitive::Bool(Some(value))) => value.to_string(),
@@ -850,7 +912,7 @@ pub trait Source {
                         format!("\"{}\"", self.get(literal).text)
                     }
                     _ => {
-                        let _ = write!(&mut str, "const {}", s.name);
+                        let _ = write!(str, "const {}", s.name);
                         finish(&mut str);
                         return str;
                     }
@@ -869,13 +931,22 @@ pub trait Source {
                 str.push_str(&signature);
             }
             Ok(Primitive::Function(None)) => {
-                let _ = write!(&mut str, "function {}()", s.name);
+                let _ = write!(str, "function {}()", s.name);
             }
-            Ok(Primitive::Class(_)) => {
-                let _ = write!(&mut str, "class {}", s.name);
+            Ok(Primitive::Class(id)) => {
+                let _ = write!(str, "class {}", s.name);
+                if let Some(id) = id {
+                    class_or_table_members(&mut str, self.additional_class_members(id));
+                }
+            }
+            Ok(Primitive::Table(Some(id))) => {
+                let _ = write!(str, "{}:", s.name);
+                if !class_or_table_members(&mut str, self.additional_table_members(id)) {
+                    str.push_str(" table");
+                }
             }
             _ => {
-                let _ = write!(&mut str, "{}: {}", s.name, self.type_to_str(&s.typ));
+                let _ = write!(str, "{}: {}", s.name, self.type_to_str(&s.typ));
             }
         }
 
@@ -906,7 +977,7 @@ pub trait Source {
                 label.push('?');
             }
             if param.typ != Type::UNKNOWN {
-                let _ = write!(&mut label, ": {}", self.type_to_str(&param.typ));
+                let _ = write!(label, ": {}", self.type_to_str(&param.typ));
             }
             let end = label.len();
             param_ranges.push([
@@ -926,7 +997,7 @@ pub trait Source {
                 let typ = &self.get(*id).kind;
 
                 if *typ != Type::UNKNOWN {
-                    let _ = write!(&mut label, ": {}", self.type_to_str(typ));
+                    let _ = write!(label, ": {}", self.type_to_str(typ));
                 }
             }
             let end = label.len();
@@ -946,14 +1017,14 @@ pub trait Source {
             ReturnState::Absent => {}
             ReturnState::NotExplicit(typ) | ReturnState::Explicit(typ) => {
                 if !matches!(typ, Type::Primitive(Primitive::Unknown | Primitive::Null)) {
-                    let _ = write!(&mut label, " -> {}", self.type_to_str(typ));
+                    let _ = write!(label, " -> {}", self.type_to_str(typ));
                 }
             }
             ReturnState::This(typ) => {
                 if let Some(typ) = typ
                     && *typ != Type::Primitive(Primitive::Unknown)
                 {
-                    let _ = write!(&mut label, " -> {} | this", self.type_to_str(typ));
+                    let _ = write!(label, " -> {} | this", self.type_to_str(typ));
                 } else {
                     label.push_str(" -> this");
                 }
