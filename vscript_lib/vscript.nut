@@ -2811,7 +2811,7 @@ class Convars {
 
     /**
      * Returns the convar value for the entindex as a string. Only works on FCVAR_USERINFO convars.
-     * @param {convar} name
+     * @param {client_convar} name
      * @param {integer} entindex
      * @returns {string}
      */
@@ -5542,7 +5542,7 @@ function SendToConsoleServer(command);
 /**
  * Sets a USERINFO client ConVar for a fakeclient.
  * @param {CTFBot} bot
- * @param {convar} cvar
+ * @param {client_convar} cvar
  * @param {string} value
  */
 function SetFakeClientConVarValue(bot, cvar, value);

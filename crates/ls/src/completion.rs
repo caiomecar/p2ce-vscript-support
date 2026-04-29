@@ -1149,6 +1149,7 @@ fn completions_doc_type(offset: TextSize, finished_file: &FinishedFile<'_>) -> V
         "output",
         "classname",
         "convar",
+        "client_convar",
         "integer_property",
         "integer_array_property",
         "float_property",

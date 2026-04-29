@@ -558,6 +558,7 @@ pub enum StringKind {
     ClassnameSearch,
 
     Convar,
+    ClientConvar,
 
     PropInt,
     PropIntArray,
@@ -586,6 +587,7 @@ impl std::fmt::Display for StringKind {
             Self::Classname => write!(f, "classname"),
             Self::ClassnameSearch => write!(f, "classname_search"),
             Self::Convar => write!(f, "convar"),
+            Self::ClientConvar => write!(f, "client_convar"),
             Self::PropInt => write!(f, "integer_property"),
             Self::PropIntArray => write!(f, "integer_array_property"),
             Self::PropFloat => write!(f, "float_property"),
@@ -616,6 +618,7 @@ impl std::str::FromStr for StringKind {
             "classname" => Self::Classname,
             "classname_search" => Self::ClassnameSearch,
             "convar" => Self::Convar,
+            "client_convar" => Self::ClientConvar,
             "integer_property" => Self::PropInt,
             "integer_array_property" => Self::PropIntArray,
             "float_property" => Self::PropFloat,
@@ -640,78 +643,28 @@ impl StringKind {
     pub fn values(self) -> Option<&'static [&'static StringLiteralValues]> {
         use string_literals as sl;
 
-        static ATTRIBUTE: [&StringLiteralValues; 1] = [&sl::ATTRIBUTES];
-        static INPUT: [&StringLiteralValues; 1] = [&sl::INPUTS];
-        static OUTPUT: [&StringLiteralValues; 1] = [&sl::OUTPUTS];
-        static CLASSNAME: [&StringLiteralValues; 1] = [&sl::CLASSNAMES];
-        static CONVAR: [&StringLiteralValues; 1] = [&sl::CONVARS];
-        static PROP_INT: [&StringLiteralValues; 4] = [
-            &sl::PROPERTY_INTEGER,
-            &sl::PROPERTY_INTEGER_ARRAY,
-            &sl::PROPERTY_BOOL,
-            &sl::PROPERTY_BOOL_ARRAY,
-        ];
-        static PROP_INT_ARRAY: [&StringLiteralValues; 2] =
-            [&sl::PROPERTY_INTEGER_ARRAY, &sl::PROPERTY_BOOL_ARRAY];
-        static PROP_FLOAT: [&StringLiteralValues; 2] =
-            [&sl::PROPERTY_FLOAT, &sl::PROPERTY_FLOAT_ARRAY];
-        static PROP_FLOAT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_FLOAT_ARRAY];
-        static PROP_ENTITY: [&StringLiteralValues; 2] =
-            [&sl::PROPERTY_ENTITY, &sl::PROPERTY_ENTITY_ARRAY];
-        static PROP_ENT_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_ENTITY_ARRAY];
-        static PROP_BOOL: [&StringLiteralValues; 2] =
-            [&sl::PROPERTY_BOOL, &sl::PROPERTY_BOOL_ARRAY];
-        static PROP_BOOL_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_BOOL_ARRAY];
-        static PROP_STRING: [&StringLiteralValues; 2] =
-            [&sl::PROPERTY_STRING, &sl::PROPERTY_STRING_ARRAY];
-        static PROP_STR_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_STRING_ARRAY];
-        static PROP_VECTOR: [&StringLiteralValues; 2] =
-            [&sl::PROPERTY_VECTOR, &sl::PROPERTY_VECTOR_ARRAY];
-        static PROP_VEC_ARRAY: [&StringLiteralValues; 1] = [&sl::PROPERTY_VECTOR_ARRAY];
-        static PROP_ALL: [&StringLiteralValues; 12] = [
-            &sl::PROPERTY_INTEGER,
-            &sl::PROPERTY_INTEGER_ARRAY,
-            &sl::PROPERTY_FLOAT,
-            &sl::PROPERTY_FLOAT_ARRAY,
-            &sl::PROPERTY_ENTITY,
-            &sl::PROPERTY_ENTITY_ARRAY,
-            &sl::PROPERTY_BOOL,
-            &sl::PROPERTY_BOOL_ARRAY,
-            &sl::PROPERTY_STRING,
-            &sl::PROPERTY_STRING_ARRAY,
-            &sl::PROPERTY_VECTOR,
-            &sl::PROPERTY_VECTOR_ARRAY,
-        ];
-        static PROP_ARRAY: [&StringLiteralValues; 6] = [
-            &sl::PROPERTY_INTEGER_ARRAY,
-            &sl::PROPERTY_FLOAT_ARRAY,
-            &sl::PROPERTY_ENTITY_ARRAY,
-            &sl::PROPERTY_BOOL_ARRAY,
-            &sl::PROPERTY_STRING_ARRAY,
-            &sl::PROPERTY_VECTOR_ARRAY,
-        ];
-
         Some(match self {
             Self::Arbitrary | Self::Script => return None,
-            Self::Attribute => &ATTRIBUTE,
-            Self::Input => &INPUT,
-            Self::Output => &OUTPUT,
-            Self::Classname | Self::ClassnameSearch => &CLASSNAME,
-            Self::Convar => &CONVAR,
-            Self::PropInt => &PROP_INT,
-            Self::PropIntArray => &PROP_INT_ARRAY,
-            Self::PropFloat => &PROP_FLOAT,
-            Self::PropFloatArray => &PROP_FLOAT_ARRAY,
-            Self::PropEntity => &PROP_ENTITY,
-            Self::PropEntityArray => &PROP_ENT_ARRAY,
-            Self::PropBool => &PROP_BOOL,
-            Self::PropBoolArray => &PROP_BOOL_ARRAY,
-            Self::PropString => &PROP_STRING,
-            Self::PropStringArray => &PROP_STR_ARRAY,
-            Self::PropVector => &PROP_VECTOR,
-            Self::PropVectorArray => &PROP_VEC_ARRAY,
-            Self::PropAll => &PROP_ALL,
-            Self::PropArray => &PROP_ARRAY,
+            Self::Attribute => &sl::ATTRIBUTE,
+            Self::Input => &sl::INPUT,
+            Self::Output => &sl::OUTPUT,
+            Self::Classname | Self::ClassnameSearch => &sl::CLASSNAME,
+            Self::Convar => &sl::CONVAR,
+            Self::ClientConvar => &sl::CLIENT_CONVAR,
+            Self::PropInt => &sl::PROPERTY_INTEGER,
+            Self::PropIntArray => &sl::PROPERTY_INTEGER_ARRAY,
+            Self::PropFloat => &sl::PROPERTY_FLOAT,
+            Self::PropFloatArray => &sl::PROPERTY_FLOAT_ARRAY,
+            Self::PropEntity => &sl::PROPERTY_ENTITY,
+            Self::PropEntityArray => &sl::PROPERTY_ENTITY_ARRAY,
+            Self::PropBool => &sl::PROPERTY_BOOL,
+            Self::PropBoolArray => &sl::PROPERTY_BOOL_ARRAY,
+            Self::PropString => &sl::PROPERTY_STRING,
+            Self::PropStringArray => &sl::PROPERTY_STRING_ARRAY,
+            Self::PropVector => &sl::PROPERTY_VECTOR,
+            Self::PropVectorArray => &sl::PROPERTY_VECTOR_ARRAY,
+            Self::PropAll => &sl::PROPERTY_ALL,
+            Self::PropArray => &sl::PROPERTY_ARRAY,
         })
     }
 

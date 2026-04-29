@@ -807,6 +807,8 @@ impl<'db> Resolver<'db> {
                                 )
                             })
                     }
+                    // In non vanilla tf2 those 2 can have other values that are valid
+                    StringKind::Convar | StringKind::Input => None,
                     _ => kind
                         .values()
                         .is_some_and(|values| !values.iter().any(|set| set.0.contains(&text)))
