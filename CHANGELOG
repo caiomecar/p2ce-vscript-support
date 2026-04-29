@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.0.9]
+- Produce only a single warning on a block of unreachable statements
+- Add client_convar string literal
+- Lift convar/input wrong string literal warning
+
 ## [3.0.8]
 - Fix parser producing wrong recovery by modifying incorrect variable
 - Add document link provider for imports
