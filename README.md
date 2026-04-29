@@ -20,6 +20,7 @@
 - Inlay hints (only for types)
 - Signature help
 - Document symbols
+- Document link for imports
 
 ## Diagnostics
 - Syntax checking

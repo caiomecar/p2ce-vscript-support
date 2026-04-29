@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.0.8]
+- Fix parser producing wrong recovery by modifying incorrect variable
+- Add document link provider for imports
+
 ## [3.0.7]
 - Fix lambda expressions causing panics
 - Add typed array support
