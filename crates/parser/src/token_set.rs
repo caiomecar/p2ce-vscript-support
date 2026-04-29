@@ -94,13 +94,25 @@ impl TokenSet {
 
     pub const UPDATE_OPERATORS: Self = Self::new(&[SyntaxKind::PlusPlus, SyntaxKind::MinusMinus]);
 
-    pub const INIT_OPERATORS: Self = Self::ASSIGNMENT_OPERATORS.union(Self::new(&[
-        // These are the only valid ones but we also keep other assignment
-        // operators for better recovery
+    pub const INIT_OPERATORS: Self = Self::new(&[
+        // These 3 are the only valid ones but we also keep other operators
+        // that contain equals operators for better recovery
         SyntaxKind::Equals,
         SyntaxKind::Colon,
         SyntaxKind::LessThanMinus,
-    ]));
+        //
+        SyntaxKind::PlusEquals,
+        SyntaxKind::MinusEquals,
+        SyntaxKind::AsteriskEquals,
+        SyntaxKind::SlashEquals,
+        SyntaxKind::PercentEquals,
+        SyntaxKind::LessThanMinus,
+        SyntaxKind::EqualsEquals,
+        SyntaxKind::ExclamationEquals,
+        SyntaxKind::LessThanEqualsGreaterThan,
+        SyntaxKind::LessThanEquals,
+        SyntaxKind::GreaterThanEquals,
+    ]);
 
     pub const SEPARATORS: Self = Self::new(&[SyntaxKind::Comma, SyntaxKind::Semicolon]);
 

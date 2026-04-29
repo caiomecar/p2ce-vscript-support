@@ -442,7 +442,7 @@ impl Parser {
         self.bump();
     }
 
-    /// Example: `INIT_OPERATOR` = [=, :, <-, (==, +=, -=, *=, /=, %=)]
+    /// Example: `INIT_OPERATORS` = [=, :, <-, (==, <=, >=, <=>, +=, -=, *=, /=, %=)]
     /// There are recovery sets that contain possible tokens that user could've written
     /// Only 1 of those tokens is correct depending on what we're parsing
     /// The recovery strategy is to check whether we're at this sort of set and then
