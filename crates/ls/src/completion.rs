@@ -1215,122 +1215,80 @@ fn completion_doc_auto_generated(
     typ: &Type,
     replace_range: TextRange,
 ) -> Vec<CompletionItem> {
-    #[allow(clippy::literal_string_with_formatting_args)]
-    let text = match Primitive::try_from(typ) {
-        Ok(Primitive::Function(Some(id))) => {
-            let mut text = "/**\n * ${1:Description}".to_owned();
-            let mut last_index = 1;
-            let func = finished_file.get(id);
-            for param in &func.params {
-                last_index += 1;
+    let mut text = format!(
+        "/**\n * $1\n * @type {{${{2:{}}}}}",
+        finished_file.type_to_str(typ.null_to_any()),
+    );
 
-                let symbol = finished_file.get(*param);
+    if let Ok(id) = typ.to_function() {
+        let mut stop_idx = 2u16;
+        let func = finished_file.get(id);
+        for param in &func.params {
+            stop_idx += 1;
 
-                let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(symbol.typ.type_flags()) {
-                    &Type::Any
-                } else {
-                    &symbol.typ
-                };
+            let symbol = finished_file.get(*param);
 
-                let name = &symbol.name;
+            let _ = write!(
+                text,
+                "\n * @param {{${{{stop_idx}:{}}}}} {}",
+                finished_file.type_to_str(symbol.typ.null_to_any()),
+                symbol.name
+            );
+        }
+
+        match &func.ret {
+            ReturnState::Absent => {}
+            ReturnState::Explicit(typ) | ReturnState::NotExplicit(typ) => {
+                stop_idx += 1;
 
                 let _ = write!(
                     text,
-                    "\n * @param {{${{{}:{}}}}} {}",
-                    last_index,
-                    finished_file.type_to_str(typ),
-                    name
+                    "\n * @returns {{${{{stop_idx}:{}}}}}",
+                    finished_file.type_to_str(typ.null_to_any())
                 );
             }
-
-            match &func.ret {
-                ReturnState::Absent => {}
-                ReturnState::Explicit(typ) | ReturnState::NotExplicit(typ) => {
-                    last_index += 1;
-
-                    let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
-                        &Type::Any
-                    } else {
-                        typ
-                    };
-
+            ReturnState::This(typ) => {
+                stop_idx += 1;
+                if let Some(typ) = typ {
                     let _ = write!(
                         text,
-                        "\n * @returns {{${{{}:{}}}}}",
-                        last_index,
-                        finished_file.type_to_str(typ)
+                        "\n * @returns {{${{{stop_idx}:{} | this}}}}",
+                        finished_file.type_to_str(typ.null_to_any())
                     );
-                }
-                ReturnState::This(typ) => {
-                    last_index += 1;
-                    if let Some(typ) = typ {
-                        let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
-                            &Type::Any
-                        } else {
-                            typ
-                        };
-
-                        let _ = write!(
-                            text,
-                            "\n * @returns {{${{{} | this:{}}}}}",
-                            last_index,
-                            finished_file.type_to_str(typ)
-                        );
-                    } else {
-                        let _ = write!(text, "\n * @returns {{${{this:{last_index}}}}}");
-                    }
+                } else {
+                    let _ = write!(text, "\n * @returns {{${{{stop_idx}:this}}}}");
                 }
             }
-
-            match &func.throws {
-                TypeState::Absent => {}
-                TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
-                    last_index += 1;
-
-                    let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
-                        &Type::Any
-                    } else {
-                        typ
-                    };
-
-                    let _ = write!(
-                        text,
-                        "\n * @throws {{${{{}:{}}}}}",
-                        last_index,
-                        finished_file.type_to_str(typ)
-                    );
-                }
-            }
-
-            match &func.yields {
-                TypeState::Absent => {}
-                TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
-                    last_index += 1;
-
-                    let typ = if TypeFlags::UNKNOWN_OR_NULL.contains(typ.type_flags()) {
-                        &Type::Any
-                    } else {
-                        typ
-                    };
-
-                    let _ = write!(
-                        text,
-                        "\n * @yields {{${{{}:{}}}}}",
-                        last_index + 1,
-                        finished_file.type_to_str(typ)
-                    );
-                }
-            }
-            let _ = write!(text, "\n */");
-            text
         }
-        _ => {
-            format!(
-                "/**\n * ${{1:Description}}\n * @type {{${{2:{}}}}}\n */",
-                finished_file.type_to_str(typ),
-            )
+
+        match &func.throws {
+            TypeState::Absent => {}
+            TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                stop_idx += 1;
+
+                let _ = write!(
+                    text,
+                    "\n * @throws {{${{{stop_idx}:{}}}}}",
+                    finished_file.type_to_str(typ.null_to_any())
+                );
+            }
         }
-    };
+
+        match &func.yields {
+            TypeState::Absent => {}
+            TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                stop_idx += 1;
+
+                let _ = write!(
+                    text,
+                    "\n * @yields {{${{{stop_idx}:{}}}}}",
+                    finished_file.type_to_str(typ.null_to_any())
+                );
+            }
+        }
+    }
+
+    let _ = write!(text, "\n */");
 
     let additional_text_edits = conversions::range(line_idx, replace_range).map(|range| {
         vec![TextEdit {
@@ -1341,7 +1299,7 @@ fn completion_doc_auto_generated(
 
     vec![CompletionItem {
         label: "Autogenerated Doc Comment ...".to_owned(),
-        kind: Some(CompletionItemKind::KEYWORD),
+        kind: Some(CompletionItemKind::TEXT),
         insert_text: Some(text),
         insert_text_format: Some(InsertTextFormat::SNIPPET),
         additional_text_edits,

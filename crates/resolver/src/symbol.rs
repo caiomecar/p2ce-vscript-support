@@ -110,6 +110,12 @@ pub enum Type {
     Union(Union),
 }
 
+impl Default for Type {
+    fn default() -> Self {
+        Self::Primitive(Primitive::default())
+    }
+}
+
 pub enum DisplayType {
     Function,
     Class,
@@ -160,12 +166,6 @@ impl TryFrom<&Type> for Primitive {
     }
 }
 
-impl Default for Type {
-    fn default() -> Self {
-        Self::Primitive(Primitive::default())
-    }
-}
-
 pub enum ToPrimitiveError {
     WrongType,
     WrongTypeWithUnknown,
@@ -213,6 +213,15 @@ impl Type {
     #[must_use]
     pub fn add_unknown(&self) -> Self {
         merge_types(self, &Self::UNKNOWN)
+    }
+
+    #[must_use]
+    pub const fn null_to_any(&self) -> &Self {
+        if TypeFlags::UNKNOWN_OR_NULL.contains(self.type_flags()) {
+            &Self::Any
+        } else {
+            self
+        }
     }
 
     primitive_accessor!(
