@@ -6151,6 +6151,7 @@ function Say(player, message, team_only);
 
 /**
  * Displays a HUD message defined in scripts/titles.txt to all clients.
+ * @type {function}
  * @param {string} message
  */
 function ShowMessage(message);

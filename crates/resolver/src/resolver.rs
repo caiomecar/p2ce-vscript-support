@@ -2430,10 +2430,11 @@ impl<'db> Resolver<'db> {
     fn collect_stmt(&mut self, stmt: &Stmt) {
         if self.dead_code && !matches!(stmt, Stmt::Empty(_)) {
             self.diagnostics.push(Diagnostic {
-                message: "Unreachable statement".to_owned(),
+                message: "Unreachable statement detected".to_owned(),
                 range: stmt.syntax().text_range(),
                 severity: DiagnosticSeverity::Unnecessary,
             });
+            self.dead_code = false;
         }
 
         match stmt {
