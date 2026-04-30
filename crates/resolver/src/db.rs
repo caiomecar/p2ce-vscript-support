@@ -135,15 +135,27 @@ impl VScriptDatabase for Database {
     }
 
     fn update_tf2_root(&mut self, path: Option<PathBuf>) {
-        self.tf2_root_dir = path;
-        if let Some(root) = &self.tf2_root_dir {
-            self.load_all_scripts();
+        let Some(root) = path else {
+            self.tf2_root_dir = None;
+            self.scripts_dir = None;
+            return;
+        };
 
-            let scripts = root.join("tf/scripts/vscripts");
-            if let Ok(scripts) = scripts.canonicalize() {
-                self.scripts_dir = Some(scripts);
-            }
-        }
+        let Ok(root) = root.canonicalize() else {
+            self.tf2_root_dir = None;
+            return;
+        };
+
+        let scripts = root.join("tf/scripts/vscripts");
+        self.tf2_root_dir = Some(root);
+
+        let Ok(scripts) = scripts.canonicalize() else {
+            self.scripts_dir = None;
+            return;
+        };
+
+        self.load_all_scripts(&scripts);
+        self.scripts_dir = Some(scripts);
     }
 
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
@@ -239,12 +251,8 @@ impl Database {
         this
     }
 
-    fn load_all_scripts(&self) {
-        let Some(scripts) = &self.scripts_dir else {
-            return;
-        };
-
-        for entry in walkdir::WalkDir::new(scripts)
+    fn load_all_scripts(&self, scripts_dir: &PathBuf) {
+        for entry in walkdir::WalkDir::new(scripts_dir)
             .into_iter()
             .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().and_then(|e| e.to_str()) == Some("nut"))
