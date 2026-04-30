@@ -135,21 +135,20 @@ impl VScriptDatabase for Database {
     }
 
     fn update_tf2_root(&mut self, path: Option<PathBuf>) {
-        let Some(root) = path else {
-            self.tf2_root_dir = None;
-            self.scripts_dir = None;
-            return;
-        };
-
-        let Ok(root) = root.canonicalize() else {
+        let Some(root) = path.and_then(|r| r.canonicalize().ok()) else {
             self.tf2_root_dir = None;
             self.scripts_dir = None;
             return;
         };
 
         let scripts = root.join("tf/scripts/vscripts");
-        self.load_all_scripts(&scripts);
-        self.scripts_dir = Some(scripts);
+        if scripts.exists() {
+            self.load_all_scripts(&scripts);
+            self.scripts_dir = Some(scripts);
+        } else {
+            self.scripts_dir = None;
+        }
+
         self.tf2_root_dir = Some(root);
     }
 
