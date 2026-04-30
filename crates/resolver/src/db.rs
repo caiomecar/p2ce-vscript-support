@@ -143,6 +143,7 @@ impl VScriptDatabase for Database {
 
         let Ok(root) = root.canonicalize() else {
             self.tf2_root_dir = None;
+            self.scripts_dir = None;
             return;
         };
 
