@@ -213,9 +213,10 @@ fn publish_diagnostics<Db: VScriptDatabase + Clone + RefUnwindSafe>(
     session: &Session<Db>,
     url: &Url,
 ) -> Result<()> {
-    let Some(file) = session.db.get_file(url) else {
-        return Ok(());
-    };
+    let file = session
+        .db
+        .get_file(url)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
     let line_idx = positions::line_index(&session.db, file);
     let parse = parse(&session.db, file);
