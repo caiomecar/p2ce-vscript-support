@@ -1,5 +1,8 @@
 # Changelog
 
+## [3.0.11]
+- Fix 'didChangeWatchedFiles unknown notification' error
+
 ## [3.0.10]
 - Remove description from auto generated doc comment
 - Use string|unknown for key in foreach loop
