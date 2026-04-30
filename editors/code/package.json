@@ -15,6 +15,11 @@
   "categories": [
     "Programming Languages"
   ],
+  "keywords": [
+    "tf2",
+    "squirrel",
+    "VScript"
+  ],
   "scripts": {
     "build-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node20",
     "build": "npm run build-base -- --sourcemap",
