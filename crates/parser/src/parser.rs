@@ -76,6 +76,14 @@ enum VariableDeclaration {
     Catch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParseStatement {
+    FunctionBody,
+    StatementBody { parse_end: bool },
+    CaseClause,
+    SourceFile,
+}
+
 #[derive(Debug, Default)]
 pub struct Parser {
     tokens: Vec<Token>,
@@ -126,7 +134,7 @@ impl Parser {
         let m = Marker(0);
         self.skip_trivia();
         while !self.at(SyntaxKind::Eof) {
-            self.parse_statement(true);
+            self.parse_statement(ParseStatement::SourceFile);
         }
         self.consume_to_lookahead();
         self.finish(m, SyntaxKind::SourceFile);
@@ -779,7 +787,7 @@ impl Parser {
 
                 self.bump();
                 self.parse_function_signature();
-                self.parse_statement(/* parse_end */ false);
+                self.parse_statement(ParseStatement::FunctionBody);
                 self.finish(m, SyntaxKind::Constructor);
             }
             SyntaxKind::FunctionKeyword => {
@@ -794,7 +802,7 @@ impl Parser {
                 self.bump();
                 self.parse_name("method's name", TokenSet::EVERYTHING);
                 self.parse_function_signature();
-                self.parse_statement(/* parse_end */ false);
+                self.parse_statement(ParseStatement::FunctionBody);
                 self.finish(m, SyntaxKind::Method);
             }
             _ => self.parse_simple_name_property(m, object_kind, has_prefix_construct),
@@ -859,7 +867,7 @@ impl Parser {
                     self.error_at_token("Method needs to be prepended with a name".to_owned());
                 }
                 self.parse_function_signature();
-                self.parse_statement(/* parse_end */ false);
+                self.parse_statement(ParseStatement::FunctionBody);
                 self.finish(m, SyntaxKind::Method);
                 return;
             }
@@ -1319,7 +1327,7 @@ impl Parser {
         }
 
         self.parse_function_signature();
-        self.parse_statement(/* parse_end */ false);
+        self.parse_statement(ParseStatement::FunctionBody);
 
         self.finish(m, SyntaxKind::FunctionExpression);
         m
@@ -1368,8 +1376,21 @@ impl Parser {
         }
     }
 
-    fn parse_statement(&mut self, parse_end: bool) {
+    fn parse_statement(&mut self, kind: ParseStatement) -> bool {
+        let recovery = match kind {
+            ParseStatement::FunctionBody => Some(TokenSet::NO_FUNCTION_BODY),
+            ParseStatement::StatementBody { .. } => Some(TokenSet::END_OF_BLOCK),
+            ParseStatement::CaseClause => Some(TokenSet::END_OF_CASE_CLAUSE),
+            ParseStatement::SourceFile => None,
+        };
+
         loop {
+            if let Some(set) = recovery
+                && self.at_set(set)
+            {
+                return false;
+            }
+
             if self.at_set(TokenSet::STATEMENT_OR_EXPRESSION) {
                 break;
             }
@@ -1379,7 +1400,7 @@ impl Parser {
                 let m = self.start();
                 self.parse_catch_clause();
                 self.finish(m, SyntaxKind::TryStatement);
-                return;
+                return true;
             }
 
             if self.at(SyntaxKind::ElseKeyword) {
@@ -1389,7 +1410,7 @@ impl Parser {
 
             self.error_and_advance(self.expected_but_got("statement"));
             if self.token() == SyntaxKind::Eof {
-                return;
+                return false;
             }
         }
 
@@ -1416,9 +1437,16 @@ impl Parser {
             _ => self.parse_expression_statement(),
         }
 
+        let parse_end = matches!(
+            kind,
+            ParseStatement::StatementBody { parse_end: true } | ParseStatement::CaseClause
+        );
+
         if parse_end && !TokenSet::END_OF_STATEMENT.contains(self.prev_token.kind) {
             self.parse_end_of_statement();
         }
+
+        true
     }
     // ;
     fn parse_empty_statement(&mut self) {
@@ -1431,9 +1459,7 @@ impl Parser {
     fn parse_block_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::OpenBrace);
-        while !self.at_set(TokenSet::END_OF_BLOCK) {
-            self.parse_statement(/* parse_end */ true);
-        }
+        while self.parse_statement(ParseStatement::StatementBody { parse_end: true }) {}
         self.expect(SyntaxKind::CloseBrace);
         self.finish(m, SyntaxKind::BlockStatement);
     }
@@ -1483,11 +1509,15 @@ impl Parser {
         self.parse_comma_expression(TokenSet::STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
 
-        self.parse_statement(/* parse_end */ true);
+        if !self.parse_statement(ParseStatement::StatementBody { parse_end: true }) {
+            self.finish(m, SyntaxKind::IfStatement);
+            return;
+        }
+
         if self.at(SyntaxKind::ElseKeyword) {
             let m = self.start();
             self.bump();
-            self.parse_statement(/* parse_end */ true);
+            self.parse_statement(ParseStatement::StatementBody { parse_end: true });
             self.finish(m, SyntaxKind::IfElseBranch);
         }
         self.finish(m, SyntaxKind::IfStatement);
@@ -1501,7 +1531,7 @@ impl Parser {
         self.parse_comma_expression(TokenSet::STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
 
-        self.parse_statement(/* parse_end */ false);
+        self.parse_statement(ParseStatement::StatementBody { parse_end: false });
 
         self.finish(m, SyntaxKind::WhileStatement);
     }
@@ -1510,7 +1540,11 @@ impl Parser {
     fn parse_do_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::DoKeyword);
-        self.parse_statement(/* parse_end */ false);
+
+        if !self.parse_statement(ParseStatement::StatementBody { parse_end: false }) {
+            self.finish(m, SyntaxKind::DoWhileStatement);
+            return;
+        }
 
         self.expect(SyntaxKind::WhileKeyword);
         self.expect(SyntaxKind::OpenParenthesis);
@@ -1531,7 +1565,7 @@ impl Parser {
         // Also parses ')'
         self.parse_for_increment();
 
-        self.parse_statement(/* parse_end */ false);
+        self.parse_statement(ParseStatement::StatementBody { parse_end: false });
 
         self.finish(m, SyntaxKind::ForStatement);
     }
@@ -1650,7 +1684,7 @@ impl Parser {
         self.parse_expression(TokenSet::STATEMENT_OR_CLOSE_PARENTHESIS);
         self.expect(SyntaxKind::CloseParenthesis);
 
-        self.parse_statement(/* parse_end */ false);
+        self.parse_statement(ParseStatement::StatementBody { parse_end: false });
 
         self.finish(m, SyntaxKind::ForEachStatement);
     }
@@ -1706,9 +1740,7 @@ impl Parser {
     // switch (a) {case abc: wow++; break; default: return no }
     //                       _____________          _________
     fn parse_case_body(&mut self) {
-        while !self.at_set(TokenSet::END_OF_CASE_CLAUSE) {
-            self.parse_statement(/* parse_end*/ true);
-        }
+        while self.parse_statement(ParseStatement::CaseClause) {}
     }
 
     // Used in places where we expect an identifier and optionally an '=' sign
@@ -1764,7 +1796,7 @@ impl Parser {
             }
 
             self.parse_function_signature();
-            self.parse_statement(/* parse_end */ false);
+            self.parse_statement(ParseStatement::FunctionBody);
 
             self.finish(m, SyntaxKind::LocalFunctionDeclaration);
             return;
@@ -1877,7 +1909,8 @@ impl Parser {
 
         self.parse_qualified_name();
         self.parse_function_signature();
-        self.parse_statement(/* parse_end */ false);
+
+        self.parse_statement(ParseStatement::FunctionBody);
 
         self.finish(m, SyntaxKind::FunctionStatement);
     }
@@ -1966,7 +1999,11 @@ impl Parser {
     fn parse_try_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::TryKeyword);
-        self.parse_statement(/* parse_end */ false);
+
+        if !self.parse_statement(ParseStatement::StatementBody { parse_end: false }) {
+            self.finish(m, SyntaxKind::TryStatement);
+            return;
+        }
 
         if self.at(SyntaxKind::CatchKeyword) {
             self.parse_catch_clause();
@@ -1985,7 +2022,7 @@ impl Parser {
         self.expect(SyntaxKind::OpenParenthesis);
         self.parse_variable_declaration(VariableDeclaration::Catch, "error's name");
         self.expect(SyntaxKind::CloseParenthesis);
-        self.parse_statement(/* parse_end */ false);
+        self.parse_statement(ParseStatement::StatementBody { parse_end: false });
         self.finish(m, SyntaxKind::CatchClause);
     }
 

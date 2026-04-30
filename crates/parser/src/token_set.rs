@@ -150,6 +150,12 @@ impl TokenSet {
         SyntaxKind::OpenBracket,
     ]);
 
+    pub const NO_FUNCTION_BODY: Self = Self::new(&[
+        SyntaxKind::StaticKeyword,
+        SyntaxKind::CloseBrace,
+        SyntaxKind::Eof,
+    ]);
+
     pub const MEMBER_FIRST: Self = Self::new(&[
         SyntaxKind::Identifier,
         SyntaxKind::ConstructorKeyword,
