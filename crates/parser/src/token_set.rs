@@ -34,6 +34,8 @@ impl TokenSet {
         SyntaxKind::CloseBrace,
     ]);
 
+    pub const END_OF_FILE: Self = Self::new(&[SyntaxKind::Eof]);
+
     pub const END_OF_BLOCK: Self = Self::new(&[SyntaxKind::Eof, SyntaxKind::CloseBrace]);
 
     pub const END_OF_STATEMENT: Self = Self::new(&[

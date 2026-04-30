@@ -80,8 +80,9 @@ enum VariableDeclaration {
 enum ParseStatement {
     FunctionBody,
     StatementBody { parse_end: bool },
-    CaseClause,
-    SourceFile,
+    TopStatements,
+    BlockStatements,
+    CaseStatements,
 }
 
 #[derive(Debug, Default)]
@@ -133,9 +134,7 @@ impl Parser {
         self.events.push(Event::Pending);
         let m = Marker(0);
         self.skip_trivia();
-        while !self.at(SyntaxKind::Eof) {
-            self.parse_statement(ParseStatement::SourceFile);
-        }
+        while self.parse_statement(ParseStatement::TopStatements) {}
         self.consume_to_lookahead();
         self.finish(m, SyntaxKind::SourceFile);
     }
@@ -663,7 +662,7 @@ impl Parser {
             if self.at_set(TokenSet::SEPARATORS) {
                 self.parse_proper_or_error(
                     SyntaxKind::Comma,
-                    "Expected ',' between members".to_owned(),
+                    "Expected ',' between members in the post-call initialiser".to_owned(),
                 );
             }
         }
@@ -686,7 +685,7 @@ impl Parser {
             if self.at_set(TokenSet::SEPARATORS) {
                 self.parse_proper_or_error(
                     SyntaxKind::Comma,
-                    "Expected ',' between members".to_owned(),
+                    "Expected ',' between members in the attributes".to_owned(),
                 );
             }
         }
@@ -906,7 +905,7 @@ impl Parser {
             if self.at_set(TokenSet::SEPARATORS) {
                 self.parse_proper_or_error(
                     SyntaxKind::Semicolon,
-                    "Expected ';' between members".to_owned(),
+                    "Expected ';' between members in the class".to_owned(),
                 );
             }
         }
@@ -1307,7 +1306,7 @@ impl Parser {
             if self.at_set(TokenSet::SEPARATORS) {
                 self.parse_proper_or_error(
                     SyntaxKind::Comma,
-                    "Expected ',' between members".to_owned(),
+                    "Expected ',' between members in the table".to_owned(),
                 );
             }
         }
@@ -1377,17 +1376,23 @@ impl Parser {
     }
 
     fn parse_statement(&mut self, kind: ParseStatement) -> bool {
-        let recovery = match kind {
-            ParseStatement::FunctionBody => Some(TokenSet::NO_FUNCTION_BODY),
-            ParseStatement::StatementBody { .. } => Some(TokenSet::END_OF_BLOCK),
-            ParseStatement::CaseClause => Some(TokenSet::END_OF_CASE_CLAUSE),
-            ParseStatement::SourceFile => None,
+        // (set, should_error)
+        let stop = match kind {
+            ParseStatement::FunctionBody => (TokenSet::NO_FUNCTION_BODY, true),
+            ParseStatement::StatementBody { .. } => (TokenSet::END_OF_BLOCK, true),
+            // These are processed in a loop
+            // we don't error since containing 0 statements is valid and set should
+            // match at least once to stop the iteration
+            ParseStatement::BlockStatements => (TokenSet::END_OF_BLOCK, false),
+            ParseStatement::CaseStatements => (TokenSet::END_OF_CASE_CLAUSE, false),
+            ParseStatement::TopStatements => (TokenSet::END_OF_FILE, false),
         };
 
         loop {
-            if let Some(set) = recovery
-                && self.at_set(set)
-            {
+            if self.at_set(stop.0) {
+                if stop.1 {
+                    self.error_at_token(self.expected_but_got("statement"));
+                }
                 return false;
             }
 
@@ -1405,13 +1410,11 @@ impl Parser {
 
             if self.at(SyntaxKind::ElseKeyword) {
                 self.error_and_advance("'else' must be prepended with 'if' block".to_owned());
+                // else { } can just be parsed as a block statement
                 continue;
             }
 
             self.error_and_advance(self.expected_but_got("statement"));
-            if self.token() == SyntaxKind::Eof {
-                return false;
-            }
         }
 
         match self.token() {
@@ -1439,7 +1442,9 @@ impl Parser {
 
         let parse_end = matches!(
             kind,
-            ParseStatement::StatementBody { parse_end: true } | ParseStatement::CaseClause
+            ParseStatement::BlockStatements
+                | ParseStatement::StatementBody { parse_end: true }
+                | ParseStatement::CaseStatements
         );
 
         if parse_end && !TokenSet::END_OF_STATEMENT.contains(self.prev_token.kind) {
@@ -1459,7 +1464,7 @@ impl Parser {
     fn parse_block_statement(&mut self) {
         let m = self.start();
         self.expect_or_panic(SyntaxKind::OpenBrace);
-        while self.parse_statement(ParseStatement::StatementBody { parse_end: true }) {}
+        while self.parse_statement(ParseStatement::BlockStatements) {}
         self.expect(SyntaxKind::CloseBrace);
         self.finish(m, SyntaxKind::BlockStatement);
     }
@@ -1740,7 +1745,7 @@ impl Parser {
     // switch (a) {case abc: wow++; break; default: return no }
     //                       _____________          _________
     fn parse_case_body(&mut self) {
-        while self.parse_statement(ParseStatement::CaseClause) {}
+        while self.parse_statement(ParseStatement::CaseStatements) {}
     }
 
     // Used in places where we expect an identifier and optionally an '=' sign
@@ -1984,7 +1989,7 @@ impl Parser {
             if self.at_set(TokenSet::SEPARATORS) {
                 self.parse_proper_or_error(
                     SyntaxKind::Comma,
-                    "Expected ',' between members".to_owned(),
+                    "Expected ',' between members in the enum".to_owned(),
                 );
             }
         }
