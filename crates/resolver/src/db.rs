@@ -27,7 +27,8 @@ pub struct Database {
     files: DashMap<Url, File>,
     urls: DashMap<File, Url>,
     builtins: Option<Arc<Builtins>>,
-    tf2_root: Option<PathBuf>,
+    tf2_root_dir: Option<PathBuf>,
+    scripts_dir: Option<PathBuf>,
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
     base_entity_class: Option<ClassId>,
@@ -134,15 +135,25 @@ impl VScriptDatabase for Database {
     }
 
     fn update_tf2_root(&mut self, path: Option<PathBuf>) {
-        let is_some = path.is_some();
-        self.tf2_root = path;
-        if is_some {
+        self.tf2_root_dir = path;
+        if let Some(root) = &self.tf2_root_dir {
             self.load_all_scripts();
+
+            let scripts = root.join("tf/scripts/vscripts");
+            if let Ok(scripts) = scripts.canonicalize() {
+                self.scripts_dir = Some(scripts);
+            }
         }
     }
 
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
-        let scripts = self.scripts_dir()?;
+        let scripts = self.scripts_dir.as_ref().ok_or_else(|| {
+            if self.tf2_root_dir.is_some() {
+                "Specified TF2 root path contains no 'tf/scripts/vscripts' directory".to_owned()
+            } else {
+                "No TF2 root specified".to_owned()
+            }
+        })?;
 
         if path.extension().is_none() {
             path.set_extension("nut");
@@ -159,10 +170,6 @@ impl VScriptDatabase for Database {
 
         let full_path = scripts.join(&path);
 
-        if !full_path.exists() {
-            return Err("Couldn't resolve path".to_owned());
-        }
-
         let url = Url::from_file_path(&full_path)
             .map_err(|()| format!("Couldn't convert '{}' to URL", full_path.display()))?;
 
@@ -171,13 +178,13 @@ impl VScriptDatabase for Database {
         }
 
         let text =
-            std::fs::read_to_string(&full_path).map_err(|_| "Couldn't read file".to_owned())?;
+            std::fs::read_to_string(&full_path).map_err(|_| "File does not exists".to_owned())?;
 
         Ok(self.open_file(&url, text))
     }
 
     fn script_literals(&self) -> Vec<String> {
-        let Ok(scripts) = self.scripts_dir() else {
+        let Some(scripts) = &self.scripts_dir else {
             return Vec::new();
         };
 
@@ -186,7 +193,7 @@ impl VScriptDatabase for Database {
             .filter_map(|entry| {
                 // Convert URL back to path only for the prefix stripping
                 let path = entry.key().to_file_path().ok()?;
-                let rel_path = path.strip_prefix(&scripts).ok()?;
+                let rel_path = path.strip_prefix(scripts).ok()?;
 
                 if rel_path.extension().and_then(|e| e.to_str()) != Some("nut") {
                     return None;
@@ -232,24 +239,12 @@ impl Database {
         this
     }
 
-    fn scripts_dir(&self) -> Result<PathBuf, String> {
-        let Some(root) = &self.tf2_root else {
-            return Err("Couldn't resolve path: TF2 installation path is not set".to_owned());
-        };
-
-        let scripts = root.join("tf/scripts/vscripts");
-        scripts.canonicalize().map_err(|_| {
-            "Couldn't resolve path: TF2 installation path contains no 'tf/scripts/vscripts'"
-                .to_owned()
-        })
-    }
-
     fn load_all_scripts(&self) {
-        let Ok(scripts) = self.scripts_dir() else {
+        let Some(scripts) = &self.scripts_dir else {
             return;
         };
 
-        for entry in walkdir::WalkDir::new(&scripts)
+        for entry in walkdir::WalkDir::new(scripts)
             .into_iter()
             .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().and_then(|e| e.to_str()) == Some("nut"))
