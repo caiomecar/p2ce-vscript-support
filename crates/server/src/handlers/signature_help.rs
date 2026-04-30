@@ -3,31 +3,39 @@ use lsp_types::{
     SignatureHelpParams, SignatureInformation,
 };
 use resolver::{
-    Database, ExpressionKind, FinishedFile, FunctionIdResolution, Source, line_index, parse,
+    ExpressionKind, FinishedFile, FunctionIdResolution, Source, VScriptDatabase, parse,
 };
 use sq_3_parser::{AstNode, ast};
 
-use crate::conversions;
+use crate::positions;
 
-pub fn handle_signature_help(db: &Database, params: SignatureHelpParams) -> Option<SignatureHelp> {
+pub fn handle_signature_help(
+    db: &impl VScriptDatabase,
+    params: SignatureHelpParams,
+) -> anyhow::Result<Option<SignatureHelp>> {
     let uri = params.text_document_position_params.text_document.uri;
+    let file = db
+        .get_file(&uri)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
-    let path = uri.to_file_path().ok()?;
-    let file = db.get_file(&path)?;
-
-    let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position_params.position)?;
+    let line_idx = positions::line_index(db, file);
+    let offset = positions::test_size(line_idx, params.text_document_position_params.position)
+        .ok_or_else(|| anyhow::format_err!("Position is out of bounds"))?;
 
     let syntax = parse(db, file).syntax();
     let node = syntax
         .token_at_offset(offset)
         .right_biased()
         .and_then(|t| t.parent())
-        .unwrap_or(syntax);
+        .ok_or_else(|| anyhow::format_err!("No node found"))?;
 
-    let call = node.ancestors().find_map(ast::CallExpression::cast)?;
+    let Some(call) = node.ancestors().find_map(ast::CallExpression::cast) else {
+        return Ok(None);
+    };
 
-    let callee = call.callee()?;
+    let Some(callee) = call.callee() else {
+        return Ok(None);
+    };
 
     let finished_file = FinishedFile::new(db, file);
     let kind = finished_file.expr_kind_at(callee.syntax().text_range());
@@ -37,13 +45,13 @@ pub fn handle_signature_help(db: &Database, params: SignatureHelpParams) -> Opti
             let symbol = finished_file.get(*id);
             (symbol.name.to_string(), &symbol.typ)
         }
-        None => return None,
+        None => return Ok(None),
     };
 
     let id = match finished_file.to_function_id(typ, offset) {
         Some(FunctionIdResolution::Function(id)) => id,
         Some(FunctionIdResolution::DefaultConstructor) => {
-            return Some(SignatureHelp {
+            return Ok(Some(SignatureHelp {
                 signatures: vec![SignatureInformation {
                     label: format!("{name}()"),
                     parameters: None,
@@ -52,9 +60,9 @@ pub fn handle_signature_help(db: &Database, params: SignatureHelpParams) -> Opti
                 }],
                 active_signature: Some(0),
                 active_parameter: None,
-            });
+            }));
         }
-        None => return None,
+        None => return Ok(None),
     };
 
     let mut active_param = 0;
@@ -92,7 +100,7 @@ pub fn handle_signature_help(db: &Database, params: SignatureHelpParams) -> Opti
         })
         .collect::<Vec<_>>();
 
-    Some(SignatureHelp {
+    Ok(Some(SignatureHelp {
         signatures: vec![SignatureInformation {
             label,
             parameters: Some(param_infos),
@@ -109,5 +117,5 @@ pub fn handle_signature_help(db: &Database, params: SignatureHelpParams) -> Opti
         }],
         active_signature: Some(0),
         active_parameter: Some(u32::try_from(active_param).unwrap_or(u32::MAX)),
-    })
+    }))
 }

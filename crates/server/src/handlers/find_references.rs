@@ -1,24 +1,33 @@
 use lsp_types::{Location, ReferenceParams};
-use resolver::{Database, FinishedFile, Source, SymbolKind, line_index, parse, token_name_range};
+use resolver::{FinishedFile, Source, SymbolKind, VScriptDatabase, parse, token_name_range};
 
-use crate::conversions;
+use crate::positions;
 
-pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<Location>> {
+pub fn handle_references(
+    db: &impl VScriptDatabase,
+    params: ReferenceParams,
+) -> anyhow::Result<Option<Vec<Location>>> {
     let uri = params.text_document_position.text_document.uri;
+    let file = db
+        .get_file(&uri)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
-    let path = uri.to_file_path().ok()?;
-    let file = db.get_file(&path)?;
-
-    let line_idx = line_index(db, file);
-    let offset = conversions::test_size(line_idx, params.text_document_position.position)?;
+    let line_idx = positions::line_index(db, file);
+    let offset = positions::test_size(line_idx, params.text_document_position.position)
+        .ok_or_else(|| anyhow::format_err!("Position is out of bounds"))?;
 
     let syntax = parse(db, file).syntax();
-    let token = syntax.token_at_offset(offset).right_biased()?;
+    let token = syntax
+        .token_at_offset(offset)
+        .right_biased()
+        .ok_or_else(|| anyhow::format_err!("No token found"))?;
 
     let range = token_name_range(&token);
 
     let finished_file = FinishedFile::new(db, file);
-    let reference_id = finished_file.symbol_at(range)?;
+    let Some(reference_id) = finished_file.symbol_at(range) else {
+        return Ok(None);
+    };
 
     // can't do token.text() if the token is a string that got unquoted
     let reference_file = FinishedFile::new(db, finished_file.file());
@@ -33,7 +42,7 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
                 continue;
             }
 
-            let Some(range) = conversions::range(line_idx, *text_range) else {
+            let Some(range) = positions::range(line_idx, *text_range) else {
                 continue;
             };
 
@@ -45,17 +54,19 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
     }
 
     if matches!(reference.kind, SymbolKind::Local(_)) {
-        return Some(all_locations);
+        if all_locations.is_empty() {
+            return Ok(None);
+        }
+
+        return Ok(Some(all_locations));
     }
 
-    for (candidate_file, candidate_path) in db.all_files() {
+    for entry in db.get_files() {
+        let (url, &candidate_file) = entry.pair();
+
         if candidate_file == file {
             continue;
         }
-
-        let Some(uri) = conversions::to_uri(&candidate_path) else {
-            continue;
-        };
 
         let text = candidate_file.text(db);
         if !text.contains(name) {
@@ -68,19 +79,19 @@ pub fn handle_references(db: &Database, params: ReferenceParams) -> Option<Vec<L
             continue;
         };
 
-        let line_idx = line_index(db, candidate_file);
+        let line_idx = positions::line_index(db, candidate_file);
 
         for text_range in ranges {
-            let Some(range) = conversions::range(line_idx, *text_range) else {
+            let Some(range) = positions::range(line_idx, *text_range) else {
                 continue;
             };
 
             all_locations.push(Location {
                 range,
-                uri: uri.clone(),
+                uri: url.clone(),
             });
         }
     }
 
-    Some(all_locations)
+    Ok(Some(all_locations))
 }

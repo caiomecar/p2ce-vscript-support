@@ -5,6 +5,7 @@ mod symbol;
 
 use std::{collections::hash_map::Entry, fmt::Write as _};
 
+use ::db::File;
 use la_arena::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 use sq_3_parser::{SyntaxKind, SyntaxToken, TextRange, TextSize};
@@ -12,7 +13,7 @@ use sq_3_parser::{SyntaxKind, SyntaxToken, TextRange, TextSize};
 use crate::{
     arena::{ClassId, Container, EnumId, ImportTarget, SourceArena, TableData, TableId},
     db::{
-        Db, top_const_members, top_root_members, top_source_and_const_members,
+        top_const_members, top_root_members, top_source_and_const_members,
         top_source_and_root_members, top_source_members,
     },
     symbol::{FlatSymbolTable, to_flat_symbol_table},
@@ -21,7 +22,7 @@ use crate::{
 pub use arena::{
     ArenaId, FunctionData, FunctionId, ParamsState, ReturnState, ScopeId, SymbolId, TypeState,
 };
-pub use db::{Database, DbConfig, File, line_index, parse, source_symbol};
+pub use db::{Database, VScriptDatabase, VScriptDbConfig, parse, source_symbol};
 pub use symbol::{
     DisplayType, LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
     SymbolTable, ToPrimitiveError, Type, TypeFlags,
@@ -64,7 +65,7 @@ pub struct TypeWithRange {
 
 macro_rules! builtin {
     ($members:ident, $symbol:ident => $ty:ident) => {
-        fn $members(db: &dyn Db) -> FlatSymbolTable {
+        fn $members(db: &dyn VScriptDatabase) -> FlatSymbolTable {
             if let Some(builtins) = db.builtins().map(|b| &b.$ty.members) {
                 builtins.clone()
             } else {
@@ -72,7 +73,7 @@ macro_rules! builtin {
             }
         }
 
-        fn $symbol(db: &dyn Db) -> Option<SymbolId> {
+        fn $symbol(db: &dyn VScriptDatabase) -> Option<SymbolId> {
             db.builtins().map(|b| &b.$ty.symbol).cloned()
         }
     };
@@ -121,7 +122,7 @@ enum GetMembersInner {
 }
 
 fn import_members_inner(
-    db: &dyn Db,
+    db: &dyn VScriptDatabase,
     import: File,
     already_included: &mut FxHashSet<File>,
     settings: GetMembersInner,
@@ -181,7 +182,7 @@ fn import_members_inner(
 /// `SourceSymbol` is immutable once constructed so there's no mutable methods
 pub trait Source {
     fn file(&self) -> File;
-    fn db(&self) -> &dyn Db;
+    fn db(&self) -> &dyn VScriptDatabase;
     fn arena(&self) -> &SourceArena;
     fn imports(&self) -> &FxHashMap<ImportTarget, Vec<File>>;
     fn scope(&self, offset: TextSize) -> ScopeId;
@@ -1063,10 +1064,10 @@ pub fn token_name_range(token: &SyntaxToken) -> TextRange {
     }
 }
 
-pub struct FinishedFile<'db>(&'db dyn Db, File);
+pub struct FinishedFile<'db>(&'db dyn VScriptDatabase, File);
 
 impl<'db> FinishedFile<'db> {
-    pub fn new(db: &'db dyn Db, file: File) -> Self {
+    pub fn new(db: &'db dyn VScriptDatabase, file: File) -> Self {
         Self(db, file)
     }
 
@@ -1092,7 +1093,7 @@ impl Source for FinishedFile<'_> {
         self.1
     }
 
-    fn db(&self) -> &dyn Db {
+    fn db(&self) -> &dyn VScriptDatabase {
         self.0
     }
 

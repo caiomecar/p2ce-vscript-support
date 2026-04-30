@@ -2,26 +2,25 @@ use std::path::PathBuf;
 
 use lsp_types::{DocumentLink, DocumentLinkParams};
 use resolver::{
-    Database, ExpressionKind, FinishedFile, Primitive, Source, StringKind, Type, line_index,
+    ExpressionKind, FinishedFile, Primitive, Source, StringKind, Type, VScriptDatabase,
 };
 
-use crate::conversions;
+use crate::positions;
 
-pub fn handle_document_link(db: &Database, params: DocumentLinkParams) -> Vec<DocumentLink> {
+pub fn handle_document_link(
+    db: &impl VScriptDatabase,
+    params: DocumentLinkParams,
+) -> anyhow::Result<Option<Vec<DocumentLink>>> {
     let uri = params.text_document.uri;
+    let file = db
+        .get_file(&uri)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
-    let Ok(path) = uri.to_file_path() else {
-        return Vec::new();
-    };
-
-    let Some(file) = db.get_file(&path) else {
-        return Vec::new();
-    };
-    let line_idx = line_index(db, file);
+    let line_idx = positions::line_index(db, file);
 
     let finished_file = FinishedFile::new(db, file);
 
-    finished_file
+    let links: Vec<_> = finished_file
         .range_to_expr()
         .values()
         .filter_map(|expr| {
@@ -40,16 +39,20 @@ pub fn handle_document_link(db: &Database, params: DocumentLinkParams) -> Vec<Do
             let literal = finished_file.get(*literal);
             let rel_path = PathBuf::from(literal.text.to_string());
             let script = finished_file.db().get_script(rel_path).ok()?;
-            let path = db.get_path(script)?;
-
-            let uri = conversions::to_uri(&path)?;
+            let url = db.get_url(&script)?;
 
             Some(DocumentLink {
-                range: conversions::range(line_idx, literal.unquoted_range)?,
-                target: Some(uri),
+                range: positions::range(line_idx, literal.unquoted_range)?,
+                target: Some(url),
                 tooltip: Some("Open file".to_owned()),
                 data: None,
             })
         })
-        .collect()
+        .collect();
+
+    if links.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(links))
+    }
 }

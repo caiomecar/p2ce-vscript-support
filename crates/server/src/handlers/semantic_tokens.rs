@@ -1,10 +1,10 @@
 use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 use resolver::{
-    Database, DisplayType, FinishedFile, LocalKind, PropertyKind, Source, SymbolFlags, SymbolKind,
-    Type, line_index,
+    DisplayType, FinishedFile, LocalKind, PropertyKind, Source, SymbolFlags, SymbolKind, Type,
+    VScriptDatabase,
 };
 
-use crate::conversions;
+use crate::positions;
 
 enum TokenType {
     Variable = 0,
@@ -25,15 +25,15 @@ bitflags::bitflags! {
 }
 
 pub fn handle_semantic_tokens(
-    db: &Database,
+    db: &impl VScriptDatabase,
     params: SemanticTokensParams,
-) -> Option<SemanticTokensResult> {
+) -> anyhow::Result<Option<SemanticTokensResult>> {
     let uri = params.text_document.uri;
+    let file = db
+        .get_file(&uri)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
-    let path = uri.to_file_path().ok()?;
-    let file = db.get_file(&path)?;
-
-    let line_idx = line_index(db, file);
+    let line_idx = positions::line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
 
     let mut entries: Vec<_> = finished_file
@@ -47,7 +47,7 @@ pub fn handle_semantic_tokens(
     let mut prev_line = 0u32;
     let mut prev_start = 0u32;
 
-    for (range, id) in entries {
+    for (text_range, id) in entries {
         let symbol = finished_file.get(id);
         let mut modifiers = TokenModifier::empty();
 
@@ -76,7 +76,7 @@ pub fn handle_semantic_tokens(
                 }
             },
             SymbolKind::Property(kind) => {
-                if kind == PropertyKind::Embedded && range == symbol.name_range {
+                if kind == PropertyKind::Embedded && text_range == symbol.name_range {
                     continue;
                 }
 
@@ -101,13 +101,12 @@ pub fn handle_semantic_tokens(
             }
         };
 
-        let Some(lsp_range) = conversions::range(line_idx, range) else {
-            continue;
-        };
+        let range = positions::range(line_idx, text_range)
+            .ok_or_else(|| anyhow::format_err!("Couldn't convert text range to lsp range"))?;
 
-        let line = lsp_range.start.line;
-        let start = lsp_range.start.character;
-        let length = range.len();
+        let line = range.start.line;
+        let start = range.start.character;
+        let length = text_range.len();
 
         let delta_line = line - prev_line;
         let delta_start = if delta_line == 0 {
@@ -128,8 +127,12 @@ pub fn handle_semantic_tokens(
         prev_start = start;
     }
 
-    Some(SemanticTokensResult::Tokens(SemanticTokens {
-        result_id: None,
-        data: tokens,
-    }))
+    if tokens.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: tokens,
+        })))
+    }
 }

@@ -2,12 +2,15 @@
 name = "tf2-vscript-ls"
 version = "0.1.0"
 edition = "2024"
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
 resolver = { path = "../resolver" }
 sq-3-parser = { path = "../parser" }
+db = { path = "../db" }
 lsp-server = "0.7.9"
-lsp-types = "0.95.1"
+lsp-types = { workspace = true }
 serde_json = "1.0.149"
 anyhow = "1.0.102"
 serde = "1.0.228"
@@ -15,7 +18,10 @@ rustc-hash = { workspace = true }
 salsa = { workspace = true }
 line-index = { workspace = true }
 bitflags = { workspace = true }
-
+crossbeam-channel = "0.5.15"
+crossbeam-utils = "0.8.21"
+log = "0.4.29"
+jod-thread = "1.0.0"
 
 [lints]
 workspace = true

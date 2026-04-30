@@ -1,0 +1,57 @@
+use lsp_types::{
+    Location,
+    request::{GotoTypeDefinitionParams, GotoTypeDefinitionResponse},
+};
+use resolver::{ArenaId, FinishedFile, Source, VScriptDatabase, parse, token_name_range};
+
+use crate::positions;
+
+pub fn handle_go_to_type_definition(
+    db: &impl VScriptDatabase,
+    params: GotoTypeDefinitionParams,
+) -> anyhow::Result<Option<GotoTypeDefinitionResponse>> {
+    let uri = params.text_document_position_params.text_document.uri;
+    let file = db
+        .get_file(&uri)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+
+    let line_idx = positions::line_index(db, file);
+    let offset = positions::test_size(line_idx, params.text_document_position_params.position)
+        .ok_or_else(|| anyhow::format_err!("Position is out of bounds"))?;
+
+    let syntax = parse(db, file).syntax();
+
+    let token = syntax
+        .token_at_offset(offset)
+        .right_biased()
+        .ok_or_else(|| anyhow::format_err!("No token found"))?;
+
+    let range = token_name_range(&token);
+
+    let finished_file = FinishedFile::new(db, file);
+    let Some(symbol_id) = finished_file.symbol_at(range) else {
+        return Ok(None);
+    };
+
+    let symbol = finished_file.get(symbol_id);
+    let Some(type_id) = finished_file.type_to_symbol(&symbol.typ) else {
+        return Ok(None);
+    };
+
+    let file = type_id.file();
+    let line_idx = positions::line_index(db, file);
+    let name_range = finished_file.get(type_id).name_range;
+
+    let uri = db
+        .get_url(&file)
+        .ok_or_else(|| anyhow::format_err!("Definition file wasn't found in workspace"))?;
+
+    let range = positions::range(line_idx, name_range).ok_or_else(|| {
+        anyhow::format_err!("Couldn't convert text range to lsp range for definition file")
+    })?;
+
+    Ok(Some(GotoTypeDefinitionResponse::Scalar(Location {
+        range,
+        uri,
+    })))
+}

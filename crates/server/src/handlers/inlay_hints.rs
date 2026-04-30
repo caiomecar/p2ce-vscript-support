@@ -2,22 +2,26 @@ use lsp_types::{
     InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent,
     MarkupKind,
 };
-use resolver::{Database, FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, line_index};
+use resolver::{FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, VScriptDatabase};
 
-use crate::conversions;
+use crate::positions;
 
-pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<InlayHint>> {
+pub fn handle_inlay_hint(
+    db: &impl VScriptDatabase,
+    params: InlayHintParams,
+) -> anyhow::Result<Option<Vec<InlayHint>>> {
     let uri = params.text_document.uri;
+    let file = db
+        .get_file(&uri)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
-    let path = uri.to_file_path().ok()?;
-    let file = db.get_file(&path)?;
-
-    let line_idx = line_index(db, file);
+    let line_idx = positions::line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
 
-    let range = conversions::text_range(line_idx, params.range)?;
+    let range = positions::text_range(line_idx, params.range)
+        .ok_or_else(|| anyhow::format_err!("Range is out of bounds"))?;
 
-    let hints = finished_file
+    let hints: Vec<_> = finished_file
         .all_symbols()
         .filter_map(|(_, symbol)| {
             if !range.contains_range(symbol.name_range) {
@@ -56,7 +60,7 @@ pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<
                 None
             };
 
-            let position = conversions::range(line_idx, symbol.name_range)?.end;
+            let position = positions::range(line_idx, symbol.name_range)?.end;
 
             Some(InlayHint {
                 position,
@@ -71,5 +75,9 @@ pub fn handle_inlay_hints(db: &Database, params: InlayHintParams) -> Option<Vec<
         })
         .collect();
 
-    Some(hints)
+    if hints.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(hints))
+    }
 }

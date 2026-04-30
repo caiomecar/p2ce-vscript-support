@@ -24,14 +24,14 @@ use std::{collections::hash_map::Entry, path::PathBuf};
 
 use crate::{
     Diagnostic, DiagnosticSeverity, ExpressionKind, File, FindSymbol, ImportMembers,
-    NullableExprKind, Source, SourceSymbol, TypeWithRange,
+    NullableExprKind, Source, SourceSymbol, TypeWithRange, VScriptDatabase,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ImportTarget, ParamsState, ReturnState, Scope, ScopeId,
         SourceArena, StringLiteralData, StringLiteralId, SymbolId, TableData, TableId,
         TypeConversionError, TypeState,
     },
-    db::{Db, NativeFunction},
+    db::NativeFunction,
     symbol::{
         LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
         SymbolTable, ToPrimitiveError, Type, TypeFlags, insert_symbol, merge_types,
@@ -200,7 +200,7 @@ enum NewType {
 }
 
 pub struct Resolver<'db> {
-    db: &'db dyn Db,
+    db: &'db dyn VScriptDatabase,
     file: File,
 
     imports: FxHashMap<ImportTarget, Vec<File>>,
@@ -236,7 +236,7 @@ impl Source for Resolver<'_> {
         self.file
     }
 
-    fn db(&self) -> &dyn Db {
+    fn db(&self) -> &dyn VScriptDatabase {
         self.db
     }
 
@@ -299,7 +299,11 @@ impl Source for Resolver<'_> {
 }
 
 impl<'db> Resolver<'db> {
-    pub fn symbol_from_source_file(db: &'db dyn Db, file: File, node: &SourceFile) -> SourceSymbol {
+    pub fn symbol_from_source_file(
+        db: &'db dyn VScriptDatabase,
+        file: File,
+        node: &SourceFile,
+    ) -> SourceSymbol {
         let mut arena = SourceArena::default();
         // Source table is not always the root table, it depends on which entity
         // was the script executed. script_execute and non-edict entities execute stuff

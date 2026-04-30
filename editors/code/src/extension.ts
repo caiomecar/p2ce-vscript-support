@@ -54,9 +54,9 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const config = vscode.workspace.getConfiguration('tf2vscript');
-    const tf2Root = config.get<string>('tf2Root') ?? '';
+    const tf2RootPath = config.get<string>('tf2Root') ?? '';
 
-    if (!tf2Root) {
+    if (!tf2RootPath) {
         vscode.window.showWarningMessage(
             'TF2 VScript: TF2Root is not set. Imports will not work.',
             'Select Directory',
@@ -65,7 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (selection === 'Select Directory') {
                 selectTF2Root();
             } else if (selection === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'TF2Vscript.TF2Root');
+                vscode.commands.executeCommand('workbench.action.openSettings', 'tf2vscript.tf2Root');
             }
         });
     }
@@ -82,7 +82,7 @@ export function activate(context: vscode.ExtensionContext) {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
         },
         initializationOptions: {
-            tf2Root,
+            tf2RootPath,
             builtinsPath: path.join(stdlibPath, "builtins.nut"),
             squirrelLibPath: path.join(stdlibPath, "squirrel.nut"),
             vscriptLibPath: path.join(stdlibPath, "vscript.nut"),

@@ -4,8 +4,8 @@ use la_arena::{Arena, Idx};
 use line_index::{TextRange, TextSize};
 
 use crate::{
-    File,
-    db::{Db, source_symbol},
+    File, VScriptDatabase,
+    db::source_symbol,
     symbol::{Primitive, Symbol, SymbolTable, Type},
 };
 
@@ -13,7 +13,7 @@ pub trait ArenaId: Clone + Copy + PartialEq + Eq {
     type Data;
     fn file(&self) -> File;
     fn idx(&self) -> Idx<Self::Data>;
-    fn get_data<'a>(&self, db: &'a dyn Db) -> &'a Self::Data;
+    fn get_data<'a>(&self, db: &'a dyn VScriptDatabase) -> &'a Self::Data;
 }
 
 macro_rules! arena_id {
@@ -41,7 +41,7 @@ macro_rules! arena_id {
                 self.idx
             }
 
-            fn get_data<'a>(&self, db: &'a dyn Db) -> &'a Self::Data {
+            fn get_data<'a>(&self, db: &'a dyn VScriptDatabase) -> &'a Self::Data {
                 let source = source_symbol(db, self.file);
                 &source.arena[self.idx]
             }

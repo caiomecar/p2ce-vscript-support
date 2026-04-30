@@ -12,6 +12,7 @@ rustc-hash = "2.1.1"
 line-index = "0.1.2"
 bitflags = "2"
 phf = { version = "0.13.1", features = ["macros"] }
+lsp-types = "0.95.1"
 
 [profile.release]
 codegen-units = 1
@@ -20,7 +21,7 @@ opt-level = 3
 strip = true
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 enum_glob_use = "deny"

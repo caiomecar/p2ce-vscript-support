@@ -1,23 +1,24 @@
-use crate::conversions;
 use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
     SymbolTag,
 };
 use resolver::{
-    Database, DisplayType, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind,
-    line_index,
+    DisplayType, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind,
+    VScriptDatabase,
 };
 
-pub fn handle_document_symbols(
-    db: &Database,
+use crate::positions;
+
+pub fn handle_document_symbol(
+    db: &impl VScriptDatabase,
     params: DocumentSymbolParams,
-) -> Option<DocumentSymbolResponse> {
+) -> anyhow::Result<Option<DocumentSymbolResponse>> {
     let uri = params.text_document.uri;
+    let file = db
+        .get_file(&uri)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
-    let path = uri.to_file_path().ok()?;
-    let file = db.get_file(&path)?;
-
-    let line_idx = line_index(db, file);
+    let line_idx = positions::line_index(db, file);
     let finished_file = FinishedFile::new(db, file);
 
     let mut symbols: Vec<_> = finished_file
@@ -41,11 +42,11 @@ pub fn handle_document_symbols(
             return;
         }
 
-        let Some(range) = conversions::range(line_idx, symbol.range) else {
+        let Some(range) = positions::range(line_idx, symbol.range) else {
             return;
         };
 
-        let Some(name_range) = conversions::range(line_idx, symbol.name_range) else {
+        let Some(name_range) = positions::range(line_idx, symbol.name_range) else {
             return;
         };
 
@@ -116,5 +117,9 @@ pub fn handle_document_symbols(
         build_symbol(&mut stack, symbol, children);
     }
 
-    Some(DocumentSymbolResponse::Nested(roots))
+    if roots.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(DocumentSymbolResponse::Nested(roots)))
+    }
 }
