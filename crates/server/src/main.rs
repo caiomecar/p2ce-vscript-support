@@ -21,8 +21,9 @@ use lsp_types::{
     TextDocumentSyncCapability, TextDocumentSyncKind, TypeDefinitionProviderCapability, Url,
     WorkDoneProgressOptions,
     notification::{
-        Cancel, DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument,
-        DidOpenTextDocument, DidSaveTextDocument, LogTrace, PublishDiagnostics, SetTrace,
+        Cancel, DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles,
+        DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, LogTrace,
+        PublishDiagnostics, SetTrace,
     },
     request::{
         Completion, DocumentLinkRequest, DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition,
@@ -176,16 +177,6 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
 
             publish_diagnostics(session, url)
         })
-        .on_mut::<Cancel>(|s, p| {
-            let id: lsp_server::RequestId = match p.id {
-                NumberOrString::Number(id) => id.into(),
-                NumberOrString::String(id) => id.into(),
-            };
-            if let Some(response) = s.req_queue.incoming.cancel(id) {
-                s.connection.sender.send(response.into())?;
-            }
-            Ok(())
-        })
         .on_mut::<DidChangeConfiguration>(|session, params| {
             let settings = params.settings;
 
@@ -202,6 +193,26 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
             });
 
             session.db.update_tf2_root(tf2_root_path);
+            Ok(())
+        })
+        .on_mut::<DidChangeWatchedFiles>(|session, params| {
+            for change in params.changes {
+                let uri = &change.uri;
+
+                if session.db.get_file(uri).is_some() {
+                    publish_diagnostics(session, uri)?;
+                }
+            }
+            Ok(())
+        })
+        .on_mut::<Cancel>(|s, p| {
+            let id: lsp_server::RequestId = match p.id {
+                NumberOrString::Number(id) => id.into(),
+                NumberOrString::String(id) => id.into(),
+            };
+            if let Some(response) = s.req_queue.incoming.cancel(id) {
+                s.connection.sender.send(response.into())?;
+            }
             Ok(())
         })
         .on::<DidSaveTextDocument>(|_s, _p| Ok(()))
