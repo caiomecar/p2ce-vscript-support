@@ -4,8 +4,8 @@
     "lib": [
       "ESNext"
     ],
-    "module": "esnext",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "declaration": true,
     "sourceMap": true,
     "strict": true,

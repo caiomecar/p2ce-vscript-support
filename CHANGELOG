@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.10]
+- Remove description from auto generated doc comment
+- Use string|unknown for key in foreach loop
+- Improve markdown for enum/table/class
+- Parallelise lsp requests
+- Cache scripts directory blocking system call to improve import performance
+
 ## [3.0.9]
 - Produce only a single warning on a block of unreachable statements
 - Add client_convar string literal
