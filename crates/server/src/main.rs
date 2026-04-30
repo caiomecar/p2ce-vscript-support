@@ -15,13 +15,14 @@ use lsp_server::Connection;
 use lsp_types::{
     CompletionOptions, Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentLinkOptions,
     HoverProviderCapability, InitializeParams, InitializeResult, NumberOrString, OneOf,
-    RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
-    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
-    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TypeDefinitionProviderCapability, Url, WorkDoneProgressOptions,
+    PublishDiagnosticsParams, RenameOptions, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelpOptions,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TypeDefinitionProviderCapability, Url,
+    WorkDoneProgressOptions,
     notification::{
         Cancel, DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument,
-        DidOpenTextDocument, DidSaveTextDocument, LogTrace, SetTrace,
+        DidOpenTextDocument, DidSaveTextDocument, LogTrace, PublishDiagnostics, SetTrace,
     },
     request::{
         Completion, DocumentLinkRequest, DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition,
@@ -258,14 +259,14 @@ fn publish_diagnostics<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         }))
         .collect();
 
-    let params = lsp_types::PublishDiagnosticsParams {
+    let params = PublishDiagnosticsParams {
         uri: url.clone(),
         diagnostics,
         version: None,
     };
 
     let notification = lsp_server::Notification::new(
-        <lsp_types::notification::PublishDiagnostics as lsp_types::notification::Notification>::METHOD.to_string(),
+        <PublishDiagnostics as lsp_types::notification::Notification>::METHOD.to_string(),
         params,
     );
 
