@@ -148,15 +148,9 @@ impl VScriptDatabase for Database {
         };
 
         let scripts = root.join("tf/scripts/vscripts");
-        self.tf2_root_dir = Some(root);
-
-        let Ok(scripts) = scripts.canonicalize() else {
-            self.scripts_dir = None;
-            return;
-        };
-
         self.load_all_scripts(&scripts);
         self.scripts_dir = Some(scripts);
+        self.tf2_root_dir = Some(root);
     }
 
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
