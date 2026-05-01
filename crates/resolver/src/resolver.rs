@@ -643,6 +643,7 @@ impl<'db> Resolver<'db> {
                 self.const_table(),
                 FindSymbol::OnlyBefore(offset),
                 ImportMembers::Const,
+                false,
             )
             .into_iter()
             .find_map(filter)
@@ -663,6 +664,7 @@ impl<'db> Resolver<'db> {
                 self.root_table(),
                 FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 ImportMembers::Root,
+                false,
             )
             .into_iter()
             .find_map(filter)
@@ -2730,6 +2732,7 @@ impl<'db> Resolver<'db> {
                 self.root_table(),
                 FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                 ImportMembers::Root,
+                false,
             )
             .into_iter()
             .find_map(|(name, id)| {
@@ -3421,6 +3424,7 @@ impl<'db> Resolver<'db> {
             self.root_table(),
             FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
             ImportMembers::Root,
+            false,
         )
         .into_iter()
         .find_map(|(name, id)| {
@@ -3659,6 +3663,7 @@ impl<'db> Resolver<'db> {
                         self.const_table(),
                         FindSymbol::OnlyBefore(offset),
                         ImportMembers::Const,
+                        false,
                     )
                     .into_iter()
                     .find_map(filter);
@@ -3695,6 +3700,7 @@ impl<'db> Resolver<'db> {
                         self.root_table(),
                         FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                         ImportMembers::Root,
+                        false,
                     )
                     .into_iter()
                     .find_map(filter);
@@ -3815,6 +3821,7 @@ impl<'db> Resolver<'db> {
                         root,
                         FindSymbol::BeforeIfInExecutionRange(offset, self.scope),
                         ImportMembers::Root,
+                        false,
                     )
                     .into_iter()
                     .find_map(|(name, id)| {

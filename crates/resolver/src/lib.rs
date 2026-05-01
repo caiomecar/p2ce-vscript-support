@@ -303,18 +303,10 @@ pub trait Source {
         let mut already_included = FxHashSet::default();
         already_included.insert(self.file());
         let mut result = FlatSymbolTable::default();
-        // If we ask for root symbols but imports contains symbols for root container
-        // how to not iterate the files twice?
-        // include source_table + root_table where it's the import goes in the root table
-        // include just root_table where it's not put in the root table?
-        // First iterate through possi
+        // If we ask for root/conse symbols but root/conse table also has imports on it to not iterate
+        // over the same file twice we include symbols from both source_table and root_table
         let (first_settings, second_settings, container) = match settings {
-            ImportMembers::Target(target) => (
-                GetMembersInner::Target(target),
-                None,
-                // Fix later
-                target,
-            ),
+            ImportMembers::Target(target) => (GetMembersInner::Target(target), None, target),
             ImportMembers::Const => (
                 GetMembersInner::ConstAsSource,
                 Some(GetMembersInner::Const),
@@ -382,7 +374,7 @@ pub trait Source {
         )
     }
 
-    fn symbols_at(&self, offset: TextSize, filter_by_static: bool) -> FlatSymbolTable {
+    fn symbols_at(&self, offset: TextSize, hide_unnecessary: bool) -> FlatSymbolTable {
         let mut items = FlatSymbolTable::default();
 
         let scope = self.scope(offset);
@@ -395,6 +387,7 @@ pub trait Source {
             self.const_table(),
             FindSymbol::OnlyBefore(offset),
             ImportMembers::Const,
+            hide_unnecessary,
         ) {
             items.entry(name).or_insert(id);
         }
@@ -404,7 +397,7 @@ pub trait Source {
         for (name, id) in self.members_of_container(
             container,
             FindSymbol::BeforeIfInExecutionRange(offset, scope),
-            filter_by_static,
+            hide_unnecessary,
         ) {
             items.entry(name).or_insert(id);
         }
@@ -413,6 +406,7 @@ pub trait Source {
             self.root_table(),
             FindSymbol::BeforeIfInExecutionRange(offset, scope),
             ImportMembers::Root,
+            hide_unnecessary,
         ) {
             items.entry(name).or_insert(id);
         }
@@ -426,39 +420,44 @@ pub trait Source {
         settings: FindSymbol,
         hide_unnecessary: bool,
     ) -> FlatSymbolTable {
-        match primitive {
+        let primitive_members = match primitive {
             Primitive::Table(id) => {
                 let Some(id) = id else {
                     return builtin_table_members(self.db());
                 };
 
-                self.members_of_table(id, settings, ImportMembers::Target(ImportTarget::Table(id)))
+                return self.members_of_table(
+                    id,
+                    settings,
+                    ImportMembers::Target(ImportTarget::Table(id)),
+                    hide_unnecessary,
+                );
             }
             Primitive::Class(id) => {
                 let Some(id) = id else {
                     return builtin_class_members(self.db());
                 };
 
-                self.members_of_class(
+                return self.members_of_class(
                     id,
                     settings,
                     ImportMembers::Target(ImportTarget::Class(id)),
                     false,
                     hide_unnecessary,
-                )
+                );
             }
             Primitive::Instance(id) => {
                 let Some(id) = id else {
                     return instance_members(self.db());
                 };
 
-                self.members_of_class(
+                return self.members_of_class(
                     id,
                     settings,
                     ImportMembers::Target(ImportTarget::Class(id)),
                     true,
                     hide_unnecessary,
-                )
+                );
             }
             Primitive::Integer(_) => integer_members(self.db()),
             Primitive::Float(_) => float_members(self.db()),
@@ -470,8 +469,17 @@ pub trait Source {
             Primitive::Thread(_) => thread_members(self.db()),
             Primitive::Weakref => weakref_members(self.db()),
             Primitive::Null => null_members(self.db()),
-            Primitive::Unknown => FlatSymbolTable::default(),
+            Primitive::Unknown => return FlatSymbolTable::default(),
+        };
+
+        if !hide_unnecessary {
+            return primitive_members;
         }
+
+        primitive_members
+            .into_iter()
+            .filter(|(_, v)| !self.get(*v).flags.intersects(SymbolFlags::HIDE))
+            .collect()
     }
 
     fn members_of_type(
@@ -496,25 +504,28 @@ pub trait Source {
         &self,
         container: Container,
         settings: FindSymbol,
-        filter_by_static: bool,
+        hide_unnecessary: bool,
     ) -> FlatSymbolTable {
         match container {
-            Container::Table(id) => {
-                self.members_of_table(id, settings, ImportMembers::Target(ImportTarget::Table(id)))
-            }
+            Container::Table(id) => self.members_of_table(
+                id,
+                settings,
+                ImportMembers::Target(ImportTarget::Table(id)),
+                hide_unnecessary,
+            ),
             Container::Class(id) => self.members_of_class(
                 id,
                 settings,
                 ImportMembers::Target(ImportTarget::Class(id)),
                 false,
-                filter_by_static,
+                hide_unnecessary,
             ),
             Container::Instance(id) => self.members_of_class(
                 id,
                 settings,
                 ImportMembers::Target(ImportTarget::Class(id)),
                 true,
-                filter_by_static,
+                hide_unnecessary,
             ),
             Container::Enum(id) => self.enum_members(id),
         }
@@ -571,6 +582,7 @@ pub trait Source {
         table: TableId,
         settings: FindSymbol,
         imports: ImportMembers,
+        hide_unnecessary: bool,
     ) -> FlatSymbolTable {
         let mut members = match imports {
             ImportMembers::Const => {
@@ -589,12 +601,30 @@ pub trait Source {
         };
 
         let imports = self.import_members(imports);
-        for (k, v) in imports {
-            members.insert(k, v);
-        }
+        if hide_unnecessary {
+            for (k, v) in imports {
+                if self.get(v).flags.intersects(SymbolFlags::HIDE) {
+                    members.remove(&k);
+                } else {
+                    members.insert(k, v);
+                }
+            }
 
-        for (k, v) in additional {
-            members.insert(k, v);
+            for (k, v) in additional {
+                if self.get(v).flags.intersects(SymbolFlags::HIDE) {
+                    members.remove(&k);
+                } else {
+                    members.insert(k, v);
+                }
+            }
+        } else {
+            for (k, v) in imports {
+                members.insert(k, v);
+            }
+
+            for (name, id) in additional {
+                members.insert(name, id);
+            }
         }
 
         members
@@ -606,7 +636,7 @@ pub trait Source {
         settings: FindSymbol,
         imports: ImportMembers,
         for_instance: bool,
-        filter_by_static: bool,
+        hide_unnecessary: bool,
     ) -> FlatSymbolTable {
         let mut members = if for_instance {
             instance_members(self.db())
@@ -621,18 +651,24 @@ pub trait Source {
         };
 
         let imports = self.import_members(imports);
-        for (k, v) in imports {
-            members.insert(k, v);
-        }
 
-        if filter_by_static {
+        if hide_unnecessary {
+            for (k, v) in imports {
+                if self.get(v).flags.intersects(SymbolFlags::HIDE) {
+                    members.remove(&k);
+                } else {
+                    members.insert(k, v);
+                }
+            }
             // Just not overwriting the 'members' with symbols that don't pass the filter is not enough
             // Internally the name will be overwritten, but if we don't overwrite it on our side we will
             // show a misleading symbol. Instead we can avoid showing these names to the user by removing
             // them from the table
             for (name, id) in additional {
                 let symbol = self.get(id);
-                if for_instance == symbol.flags.intersects(SymbolFlags::STATIC) {
+                if symbol.flags.intersects(SymbolFlags::HIDE)
+                    && for_instance == symbol.flags.intersects(SymbolFlags::STATIC)
+                {
                     members.remove(&name);
                 } else {
                     members.insert(name, id);
@@ -641,6 +677,10 @@ pub trait Source {
 
             members.remove("constructor");
         } else {
+            for (k, v) in imports {
+                members.insert(k, v);
+            }
+
             for (name, id) in additional {
                 members.insert(name, id);
             }

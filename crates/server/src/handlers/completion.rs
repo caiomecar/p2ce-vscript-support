@@ -936,7 +936,7 @@ fn completions_from_qualified_name(
             finished_file.members_of_type(
                 typ,
                 FindSymbol::BeforeIfInExecutionRange(offset, scope),
-                false,
+                true,
             )
         },
     );
@@ -1061,6 +1061,7 @@ fn completions_root(
             finished_file.root_table(),
             FindSymbol::BeforeIfInExecutionRange(offset, scope),
             ImportMembers::Root,
+            true,
         )
         .into_iter()
         .map(|(name, id)| {
