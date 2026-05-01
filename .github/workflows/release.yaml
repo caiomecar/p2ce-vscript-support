@@ -94,9 +94,13 @@ jobs:
           path: vsix
       - name: Publish to VS Code Marketplace
         if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_marketplace
-        run: npx vsce publish -p ${{ secrets.MARKETPLACE_TOKEN }} --packagePath
-          "vsix/*.vsix"
+        run: |
+          for vsix in vsix/*.vsix; do
+            npx vsce publish -p ${{ secrets.MARKETPLACE_TOKEN }} --packagePath "$vsix"
+          done
       - name: Publish to Open VSX
         if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_openvsx
-        run: npx ovsx publish -p ${{ secrets.OPENVSX_TOKEN }} --packagePath
-          "vsix/*.vsix"
+        run: |
+          for vsix in vsix/*.vsix; do
+            npx ovsx publish "$vsix" -p ${{ secrets.OPENVSX_TOKEN }}
+          done
