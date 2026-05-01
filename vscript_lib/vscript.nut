@@ -1381,6 +1381,7 @@ class CBaseCombatCharacter extends CBaseFlex {
     function GetLastKnownArea();
 }
 
+
 // ============================================================
 // CBasePlayer extends CBaseCombatCharacter
 // ============================================================
@@ -2777,20 +2778,6 @@ class CTFBot extends CTFPlayer {
     function IsImmobile();
 }
 
-// ============================================================
-// CTFBaseBoss extends NextBotCombatCharacter
-// ============================================================
-
-/**
- * Base class intended for custom NPCs. Officially used as part of MvM tank.
- */
-class CTFBaseBoss extends NextBotCombatCharacter {
-    /**
-     * Sets whether the entity should push away players intersecting its bounding box. On by default.
-     * @param {bool} toggle
-     */
-    function SetResolvePlayerCollisions(toggle);
-}
 
 // ============================================================
 // Convars (Game Instance)
@@ -4232,6 +4219,22 @@ class NextBotCombatCharacter extends CBaseCombatCharacter {
      * @returns {bool}
      */
     function IsImmobile();
+}
+
+
+// ============================================================
+// CTFBaseBoss extends NextBotCombatCharacter
+// ============================================================
+
+/**
+ * Base class intended for custom NPCs. Officially used as part of MvM tank.
+ */
+class CTFBaseBoss extends NextBotCombatCharacter {
+    /**
+     * Sets whether the entity should push away players intersecting its bounding box. On by default.
+     * @param {bool} toggle
+     */
+    function SetResolvePlayerCollisions(toggle);
 }
 
 // ============================================================
