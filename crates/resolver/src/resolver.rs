@@ -4991,8 +4991,8 @@ impl<'db> Resolver<'db> {
             return None;
         }
 
-        // tf_projectile_* | prop_*
-        if text.starts_with("tf_pr") || text.starts_with("prop") {
+        // tf_projectile_* | prop_* | item_*
+        if text.starts_with("tf_pr") || text.starts_with("pr") || text.starts_with("it") {
             return self
                 .db
                 .instance_from_vscript_lib("CBaseAnimating")
