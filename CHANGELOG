@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.0.14]
+- Add item_* classname search inference
+- (Bumping version because openvsx returned 502)
+
 ## [3.0.13]
 - Infer the return type of functions that either create an entity with classname or search with it
 - Split function statement recovery into method and non-method kinds
