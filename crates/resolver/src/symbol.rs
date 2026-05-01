@@ -215,6 +215,11 @@ impl Type {
     }
 
     #[must_use]
+    pub fn add_null(&self) -> Self {
+        merge_types(self, &Self::NULL)
+    }
+
+    #[must_use]
     pub const fn is_useful(&self) -> bool {
         !TypeFlags::UNKNOWN_OR_NULL.contains(self.type_flags())
     }

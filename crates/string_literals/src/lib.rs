@@ -1,52 +1,55 @@
 pub type StringLiteralValues = (phf::Set<&'static str>, &'static [&'static str]);
-use string_literals_macros::{case_insensetive_set, case_sensetive_set};
+use string_literals_macros::{case_insensitive_map, case_insensitive_set, case_sensitive_set};
 
-static ATTRIBUTE_VALUES: StringLiteralValues = case_sensetive_set!("data/attributes.txt");
+static ATTRIBUTE_VALUES: StringLiteralValues = case_sensitive_set!("data/attributes.txt");
 
 // I/O
-static INPUT_VALUES: StringLiteralValues = case_insensetive_set!("data/inputs.txt");
-static OUTPUT_VALUES: StringLiteralValues = case_insensetive_set!("data/outputs.txt");
-static CLASSNAME_VALUES: StringLiteralValues = case_insensetive_set!("data/classnames.txt");
+static INPUT_VALUES: StringLiteralValues = case_insensitive_set!("data/inputs.txt");
+static OUTPUT_VALUES: StringLiteralValues = case_insensitive_set!("data/outputs.txt");
+static CLASSNAME_VALUES: StringLiteralValues = case_insensitive_set!("data/classnames.txt");
+
+pub static CLASSNAMES_TO_CLASSES: phf::Map<&'static str, &'static str> =
+    case_insensitive_map!("data/classnames_to_classes.txt");
 
 // CONVARS
-static CONVAR_VALUES: StringLiteralValues = case_insensetive_set!("data/convars.txt");
-static CLIENT_CONVAR_VALUES: StringLiteralValues = case_insensetive_set!("data/client_convars.txt");
+static CONVAR_VALUES: StringLiteralValues = case_insensitive_set!("data/convars.txt");
+static CLIENT_CONVAR_VALUES: StringLiteralValues = case_insensitive_set!("data/client_convars.txt");
 
 // NetProps / Datamaps
 static PROPERTY_INTEGER_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/integer.txt");
+    case_sensitive_set!("data/properties/integer.txt");
 
 static PROPERTY_INTEGER_ARRAY_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/integer_array.txt");
+    case_sensitive_set!("data/properties/integer_array.txt");
 
 static PROPERTY_FLOAT_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/float.txt");
+    case_sensitive_set!("data/properties/float.txt");
 
 static PROPERTY_FLOAT_ARRAY_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/float_array.txt");
+    case_sensitive_set!("data/properties/float_array.txt");
 
-static PROPERTY_BOOL_VALUES: StringLiteralValues = case_sensetive_set!("data/properties/bool.txt");
+static PROPERTY_BOOL_VALUES: StringLiteralValues = case_sensitive_set!("data/properties/bool.txt");
 
 static PROPERTY_BOOL_ARRAY_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/bool_array.txt");
+    case_sensitive_set!("data/properties/bool_array.txt");
 
 static PROPERTY_STRING_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/string.txt");
+    case_sensitive_set!("data/properties/string.txt");
 
 static PROPERTY_STRING_ARRAY_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/string_array.txt");
+    case_sensitive_set!("data/properties/string_array.txt");
 
 static PROPERTY_ENTITY_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/entity.txt");
+    case_sensitive_set!("data/properties/entity.txt");
 
 static PROPERTY_ENTITY_ARRAY_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/entity_array.txt");
+    case_sensitive_set!("data/properties/entity_array.txt");
 
 static PROPERTY_VECTOR_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/vector.txt");
+    case_sensitive_set!("data/properties/vector.txt");
 
 static PROPERTY_VECTOR_ARRAY_VALUES: StringLiteralValues =
-    case_sensetive_set!("data/properties/vector_array.txt");
+    case_sensitive_set!("data/properties/vector_array.txt");
 
 pub static ATTRIBUTE: [&StringLiteralValues; 1] = [&ATTRIBUTE_VALUES];
 pub static INPUT: [&StringLiteralValues; 1] = [&INPUT_VALUES];

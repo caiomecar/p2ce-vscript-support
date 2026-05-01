@@ -10,7 +10,7 @@ use salsa::Setter;
 use sq_3_parser::Parse;
 
 use crate::{
-    FinishedFile, Source, SourceSymbol, SymbolId,
+    FinishedFile, Primitive, Source, SourceSymbol, SymbolId, Type,
     arena::{ArenaId, ClassId, FunctionId},
     resolver::Resolver,
     symbol::{FlatSymbolTable, to_flat_symbol_table},
@@ -87,8 +87,11 @@ pub enum NativeFunction {
     Array,
     ArrayExtend,
     ArrayReturnItem,
+    // VScript
     IncludeScript,
     DoIncludeScript,
+    CreateEntity,
+    FindEntity,
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +105,7 @@ pub trait VScriptDatabase: BaseDatabase {
     fn vscript_lib(&self) -> Option<File>;
     fn base_entity_class(&self) -> Option<ClassId>;
     fn check_native(&self, id: FunctionId) -> Option<NativeFunction>;
+    fn instance_from_vscript_lib(&self, text: &str) -> Option<Type>;
 
     fn update_tf2_root(&mut self, path: Option<PathBuf>);
 
@@ -215,6 +219,20 @@ impl VScriptDatabase for Database {
                 Some(forward_slash_path)
             })
             .collect()
+    }
+
+    fn instance_from_vscript_lib(&self, class: &str) -> Option<Type> {
+        let vscript_lib = self.vscript_lib()?;
+
+        let symbol = self.find_symbol(vscript_lib, &[class])?;
+        let typ = &symbol.get_data(self).typ;
+
+        let Ok(id) = typ.to_class() else {
+            eprintln!("Trying to get type of '{class}' but it doesn't point to a class");
+            return None;
+        };
+
+        Some(Type::Primitive(Primitive::Instance(Some(id))))
     }
 }
 
@@ -401,6 +419,27 @@ impl Database {
                 NativeFunction::DoIncludeScript,
                 ["DoIncludeScript"].as_slice(),
             ),
+            (
+                NativeFunction::CreateEntity,
+                ["SpawnEntityFromTable"].as_slice(),
+            ),
+            (NativeFunction::CreateEntity, ["CreateProp"].as_slice()),
+            (
+                NativeFunction::CreateEntity,
+                ["CEntities", "CreateByClassname"].as_slice(),
+            ),
+            (
+                NativeFunction::FindEntity,
+                ["CEntities", "FindByClassname"].as_slice(),
+            ),
+            (
+                NativeFunction::FindEntity,
+                ["CEntities", "FindByClassnameNearest"].as_slice(),
+            ),
+            (
+                NativeFunction::FindEntity,
+                ["CEntities", "FindByClassnameWithin"].as_slice(),
+            ),
         ] {
             let Some(symbol) = self.find_symbol(lib, sym_path) else {
                 continue;
@@ -431,7 +470,7 @@ impl Database {
         self.vscript_lib = Some(lib);
     }
 
-    fn find_symbol(&self, file: File, path: &[&'static str]) -> Option<SymbolId> {
+    fn find_symbol(&self, file: File, path: &[&str]) -> Option<SymbolId> {
         let source = source_symbol(self, file);
 
         let mut last: Option<SymbolId> = None;

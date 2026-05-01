@@ -21,6 +21,7 @@ use sq_3_parser::{
     },
 };
 use std::{collections::hash_map::Entry, path::PathBuf};
+use string_literals::CLASSNAMES_TO_CLASSES;
 
 use crate::{
     Diagnostic, DiagnosticSeverity, ExpressionKind, File, FindSymbol, ImportMembers,
@@ -792,24 +793,25 @@ impl<'db> Resolver<'db> {
                 let message = match kind {
                     StringKind::Script => self.db().get_script(PathBuf::from(text)).err(),
                     StringKind::ClassnameSearch if text.ends_with('*') => {
-                        // If prefix exists, so "tf_wearable*"
-                        // we check whether any of our keys start with that main part
-                        // otherwise we fall back to a default method
-                        let prefix = text
-                            .strip_suffix('*')
-                            .expect("We did 'ends_with' before entering this branch");
+                        // If prefix exists, so "tf_wearable*" we don't error
+                        None
+                        // Looking whether a single classname starts_with specified prefix can validate
+                        // this further but it's O(n) over 700 entries for little benefit: so skip
+                        // let prefix = text
+                        //     .strip_suffix('*')
+                        //     .expect("We did 'ends_with' before entering this branch");
 
-                        kind.values()
-                            .is_some_and(|values| {
-                                !values
-                                    .iter()
-                                    .any(|set| set.1.iter().any(|txt| txt.starts_with(prefix)))
-                            })
-                            .then(|| {
-                                format!(
-                                    "Text of string literal is not suitable for the kind '{kind}'"
-                                )
-                            })
+                        // kind.values()
+                        //     .is_some_and(|values| {
+                        //         !values
+                        //             .iter()
+                        //             .any(|set| set.1.iter().any(|txt| txt.starts_with(prefix)))
+                        //     })
+                        //     .then(|| {
+                        //         format!(
+                        //             "Text of string literal is not suitable for the kind '{kind}'"
+                        //         )
+                        //     })
                     }
                     // In non vanilla tf2 those 2 can have other values that are valid
                     StringKind::Convar | StringKind::Input => None,
@@ -2128,9 +2130,6 @@ impl<'db> Resolver<'db> {
     ) -> Option<Type> {
         match kind {
             NativeFunction::CopySelf => return Some(context.clone()),
-            NativeFunction::IncludeScript | NativeFunction::DoIncludeScript => {
-                self.include_script(arguments);
-            }
             NativeFunction::GetRootTable => {
                 return Some(Type::Primitive(Primitive::Table(Some(self.root_table()))));
             }
@@ -2176,7 +2175,19 @@ impl<'db> Resolver<'db> {
                 let id = context.to_array().ok()?;
                 return Some(self.get(id).kind.clone());
             } // NativeFunction::ArrayPush => todo!(),
-              // NativeFunction::ArrayResize => todo!(),
+            // NativeFunction::ArrayResize => todo!(),
+            NativeFunction::IncludeScript => {
+                self.include_script(arguments);
+            }
+            NativeFunction::DoIncludeScript => {
+                self.do_include_script(arguments);
+            }
+            NativeFunction::CreateEntity => {
+                return self.create_entity(arguments);
+            }
+            NativeFunction::FindEntity => {
+                return self.find_entity(arguments);
+            }
         }
         None
     }
@@ -4820,77 +4831,6 @@ impl<'db> Resolver<'db> {
         ExpressionKind::Literal(Type::Primitive(Primitive::Function(Some(id))))
     }
 
-    fn include_script(&mut self, arguments: &[TypeWithRange]) {
-        let Some(path_string) = arguments.first() else {
-            // Case with no path will be handled in call_type
-            return;
-        };
-
-        let Ok((_, str)) = path_string.kind.to_string() else {
-            return;
-        };
-
-        let Some(id) = str else {
-            self.diagnostics.push(Diagnostic {
-                message: "Could not resolve the path statically, symbols will not be included"
-                    .to_owned(),
-                range: path_string.range,
-                severity: DiagnosticSeverity::Information,
-            });
-            return;
-        };
-
-        let path = PathBuf::from(self.get(id).text.to_string());
-
-        let Ok(file) = self.db.get_script(path) else {
-            return;
-        };
-
-        let target = match arguments.get(1) {
-            Some(expr) => {
-                // if expr.typ == Type::Unknown {
-                //     match self.execution_container() {
-                //         Container::Table(id) => ImportTarget::Table(id),
-                //         Container::Class(id) => ImportTarget::Class(id),
-                //         Container::Instance(id) => ImportTarget::Class(id),
-                //         Container::Enum(_) => {
-                //             self.diagnostics.push(Diagnostic {
-                //                 message: format!("Type 'enum' cannot receive new members"),
-                //                 range: expr.range,
-                //                 severity: DiagnosticSeverity::Warning,
-                //             });
-                //             return;
-                //         }
-                //     }
-                // } else {
-                let Ok(target) = ImportTarget::try_from(&expr.kind) else {
-                    self.diagnostics.push(Diagnostic {
-                        message: format!(
-                            "Type '{}' cannot receive new members",
-                            self.type_to_str_generic(&expr.kind)
-                        ),
-                        range: expr.range,
-                        severity: DiagnosticSeverity::Warning,
-                    });
-                    return;
-                };
-                target
-                // }
-            }
-
-            None => match self.execution_container() {
-                Container::Table(id) => ImportTarget::Table(id),
-                Container::Class(id) | Container::Instance(id) => ImportTarget::Class(id),
-                Container::Enum(_) => return,
-            },
-        };
-
-        self.imports
-            .entry(target)
-            .and_modify(|e| e.push(file))
-            .or_insert_with(|| vec![file]);
-    }
-
     fn set_delegate(&mut self, context: &Type, arguments: &[TypeWithRange]) {
         let Some(first) = arguments.first() else {
             return;
@@ -4929,6 +4869,165 @@ impl<'db> Resolver<'db> {
         );
 
         Type::Primitive(Primitive::Function(Some(new)))
+    }
+
+    fn get_script_from_arguments(&mut self, arguments: &[TypeWithRange]) -> Option<File> {
+        let path_string = arguments.first()?;
+
+        let Ok((_, str)) = path_string.kind.to_string() else {
+            return None;
+        };
+
+        let Some(id) = str else {
+            self.diagnostics.push(Diagnostic {
+                message: "Could not resolve the path statically, symbols will not be included"
+                    .to_owned(),
+                range: path_string.range,
+                severity: DiagnosticSeverity::Information,
+            });
+            return None;
+        };
+
+        let path = PathBuf::from(self.get(id).text.to_string());
+
+        self.db.get_script(path).ok()
+    }
+
+    fn include_script(&mut self, arguments: &[TypeWithRange]) {
+        let Some(script) = self.get_script_from_arguments(arguments) else {
+            return;
+        };
+
+        let target = match arguments.get(1) {
+            Some(expr) => {
+                let Ok(target) = ImportTarget::try_from(&expr.kind).or_else(|_| {
+                    if expr.kind.type_flags().intersects(TypeFlags::NULL) {
+                        ImportTarget::try_from(self.execution_container())
+                    } else {
+                        Err(())
+                    }
+                }) else {
+                    self.diagnostics.push(Diagnostic {
+                        message: format!(
+                            "Type '{}' cannot receive new members",
+                            self.type_to_str_generic(&expr.kind)
+                        ),
+                        range: expr.range,
+                        severity: DiagnosticSeverity::Warning,
+                    });
+                    return;
+                };
+                target
+            }
+
+            None => match ImportTarget::try_from(self.execution_container()) {
+                Ok(i) => i,
+                Err(()) => return,
+            },
+        };
+
+        self.imports
+            .entry(target)
+            .and_modify(|e| e.push(script))
+            .or_insert_with(|| vec![script]);
+    }
+
+    fn do_include_script(&mut self, arguments: &[TypeWithRange]) {
+        let Some(script) = self.get_script_from_arguments(arguments) else {
+            return;
+        };
+
+        let Some(expr) = arguments.get(1) else {
+            return;
+        };
+
+        let Ok(target) = ImportTarget::try_from(&expr.kind) else {
+            self.diagnostics.push(Diagnostic {
+                message: format!(
+                    "Type '{}' cannot receive new members",
+                    self.type_to_str_generic(&expr.kind)
+                ),
+                range: expr.range,
+                severity: DiagnosticSeverity::Warning,
+            });
+            return;
+        };
+
+        self.imports
+            .entry(target)
+            .and_modify(|e| e.push(script))
+            .or_insert_with(|| vec![script]);
+    }
+
+    fn create_entity(&self, arguments: &[TypeWithRange]) -> Option<Type> {
+        let classname = arguments.first()?;
+
+        let Ok((_, Some(literal))) = classname.kind.to_string() else {
+            return None;
+        };
+
+        let text = self.get(literal).text.to_lowercase();
+        let class = CLASSNAMES_TO_CLASSES.get(&text)?;
+
+        self.db.instance_from_vscript_lib(class)
+    }
+
+    fn find_entity(&self, arguments: &[TypeWithRange]) -> Option<Type> {
+        let classname = arguments.get(1)?;
+
+        let Ok((_, Some(literal))) = classname.kind.to_string() else {
+            return None;
+        };
+
+        let text = self.get(literal).text.to_lowercase();
+        if let Some(class) = CLASSNAMES_TO_CLASSES.get(&text) {
+            return self
+                .db
+                .instance_from_vscript_lib(class)
+                .map(|t| t.add_null());
+        }
+
+        if !text.ends_with('*') {
+            return None;
+        }
+
+        // tf_projectile_* | prop_*
+        if text.starts_with("tf_pr") || text.starts_with("prop") {
+            return self
+                .db
+                .instance_from_vscript_lib("CBaseAnimating")
+                .map(|t| t.add_null());
+        }
+
+        // tf_weapon_* but not tf_weaponbase_*
+        if text.starts_with("tf_weap") && text.starts_with("tf_weaponb") {
+            return self
+                .db
+                .instance_from_vscript_lib("CTFWeaponBase")
+                .map(|t| t.add_null());
+        }
+
+        // tf_wearable_*
+        if text.starts_with("tf_wear") {
+            return self
+                .db
+                .instance_from_vscript_lib("CEconEntity")
+                .map(|t| t.add_null());
+        }
+
+        // obj_*
+        if text.starts_with('o') {
+            return self
+                .db
+                .instance_from_vscript_lib("CBaseCombatCharacter")
+                .map(|t| t.add_null());
+        }
+
+        // There are other patterns like logic_* or trigger_* ,but since they have
+        // CBaseEntity class there's no reason to search for it, since it will
+        // default to CBaseEntity|null either way
+
+        None
     }
 
     fn unused_variables_diagnostics(&mut self) {
