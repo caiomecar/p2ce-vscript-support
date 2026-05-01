@@ -78,8 +78,9 @@ enum VariableDeclaration {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ParseStatement {
-    FunctionBody,
     StatementBody { parse_end: bool },
+    FunctionBody,
+    MethodBody,
     TopStatements,
     BlockStatements,
     CaseStatements,
@@ -786,7 +787,7 @@ impl Parser {
 
                 self.bump();
                 self.parse_function_signature();
-                self.parse_statement(ParseStatement::FunctionBody);
+                self.parse_statement(ParseStatement::MethodBody);
                 self.finish(m, SyntaxKind::Constructor);
             }
             SyntaxKind::FunctionKeyword => {
@@ -801,7 +802,7 @@ impl Parser {
                 self.bump();
                 self.parse_name("method's name", TokenSet::EVERYTHING);
                 self.parse_function_signature();
-                self.parse_statement(ParseStatement::FunctionBody);
+                self.parse_statement(ParseStatement::MethodBody);
                 self.finish(m, SyntaxKind::Method);
             }
             _ => self.parse_simple_name_property(m, object_kind, has_prefix_construct),
@@ -866,7 +867,7 @@ impl Parser {
                     self.error_at_token("Method needs to be prepended with a name".to_owned());
                 }
                 self.parse_function_signature();
-                self.parse_statement(ParseStatement::FunctionBody);
+                self.parse_statement(ParseStatement::MethodBody);
                 self.finish(m, SyntaxKind::Method);
                 return;
             }
@@ -1326,7 +1327,7 @@ impl Parser {
         }
 
         self.parse_function_signature();
-        self.parse_statement(ParseStatement::FunctionBody);
+        self.parse_statement(ParseStatement::MethodBody);
 
         self.finish(m, SyntaxKind::FunctionExpression);
         m
@@ -1378,8 +1379,10 @@ impl Parser {
     fn parse_statement(&mut self, kind: ParseStatement) -> bool {
         // (set, should_error)
         let stop = match kind {
-            ParseStatement::FunctionBody => (TokenSet::NO_FUNCTION_BODY, true),
-            ParseStatement::StatementBody { .. } => (TokenSet::END_OF_BLOCK, true),
+            ParseStatement::MethodBody => (TokenSet::END_OF_METHOD, true),
+            ParseStatement::FunctionBody | ParseStatement::StatementBody { .. } => {
+                (TokenSet::END_OF_BLOCK, true)
+            }
             // These are processed in a loop
             // we don't error since containing 0 statements is valid and set should
             // match at least once to stop the iteration

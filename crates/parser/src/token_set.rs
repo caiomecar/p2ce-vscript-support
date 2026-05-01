@@ -152,7 +152,7 @@ impl TokenSet {
         SyntaxKind::OpenBracket,
     ]);
 
-    pub const NO_FUNCTION_BODY: Self = Self::new(&[
+    pub const END_OF_METHOD: Self = Self::new(&[
         SyntaxKind::StaticKeyword,
         SyntaxKind::CloseBrace,
         SyntaxKind::Eof,
