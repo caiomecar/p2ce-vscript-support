@@ -21,7 +21,7 @@ opt-level = 3
 strip = true
 
 [workspace.lints.rust]
-unsafe_code = "deny"
+unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 enum_glob_use = "deny"

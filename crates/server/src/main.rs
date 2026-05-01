@@ -1,6 +1,7 @@
 mod handlers;
 mod positions;
 #[allow(
+    unused,
     clippy::all,
     clippy::nursery,
     clippy::pedantic,
