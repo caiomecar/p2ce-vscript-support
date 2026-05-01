@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.0.15]
+- Fix CTFBaseBoss not having a superclass
+- Make @hide tag properly work
+
 ## [3.0.14]
 - Add item_* classname search inference
 - (Bumping version because openvsx returned 502)
