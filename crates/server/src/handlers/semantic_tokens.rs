@@ -1,7 +1,6 @@
 use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult};
 use resolver::{
-    DisplayType, FinishedFile, LocalKind, PropertyKind, Source, SymbolFlags, SymbolKind, Type,
-    VScriptDatabase,
+    DisplayType, FinishedFile, LocalKind, Source, SymbolFlags, SymbolKind, Type, VScriptDatabase,
 };
 
 use crate::positions;
@@ -75,17 +74,11 @@ pub fn handle_semantic_tokens(
                     }
                 }
             },
-            SymbolKind::Property(kind) => {
-                if kind == PropertyKind::Embedded && text_range == symbol.name_range {
-                    continue;
-                }
-
-                match DisplayType::from(symbol) {
-                    DisplayType::Function => TokenType::Function,
-                    DisplayType::Class => TokenType::Class,
-                    _ => TokenType::Property,
-                }
-            }
+            SymbolKind::Property { .. } => match DisplayType::from(symbol) {
+                DisplayType::Function => TokenType::Function,
+                DisplayType::Class => TokenType::Class,
+                _ => TokenType::Property,
+            },
             SymbolKind::EnumMember => {
                 modifiers |= TokenModifier::READONLY;
                 TokenType::EnumMember

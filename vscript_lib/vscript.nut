@@ -686,7 +686,7 @@ class CBaseEntity {
      * Set a model for this entity.
      *
      * **Warning**: Make sure the model was already precached before using this function or the game will crash!
-     * @param {string} model_name
+     * @param {string|null} model_name
      */
     function SetModel(model_name);
 
@@ -775,7 +775,7 @@ class CBaseEntity {
      * Deals damage to the entity.
      * @param {float} damage
      * @param {integer} damage_type See [Constants.FDmgType](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants#FDmgType)
-     * @param {CBaseEntity} attacker
+     * @param {CBaseEntity|null} attacker
      */
     function TakeDamage(damage, damage_type, attacker);
 
@@ -1030,7 +1030,7 @@ class CBaseAnimating extends CBaseEntity {
 
     /**
      * Set a model for this entity. Automatically precaches and maintains sequence/cycle if possible.
-     * @param {string} model_name
+     * @param {string|null} model_name
      */
     function SetModelSimple(model_name);
 
@@ -1262,7 +1262,7 @@ class CBaseCombatWeapon extends CBaseAnimating {
 
     /**
      * Sets a custom view model for this weapon by model name.
-     * @param {string} model_name
+     * @param {string|null} model_name
      */
     function SetCustomViewModel(model_name);
 
@@ -2137,7 +2137,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Sets a custom player model without animations (model will T-pose).
-     * @param {string} model_name
+     * @param {string|null} model_name
      */
     function SetCustomModel(model_name);
 
@@ -2163,7 +2163,7 @@ class CTFPlayer extends CBasePlayer {
 
     /**
      * Sets a custom player model with full animations.
-     * @param {string} model_name
+     * @param {string|null} model_name
      */
     function SetCustomModelWithClassAnimations(model_name);
 

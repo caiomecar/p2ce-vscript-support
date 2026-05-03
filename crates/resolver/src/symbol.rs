@@ -58,7 +58,7 @@ impl Symbol {
     #[must_use]
     pub const fn is_modifiable(&self) -> bool {
         match self.kind {
-            SymbolKind::Local(_) | SymbolKind::Property(_) => {
+            SymbolKind::Local(_) | SymbolKind::Property { .. } => {
                 !self.flags.intersects(SymbolFlags::CONST)
             }
             _ => false,
@@ -136,7 +136,7 @@ impl From<&Symbol> for DisplayType {
                 _ => match value.kind {
                     SymbolKind::Local(_) => Self::Variable,
                     SymbolKind::Constant => Self::Constant,
-                    SymbolKind::Property(_) => Self::Field,
+                    SymbolKind::Property { .. } => Self::Field,
                     SymbolKind::EnumMember => Self::EnumMember,
                 },
             },
@@ -220,6 +220,28 @@ impl Type {
     }
 
     #[must_use]
+    pub fn remove_this(&self) -> Option<Self> {
+        match self {
+            Self::Any => Some(Self::Any),
+            Self::Primitive(prim) => (*prim != Primitive::This).then_some(Self::Primitive(*prim)),
+            Self::Enum(enum_id) => Some(Self::Enum(*enum_id)),
+            Self::Union(union) => {
+                let new: Vec<_> = union
+                    .primitives
+                    .iter()
+                    .copied()
+                    .filter(|p| *p != Primitive::This)
+                    .collect();
+                let flags = union.flags.difference(TypeFlags::THIS);
+                Some(Self::Union(Union {
+                    flags,
+                    primitives: new.into(),
+                }))
+            }
+        }
+    }
+
+    #[must_use]
     pub const fn is_useful(&self) -> bool {
         !TypeFlags::UNKNOWN_OR_NULL.contains(self.type_flags())
     }
@@ -295,6 +317,7 @@ impl Type {
     pub const GENERATOR: Self = Self::Primitive(Primitive::Generator(None));
     pub const THREAD: Self = Self::Primitive(Primitive::Thread(None));
     pub const WEAKREF: Self = Self::Primitive(Primitive::Weakref);
+    pub const THIS: Self = Self::Primitive(Primitive::This);
 }
 
 /// Single type
@@ -326,6 +349,7 @@ pub enum Primitive {
     Generator(Option<FunctionId>),
     Thread(Option<FunctionId>),
     Weakref,
+    This,
 }
 
 impl Primitive {
@@ -346,6 +370,7 @@ impl Primitive {
             Self::Generator(_) => TypeFlags::GENERATOR,
             Self::Thread(_) => TypeFlags::THREAD,
             Self::Weakref => TypeFlags::WEAKREF,
+            Self::This => TypeFlags::THIS,
         }
     }
 }
@@ -361,7 +386,7 @@ pub enum SymbolKind {
     Local(LocalKind),
     Constant,
     EnumMember,
-    Property(PropertyKind),
+    Property { show_inlay_hint: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -371,20 +396,14 @@ pub enum LocalKind {
     Parameter,
     VariedArgs,
     Exception,
-}
-
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub enum PropertyKind {
-    #[default]
-    Default,
-    // e.g abc <- {}
-    NameOnLhs,
     Embedded,
 }
 
 impl Default for SymbolKind {
     fn default() -> Self {
-        Self::Property(PropertyKind::default())
+        Self::Property {
+            show_inlay_hint: false,
+        }
     }
 }
 
@@ -405,7 +424,7 @@ bitflags::bitflags! {
         const GENERATOR = 1 << 11;
         const THREAD = 1 << 12;
         const WEAKREF = 1 << 13;
-
+        const THIS = 1 << 14;
     }
 }
 

@@ -251,7 +251,7 @@ pub enum SyntaxKind {
     ThrowTag,
     YieldTag,
     NativeTag,
-    EntityTag,
+    VarTag,
     HideTag,
     DeprecatedTag,
     ConstTag,

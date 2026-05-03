@@ -2,7 +2,7 @@ use lsp_types::{
     InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent,
     MarkupKind,
 };
-use resolver::{FinishedFile, LocalKind, PropertyKind, Source, SymbolKind, VScriptDatabase};
+use resolver::{FinishedFile, LocalKind, Source, SymbolKind, VScriptDatabase};
 
 use crate::positions;
 
@@ -36,7 +36,9 @@ pub fn handle_inlay_hint(
                 symbol.kind,
                 SymbolKind::Local(
                     LocalKind::Exception | LocalKind::Parameter | LocalKind::Variable
-                ) | SymbolKind::Property(PropertyKind::NameOnLhs)
+                ) | SymbolKind::Property {
+                    show_inlay_hint: true
+                }
             ) {
                 return None;
             }

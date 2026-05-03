@@ -9,15 +9,16 @@ use sq_3_parser::{
         DeleteExpression, DoWhileStatement, DocComment, DocType, ElementAccessExpression,
         EnumStatement, Expr, ExpressionStatement, ExpressionWrapper, ForEachStatement,
         ForInitialiserKind, ForStatement, FunctionBody, FunctionExpression, FunctionStatement,
-        HasBody, HasDescription, HasDoc, HasName, HasOperand, HasType, HasTypes, IfStatement,
-        IsClass, IsClassMember, IsFunction, IsTag, LambdaExpression, LiteralExpression,
-        LiteralExpressionKind, LocalFunctionDeclaration, LocalVariableDeclaration, Member,
-        MemberAccessExpression, MemberName, Name, Parameter, ParenthesisedExpression,
-        PostfixUpdateExpression, PostfixUpdateOperator, PrefixUnaryExpression, PrefixUnaryOperator,
-        PrefixUpdateExpression, PrefixUpdateOperator, Property, QualifiedName, RawCallExpression,
-        ResumeExpression, ReturnStatement, RootAccessExpression, SourceFile, Stmt, StringNameKind,
-        SwitchClause, SwitchStatement, TableLiteralExpression, Tag, ThisExpression, ThrowStatement,
-        TryStatement, TypeOfExpression, VariableDeclaration, WhileStatement, YieldStatement,
+        HasBody, HasDoc, HasDocDescription, HasDocName, HasDocType, HasDocTypes, HasName,
+        HasOperand, IfStatement, IsClass, IsClassMember, IsFunction, LambdaExpression,
+        LiteralExpression, LiteralExpressionKind, LocalFunctionDeclaration,
+        LocalVariableDeclaration, Member, MemberAccessExpression, MemberName, Name, Parameter,
+        ParenthesisedExpression, PostfixUpdateExpression, PostfixUpdateOperator,
+        PrefixUnaryExpression, PrefixUnaryOperator, PrefixUpdateExpression, PrefixUpdateOperator,
+        Property, QualifiedName, RawCallExpression, ResumeExpression, ReturnStatement,
+        RootAccessExpression, SourceFile, Stmt, StringNameKind, SwitchClause, SwitchStatement,
+        TableLiteralExpression, Tag, ThisExpression, ThrowStatement, TryStatement,
+        TypeOfExpression, VarTag, VariableDeclaration, WhileStatement, YieldStatement,
     },
 };
 use std::{collections::hash_map::Entry, path::PathBuf};
@@ -28,14 +29,14 @@ use crate::{
     NullableExprKind, Source, SourceSymbol, TypeWithRange, VScriptDatabase,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
-        FunctionData, FunctionId, ImportTarget, ParamsState, ReturnState, Scope, ScopeId,
-        SourceArena, StringLiteralData, StringLiteralId, SymbolId, TableData, TableId,
-        TypeConversionError, TypeState,
+        FunctionData, FunctionId, ImportTarget, ParamsState, Scope, ScopeId, SourceArena,
+        StringLiteralData, StringLiteralId, SymbolId, TableData, TableId, TypeConversionError,
+        TypeState,
     },
     db::NativeFunction,
     symbol::{
-        LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
-        SymbolTable, ToPrimitiveError, Type, TypeFlags, insert_symbol, merge_types,
+        LocalKind, Primitive, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable,
+        ToPrimitiveError, Type, TypeFlags, insert_symbol, merge_types,
     },
 };
 
@@ -339,7 +340,7 @@ impl<'db> Resolver<'db> {
             imports.insert(ImportTarget::Table(TableId::new(file, root_table)), libs);
         }
 
-        let mut collector = Self {
+        let mut this = Self {
             db,
             file,
             imports,
@@ -366,19 +367,8 @@ impl<'db> Resolver<'db> {
             for tag in doc.tags() {
                 match tag {
                     Tag::Native(_) => is_native = true,
-                    Tag::Entity(t) => {
-                        let base_entity = db.base_entity_class();
-                        let id = collector.symbol(Symbol {
-                            name: "self".into(),
-                            typ: Type::Primitive(Primitive::Instance(base_entity)),
-                            is_type_explicit: true,
-                            kind: SymbolKind::Property(PropertyKind::Embedded),
-                            name_range: t.tag_item().expect("").syntax().text_range(),
-                            range: t.tag_item().expect("").syntax().text_range(),
-                            ..Default::default()
-                        });
-
-                        collector.add_current_container_member("self".into(), id);
+                    Tag::Var(tag) => {
+                        this.var_tag(&tag);
                     }
                     _ => {}
                 }
@@ -386,39 +376,39 @@ impl<'db> Resolver<'db> {
         }
 
         for stmt in node.statements() {
-            collector.collect_stmt(&stmt);
+            this.collect_stmt(&stmt);
         }
 
-        assert_eq!(collector.arena[collector.scope].parent, None);
+        assert_eq!(this.arena[this.scope].parent, None);
 
         // Resolve remaining functions
-        while let Some(idx) = collector.deferred_functions.keys().next().copied() {
-            let trace = collector
+        while let Some(idx) = this.deferred_functions.keys().next().copied() {
+            let trace = this
                 .deferred_functions
                 .remove(&idx)
                 .expect("We just got this index");
             let entry = DeferredFunctionEntry { idx, trace };
-            collector.resolve_function_doc(&entry, node.syntax().text_range().end());
-            collector.resolve_deferred_function_entry(&entry);
+            this.resolve_function_doc(&entry, node.syntax().text_range().end());
+            this.resolve_deferred_function_entry(&entry);
         }
 
         if !is_native {
-            collector.unused_variables_diagnostics();
+            this.unused_variables_diagnostics();
         }
 
-        collector.deprecated_diagnostics();
+        this.deprecated_diagnostics();
 
         SourceSymbol {
-            imports: collector.imports,
-            arena: collector.arena,
+            imports: this.imports,
+            arena: this.arena,
             const_table,
             root_table,
             source_table,
-            range_to_expr: collector.range_to_expr,
-            range_to_symbol: collector.range_to_symbol,
-            doc_to_symbol: collector.doc_to_symbol,
-            symbol_to_ranges: collector.symbol_to_ranges,
-            diagnostics: collector.diagnostics,
+            range_to_expr: this.range_to_expr,
+            range_to_symbol: this.range_to_symbol,
+            doc_to_symbol: this.doc_to_symbol,
+            symbol_to_ranges: this.symbol_to_ranges,
+            diagnostics: this.diagnostics,
         }
     }
 
@@ -673,12 +663,7 @@ impl<'db> Resolver<'db> {
         locals.or_else(consts).or_else(members).or_else(root)
     }
 
-    fn doc_type_single(
-        &mut self,
-        typ: &DocType,
-        offset: TextSize,
-        found_this: &mut bool,
-    ) -> Option<Type> {
+    fn doc_type_single(&mut self, typ: &DocType, offset: TextSize) -> Option<Type> {
         match typ {
             DocType::Name(name) => {
                 let identifier = name.identifier()?;
@@ -698,10 +683,7 @@ impl<'db> Resolver<'db> {
                     "generator" => Type::GENERATOR,
                     "thread" => Type::THREAD,
                     "weakref" => Type::WEAKREF,
-                    "this" => {
-                        *found_this = true;
-                        return None;
-                    }
+                    "this" => Type::THIS,
                     _ => {
                         if let Ok(kind) = text.parse::<StringKind>() {
                             Type::Primitive(Primitive::String {
@@ -738,7 +720,6 @@ impl<'db> Resolver<'db> {
             DocType::Array(array) => {
                 let typ = self
                     .doc_type(array.types(), offset)
-                    .0
                     .unwrap_or(Type::UNKNOWN);
                 Some(Type::Primitive(Primitive::Array(Some(self.array(typ)))))
             }
@@ -749,15 +730,12 @@ impl<'db> Resolver<'db> {
         &mut self,
         mut types: impl Iterator<Item = DocType>,
         offset: TextSize,
-    ) -> (Option<Type>, bool) {
-        let Some(first) = types.next() else {
-            return (None, false);
-        };
-        let mut found_this = false;
+    ) -> Option<Type> {
+        let first = types.next()?;
 
-        let mut last_type = self.doc_type_single(&first, offset, &mut found_this);
+        let mut last_type = self.doc_type_single(&first, offset);
         for typ in types {
-            let Some(next_type) = self.doc_type_single(&typ, offset, &mut found_this) else {
+            let Some(next_type) = self.doc_type_single(&typ, offset) else {
                 continue;
             };
 
@@ -768,7 +746,7 @@ impl<'db> Resolver<'db> {
             }
         }
 
-        (last_type, found_this)
+        last_type
     }
 
     fn check_type(
@@ -1649,10 +1627,10 @@ impl<'db> Resolver<'db> {
 
                 Some(if self.get(id).yields == TypeState::Absent {
                     match &self.get(id).ret {
-                        ReturnState::Absent => Type::UNKNOWN,
-                        ReturnState::Explicit(typ) | ReturnState::NotExplicit(typ) => typ.clone(),
-                        ReturnState::This(Some(typ)) => merge_types(context, typ),
-                        ReturnState::This(None) => context.clone(),
+                        TypeState::Absent => Type::UNKNOWN,
+                        TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => typ
+                            .remove_this()
+                            .map_or_else(|| context.clone(), |typ| merge_types(context, &typ)),
                     }
                 } else {
                     Type::Primitive(Primitive::Generator(Some(id)))
@@ -1773,7 +1751,7 @@ impl<'db> Resolver<'db> {
                 bindenv,
                 params: Vec::new(),
                 params_state: ParamsState::NoDefault,
-                ret: ReturnState::Absent,
+                ret: TypeState::Absent,
                 throws: TypeState::Absent,
                 yields: TypeState::Absent,
             }),
@@ -1828,7 +1806,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(doc_type) = self.doc_type(typ.types(), offset).0 else {
+                    let Some(doc_type) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
 
@@ -1893,12 +1871,10 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let (doc_type, found_this) = self.doc_type(typ.types(), offset);
+                    let doc_type = self.doc_type(typ.types(), offset);
 
-                    if found_this {
-                        self.arena[entry.idx].ret = ReturnState::This(doc_type);
-                    } else if let Some(typ) = doc_type {
-                        self.arena[entry.idx].ret = ReturnState::Explicit(typ);
+                    if let Some(typ) = doc_type {
+                        self.arena[entry.idx].ret = TypeState::Explicit(typ);
                     }
                 }
                 Tag::Param(tag) => {
@@ -1934,7 +1910,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(doc_type) = self.doc_type(typ.types(), offset).0 else {
+                    let Some(doc_type) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
 
@@ -1957,7 +1933,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.doc_type(typ.types(), offset).0 {
+                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
                         self.arena[entry.idx].throws = TypeState::Explicit(doc_type);
                     }
                 }
@@ -1966,7 +1942,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    if let Some(doc_type) = self.doc_type(typ.types(), offset).0 {
+                    if let Some(doc_type) = self.doc_type(typ.types(), offset) {
                         self.arena[entry.idx].yields = TypeState::Explicit(doc_type);
                     }
                 }
@@ -1985,7 +1961,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(typ) = self.doc_type(typ.types(), offset).0 else {
+                    let Some(typ) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
 
@@ -2000,7 +1976,7 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(typ) = self.doc_type(tag_type.types(), offset).0 else {
+                    let Some(typ) = self.doc_type(tag_type.types(), offset) else {
                         continue;
                     };
 
@@ -2022,9 +1998,38 @@ impl<'db> Resolver<'db> {
                         self.arena[entry.idx].container = Container::Class(id);
                     }
                 }
+                Tag::Var(tag) => {
+                    self.var_tag(&tag);
+                }
                 _ => {}
             }
         }
+    }
+
+    fn var_tag(&mut self, tag: &VarTag) {
+        let Some(var_name) = tag.name().and_then(|n| n.identifier()) else {
+            return;
+        };
+        let text = var_name.text();
+        let mut symbol = Symbol {
+            name: text.into(),
+            typ: Type::UNKNOWN,
+            kind: SymbolKind::Local(LocalKind::Embedded),
+            name_range: var_name.text_range(),
+            range: tag.syntax().text_range(),
+            ..Default::default()
+        };
+
+        if let Some(typ) = tag
+            .typ()
+            .and_then(|t| self.doc_type(t.types(), tag.syntax().text_range().start()))
+        {
+            symbol.typ = typ;
+            symbol.is_type_explicit = true;
+        }
+
+        let id = self.symbol(symbol);
+        insert_symbol(&mut self.current_scope().locals, text.into(), id);
     }
 
     fn resolve_deferred_function_entry(&mut self, entry: &DeferredFunctionEntry) {
@@ -2064,16 +2069,12 @@ impl<'db> Resolver<'db> {
                 let new_ret = self.expr_to_type_with_range(expr);
 
                 let (ret, is_explicit) = match self.arena[idx].ret.clone() {
-                    ReturnState::Absent => {
-                        self.arena[idx].ret = ReturnState::NotExplicit(new_ret.kind);
+                    TypeState::Absent => {
+                        self.arena[idx].ret = TypeState::NotExplicit(new_ret.kind);
                         return;
                     }
-                    ReturnState::Explicit(typ) => (typ, true),
-                    // fix later
-                    ReturnState::This(typ) => {
-                        (typ.map_or(Type::UNKNOWN, |t| t.add_unknown()), true)
-                    }
-                    ReturnState::NotExplicit(typ) => (typ, false),
+                    TypeState::Explicit(typ) => (typ, true),
+                    TypeState::NotExplicit(typ) => (typ, false),
                 };
 
                 if let Some(new) = self.check_or_update_type(
@@ -2082,14 +2083,14 @@ impl<'db> Resolver<'db> {
                     NewType::NotExplicit(new_ret),
                     CheckTypeSource::Return,
                 ) {
-                    self.arena[idx].ret = ReturnState::Explicit(new);
+                    self.arena[idx].ret = TypeState::Explicit(new);
                 }
             }
             FunctionBody::Stmt(stmt) => {
                 self.collect_stmt(stmt);
 
-                if self.arena[idx].ret == ReturnState::Absent {
-                    self.arena[idx].ret = ReturnState::NotExplicit(Type::NULL);
+                if self.arena[idx].ret == TypeState::Absent {
+                    self.arena[idx].ret = TypeState::NotExplicit(Type::NULL);
                 }
             }
         }
@@ -2364,7 +2365,9 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ: typ.add_unknown(),
-            kind: SymbolKind::Property(PropertyKind::NameOnLhs),
+            kind: SymbolKind::Property {
+                show_inlay_hint: true,
+            },
             name_range,
             range: property.syntax().text_range(),
             ..Default::default()
@@ -2393,7 +2396,9 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: text.clone(),
             typ: typ.add_unknown(),
-            kind: SymbolKind::Property(PropertyKind::NameOnLhs),
+            kind: SymbolKind::Property {
+                show_inlay_hint: true,
+            },
             flags: if did_swap {
                 SymbolFlags::default()
             } else {
@@ -2689,7 +2694,7 @@ impl<'db> Resolver<'db> {
                 kind: Type::Primitive(Primitive::Class(Some(class))),
                 range: stmt.syntax().text_range(),
             },
-            PropertyKind::Default,
+            false,
         );
 
         let save_symbol = self.container;
@@ -3049,13 +3054,12 @@ impl<'db> Resolver<'db> {
         };
 
         let (ret, is_explicit) = match self.arena[function].ret.clone() {
-            ReturnState::Absent => {
-                self.arena[function].ret = ReturnState::NotExplicit(value.kind);
+            TypeState::Absent => {
+                self.arena[function].ret = TypeState::NotExplicit(value.kind);
                 return;
             }
-            ReturnState::Explicit(typ) => (typ, true),
-            ReturnState::This(typ) => (typ.map_or(Type::UNKNOWN, |t| t.add_unknown()), false),
-            ReturnState::NotExplicit(typ) => (typ, false),
+            TypeState::Explicit(typ) => (typ, true),
+            TypeState::NotExplicit(typ) => (typ, false),
         };
 
         if let Some(new) = self.check_or_update_type(
@@ -3067,7 +3071,7 @@ impl<'db> Resolver<'db> {
             }),
             CheckTypeSource::Return,
         ) {
-            self.arena[function].ret = ReturnState::NotExplicit(new);
+            self.arena[function].ret = TypeState::NotExplicit(new);
         }
     }
 
@@ -3924,7 +3928,7 @@ impl<'db> Resolver<'db> {
         expr: &T,
         name: Option<AssignmentLeftHandSide>,
         value: TypeWithRange,
-        property_kind: PropertyKind,
+        show_inlay_hint: bool,
     ) where
         T: HasDoc,
     {
@@ -3946,7 +3950,7 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: new_key.clone(),
                     typ: value.kind.add_unknown(),
-                    kind: SymbolKind::Property(property_kind),
+                    kind: SymbolKind::Property { show_inlay_hint },
                     name_range,
                     range: expr.syntax().text_range(),
                     ..Default::default()
@@ -4003,7 +4007,7 @@ impl<'db> Resolver<'db> {
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
                         typ: value.kind.add_unknown(),
-                        kind: SymbolKind::Property(property_kind),
+                        kind: SymbolKind::Property { show_inlay_hint },
                         name_range,
                         range: expr.syntax().text_range(),
                         ..Default::default()
@@ -4082,7 +4086,7 @@ impl<'db> Resolver<'db> {
             },
         );
 
-        self.expr_new_symbol(expr, left, right, PropertyKind::NameOnLhs);
+        self.expr_new_symbol(expr, left, right, true);
 
         right_kind
     }

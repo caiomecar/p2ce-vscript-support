@@ -19,13 +19,11 @@ use crate::{
     symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
 
-pub use arena::{
-    ArenaId, FunctionData, FunctionId, ParamsState, ReturnState, ScopeId, SymbolId, TypeState,
-};
+pub use arena::{ArenaId, FunctionData, FunctionId, ParamsState, ScopeId, SymbolId, TypeState};
 pub use db::{Database, VScriptDatabase, VScriptDbConfig, parse, source_symbol};
 pub use symbol::{
-    DisplayType, LocalKind, Primitive, PropertyKind, StringKind, Symbol, SymbolFlags, SymbolKind,
-    SymbolTable, ToPrimitiveError, Type, TypeFlags,
+    DisplayType, LocalKind, Primitive, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable,
+    ToPrimitiveError, Type, TypeFlags,
 };
 
 const MARKDOWN_MEMBER_LIMIT: usize = 5;
@@ -469,7 +467,7 @@ pub trait Source {
             Primitive::Thread(_) => thread_members(self.db()),
             Primitive::Weakref => weakref_members(self.db()),
             Primitive::Null => null_members(self.db()),
-            Primitive::Unknown => return FlatSymbolTable::default(),
+            Primitive::Unknown | Primitive::This => return FlatSymbolTable::default(),
         };
 
         if !hide_unnecessary {
@@ -756,7 +754,7 @@ pub trait Source {
                     Primitive::Thread(_) => thread_symbol(self.db())?,
                     Primitive::Weakref => weakref_symbol(self.db())?,
                     Primitive::Null => null_symbol(self.db())?,
-                    Primitive::Unknown => return None,
+                    Primitive::Unknown | Primitive::This => return None,
                 })
             },
             |prim| !matches!(prim, Primitive::Null),
@@ -827,6 +825,7 @@ pub trait Source {
             Primitive::Generator(_) => "generator",
             Primitive::Thread(_) => "thread",
             Primitive::Weakref => "weakref",
+            Primitive::This => "this",
         }
     }
 
@@ -908,7 +907,7 @@ pub trait Source {
 
         match s.kind {
             SymbolKind::Local(_) => str.push_str("local "),
-            SymbolKind::Property(_) => {
+            SymbolKind::Property { .. } => {
                 if s.flags.intersects(SymbolFlags::STATIC) {
                     str.push_str("static ");
                 }
@@ -1055,19 +1054,10 @@ pub trait Source {
         }
 
         match &func.ret {
-            ReturnState::Absent => {}
-            ReturnState::NotExplicit(typ) | ReturnState::Explicit(typ) => {
+            TypeState::Absent => {}
+            TypeState::NotExplicit(typ) | TypeState::Explicit(typ) => {
                 if !matches!(typ, Type::Primitive(Primitive::Unknown | Primitive::Null)) {
                     let _ = write!(label, " -> {}", self.type_to_str(typ));
-                }
-            }
-            ReturnState::This(typ) => {
-                if let Some(typ) = typ
-                    && *typ != Type::Primitive(Primitive::Unknown)
-                {
-                    let _ = write!(label, " -> {} | this", self.type_to_str(typ));
-                } else {
-                    label.push_str(" -> this");
                 }
             }
         }

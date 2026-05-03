@@ -195,6 +195,20 @@ impl<'a> DocComment<'a> {
         }
     }
 
+    fn possible_type_with_name(&mut self, error_keyword: &str) {
+        let has_type = self.possible_type();
+
+        self.skip_trivia();
+        let name = self.start();
+        self.identifier(if has_type {
+            format!("Expected {error_keyword}'s name")
+        } else {
+            format!("Expected type ('{{...}}') or {error_keyword}'s name")
+        });
+
+        self.finish(name, SyntaxKind::DocName);
+    }
+
     // @param {type} name description
     fn parse_tag(&mut self) {
         let tag = self.start();
@@ -209,19 +223,12 @@ impl<'a> DocComment<'a> {
 
         let kind = match tag_text {
             "param" => {
-                let has_type = self.possible_type();
-
-                self.skip_trivia();
-                let name = self.start();
-                self.identifier(if has_type {
-                    "Expected parameter's name".to_owned()
-                } else {
-                    "Expected type ('{...}') or parameter's name".to_owned()
-                });
-
-                self.finish(name, SyntaxKind::DocName);
-
+                self.possible_type_with_name("parameter");
                 SyntaxKind::ParamTag
+            }
+            "var" => {
+                self.possible_type_with_name("variable");
+                SyntaxKind::VarTag
             }
             "type" => {
                 self.parse_tag_type();
@@ -251,7 +258,6 @@ impl<'a> DocComment<'a> {
                 self.parse_tag_type();
                 SyntaxKind::ThisTag
             }
-            "entity" => SyntaxKind::EntityTag,
             "native" => SyntaxKind::NativeTag,
             "deprecated" => SyntaxKind::DeprecatedTag,
             "hide" => SyntaxKind::HideTag,

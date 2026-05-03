@@ -932,7 +932,7 @@ ast_enum!(Member {
     Method(Method),
 });
 
-pub trait HasDescription: AstNode<Language = SquirrelLanguage> {
+pub trait HasDocDescription: AstNode<Language = SquirrelLanguage> {
     fn description(&self) -> Option<DocDescription> {
         support::child(self.syntax())
     }
@@ -944,20 +944,27 @@ pub trait IsTag: AstNode<Language = SquirrelLanguage> {
     }
 }
 
-pub trait HasType: AstNode<Language = SquirrelLanguage> {
+pub trait HasDocType: AstNode<Language = SquirrelLanguage> {
     fn typ(&self) -> Option<DocTagType> {
         support::child(self.syntax())
     }
 }
 
-pub trait HasTypes: AstNode<Language = SquirrelLanguage> {
+pub trait HasDocName: AstNode<Language = SquirrelLanguage> {
+    #[must_use]
+    fn name(&self) -> Option<DocName> {
+        support::child(self.syntax())
+    }
+}
+
+pub trait HasDocTypes: AstNode<Language = SquirrelLanguage> {
     fn types(&self) -> AstChildren<DocType> {
         support::children(self.syntax())
     }
 }
 
 ast_node!(DocComment, DocCommentNode);
-impl HasDescription for DocComment {}
+impl HasDocDescription for DocComment {}
 impl DocComment {
     #[must_use]
     pub fn tags(&self) -> AstChildren<Tag> {
@@ -1048,7 +1055,7 @@ impl DocName {
 }
 
 ast_node!(DocTagType, DocTagType);
-impl HasTypes for DocTagType {}
+impl HasDocTypes for DocTagType {}
 
 ast_enum!(DocType {
     Name(DocTypeName),
@@ -1064,7 +1071,7 @@ impl DocTypeName {
 }
 
 ast_node!(DocTypeArray, DocTypeArray);
-impl HasTypes for DocTypeArray {}
+impl HasDocTypes for DocTypeArray {}
 
 ast_enum!(Tag {
     Return(ReturnTag),
@@ -1074,7 +1081,7 @@ ast_enum!(Tag {
     Throw(ThrowTag),
     Yield(YieldTag),
     Native(NativeTag),
-    Entity(EntityTag),
+    Var(VarTag),
     Hide(HideTag),
     Deprecated(DeprecatedTag),
     Const(ConstTag),
@@ -1083,79 +1090,76 @@ ast_enum!(Tag {
     This(ThisTag),
 });
 
-impl HasDescription for Tag {}
+impl HasDocDescription for Tag {}
 impl IsTag for Tag {}
 
 ast_node!(ReturnTag, ReturnTag);
-impl HasDescription for ReturnTag {}
+impl HasDocDescription for ReturnTag {}
 impl IsTag for ReturnTag {}
-impl HasType for ReturnTag {}
+impl HasDocType for ReturnTag {}
 
 ast_node!(ParamTag, ParamTag);
-impl HasDescription for ParamTag {}
+impl HasDocDescription for ParamTag {}
 impl IsTag for ParamTag {}
-impl HasType for ParamTag {}
-impl ParamTag {
-    #[must_use]
-    pub fn name(&self) -> Option<DocName> {
-        support::child(&self.0)
-    }
-}
+impl HasDocType for ParamTag {}
+impl HasDocName for ParamTag {}
 
 ast_node!(VarArgsTag, VarArgsTag);
-impl HasDescription for VarArgsTag {}
+impl HasDocDescription for VarArgsTag {}
 impl IsTag for VarArgsTag {}
-impl HasType for VarArgsTag {}
+impl HasDocType for VarArgsTag {}
 
 ast_node!(ExtendsTag, ExtendsTag);
-impl HasDescription for ExtendsTag {}
+impl HasDocDescription for ExtendsTag {}
 impl IsTag for ExtendsTag {}
-impl HasType for ExtendsTag {}
+impl HasDocType for ExtendsTag {}
 
 ast_node!(TypeTag, TypeTag);
-impl HasDescription for TypeTag {}
+impl HasDocDescription for TypeTag {}
 impl IsTag for TypeTag {}
-impl HasType for TypeTag {}
+impl HasDocType for TypeTag {}
 
 ast_node!(ThisTag, ThisTag);
-impl HasDescription for ThisTag {}
+impl HasDocDescription for ThisTag {}
 impl IsTag for ThisTag {}
-impl HasType for ThisTag {}
+impl HasDocType for ThisTag {}
 
 ast_node!(ThrowTag, ThrowTag);
-impl HasDescription for ThrowTag {}
+impl HasDocDescription for ThrowTag {}
 impl IsTag for ThrowTag {}
-impl HasType for ThrowTag {}
+impl HasDocType for ThrowTag {}
 
 ast_node!(YieldTag, YieldTag);
-impl HasDescription for YieldTag {}
+impl HasDocDescription for YieldTag {}
 impl IsTag for YieldTag {}
-impl HasType for YieldTag {}
+impl HasDocType for YieldTag {}
 
 ast_node!(NativeTag, NativeTag);
-impl HasDescription for NativeTag {}
+impl HasDocDescription for NativeTag {}
 impl IsTag for NativeTag {}
 
-ast_node!(EntityTag, EntityTag);
-impl HasDescription for EntityTag {}
-impl IsTag for EntityTag {}
+ast_node!(VarTag, VarTag);
+impl HasDocDescription for VarTag {}
+impl IsTag for VarTag {}
+impl HasDocName for VarTag {}
+impl HasDocType for VarTag {}
 
 ast_node!(HideTag, HideTag);
-impl HasDescription for HideTag {}
+impl HasDocDescription for HideTag {}
 impl IsTag for HideTag {}
 
 ast_node!(DeprecatedTag, DeprecatedTag);
-impl HasDescription for DeprecatedTag {}
+impl HasDocDescription for DeprecatedTag {}
 impl IsTag for DeprecatedTag {}
 
 ast_node!(ConstTag, ConstTag);
-impl HasDescription for ConstTag {}
+impl HasDocDescription for ConstTag {}
 impl IsTag for ConstTag {}
 
 ast_node!(InputTag, InputTag);
-impl HasDescription for InputTag {}
+impl HasDocDescription for InputTag {}
 impl IsTag for InputTag {}
 
 ast_node!(StaticTag, StaticTag);
-impl HasDescription for StaticTag {}
+impl HasDocDescription for StaticTag {}
 impl IsTag for StaticTag {}

@@ -2,10 +2,7 @@ use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
     SymbolTag,
 };
-use resolver::{
-    DisplayType, FinishedFile, PropertyKind, Source, Symbol, SymbolFlags, SymbolKind,
-    VScriptDatabase,
-};
+use resolver::{DisplayType, FinishedFile, Source, Symbol, SymbolFlags, VScriptDatabase};
 
 use crate::positions;
 
@@ -38,10 +35,6 @@ pub fn handle_document_symbol(
     let mut build_symbol = |stack: &mut Vec<(&Symbol, Vec<DocumentSymbol>)>,
                             symbol: &Symbol,
                             children: Vec<DocumentSymbol>| {
-        if symbol.kind == SymbolKind::Property(PropertyKind::Embedded) {
-            return;
-        }
-
         let Some(range) = positions::range(line_idx, symbol.range) else {
             return;
         };
