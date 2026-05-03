@@ -20,14 +20,14 @@ use crate::{
 #[derive(Default, Clone)]
 pub struct Database {
     storage: salsa::Storage<Self>,
-    files: DashMap<Url, File>,
-    urls: DashMap<File, Url>,
+    files: Arc<DashMap<Url, File>>,
+    urls: Arc<DashMap<File, Url>>,
     builtins: Option<Arc<Builtins>>,
     tf2_root_dir: Option<PathBuf>,
     scripts_dir: Option<PathBuf>,
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
-    native_functions: FxHashMap<FunctionId, NativeFunction>,
+    native_functions: Arc<FxHashMap<FunctionId, NativeFunction>>,
 }
 
 impl salsa::Database for Database {}
@@ -230,15 +230,20 @@ impl Database {
     pub fn new(config: VScriptDbConfig) -> Self {
         let mut this = Self::default();
 
-        if let Some(builtins_path) = config.builtins_path {
-            this.init_builtins(&builtins_path);
+        let mut native_functions = FxHashMap::default();
+        if let Some(builtins) = config.builtins_path.and_then(|p| this.init_builtins(&p)) {
+            this.fill_builtins_native_functions(builtins, &mut native_functions);
         }
-        if let Some(squirrel_lib_path) = config.squirrel_lib_path {
-            this.init_squirrel_lib(&squirrel_lib_path);
+        if let Some(lib) = config.squirrel_lib_path.and_then(|p| this.init_stdlib(&p)) {
+            this.squirrel_lib = Some(lib);
+            this.fill_squirrel_native_functions(lib, &mut native_functions);
         }
-        if let Some(vscript_lib_path) = config.vscript_lib_path {
-            this.init_vscript_lib(&vscript_lib_path);
+        if let Some(lib) = config.vscript_lib_path.and_then(|p| this.init_stdlib(&p)) {
+            this.vscript_lib = Some(lib);
+            this.fill_vscript_native_functions(lib, &mut native_functions);
         }
+
+        this.native_functions = Arc::new(native_functions);
 
         this.update_tf2_root(config.tf2_root_path);
 
@@ -279,15 +284,53 @@ impl Database {
         Some(self.open_file(&url, text))
     }
 
-    fn init_builtins(&mut self, path: &Path) {
-        let Some(builtins) = self.open_file_from_path(path) else {
-            return;
-        };
-
+    fn init_builtins(&mut self, path: &Path) -> Option<File> {
+        let builtins = self.open_file_from_path(path)?;
         builtins
             .set_text(self)
             .with_durability(salsa::Durability::HIGH);
 
+        self.builtins = Some(Arc::new(Builtins {
+            integer: self.init_builtin(builtins, "integer"),
+            float: self.init_builtin(builtins, "float"),
+            boolean: self.init_builtin(builtins, "bool"),
+            string: self.init_builtin(builtins, "string"),
+            array: self.init_builtin(builtins, "array"),
+            table: self.init_builtin(builtins, "table"),
+            function: self.init_builtin(builtins, "function_"),
+            class: self.init_builtin(builtins, "class_"),
+            instance: self.init_builtin(builtins, "instance"),
+            generator: self.init_builtin(builtins, "generator"),
+            thread: self.init_builtin(builtins, "thread"),
+            weakref: self.init_builtin(builtins, "weakref"),
+            null: self.init_builtin(builtins, "null_"),
+        }));
+
+        Some(builtins)
+    }
+
+    fn init_builtin(&self, file: File, name: &'static str) -> Builtin {
+        let symbol = self
+            .find_symbol(file, &[name])
+            .unwrap_or_else(|| panic!("Builtin '{name}' not found"));
+
+        let source = source_symbol(self, file);
+
+        let Ok(id) = source.arena[symbol.idx()].typ.to_class() else {
+            panic!("'{name}' member is not of type 'class'");
+        };
+
+        Builtin {
+            symbol,
+            members: to_flat_symbol_table(id.get_data(self).members.clone()),
+        }
+    }
+
+    fn fill_builtins_native_functions(
+        &self,
+        builtins: File,
+        map: &mut FxHashMap<FunctionId, NativeFunction>,
+    ) {
         for (native_function, sym_path) in [
             (
                 NativeFunction::SetDelegate,
@@ -318,50 +361,21 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(function_id, native_function);
-        }
-
-        self.builtins = Some(Arc::new(Builtins {
-            integer: self.init_builtin(builtins, "integer"),
-            float: self.init_builtin(builtins, "float"),
-            boolean: self.init_builtin(builtins, "bool"),
-            string: self.init_builtin(builtins, "string"),
-            array: self.init_builtin(builtins, "array"),
-            table: self.init_builtin(builtins, "table"),
-            function: self.init_builtin(builtins, "function_"),
-            class: self.init_builtin(builtins, "class_"),
-            instance: self.init_builtin(builtins, "instance"),
-            generator: self.init_builtin(builtins, "generator"),
-            thread: self.init_builtin(builtins, "thread"),
-            weakref: self.init_builtin(builtins, "weakref"),
-            null: self.init_builtin(builtins, "null_"),
-        }));
-    }
-
-    fn init_builtin(&self, file: File, name: &'static str) -> Builtin {
-        let symbol = self
-            .find_symbol(file, &[name])
-            .unwrap_or_else(|| panic!("Builtin '{name}' not found"));
-
-        let source = source_symbol(self, file);
-
-        let Ok(id) = source.arena[symbol.idx()].typ.to_class() else {
-            panic!("'{name}' member is not of type 'class'");
-        };
-
-        Builtin {
-            symbol,
-            members: to_flat_symbol_table(id.get_data(self).members.clone()),
+            map.insert(function_id, native_function);
         }
     }
 
-    fn init_squirrel_lib(&mut self, path: &Path) {
-        let Some(lib) = self.open_file_from_path(path) else {
-            return;
-        };
-
+    fn init_stdlib(&mut self, path: &Path) -> Option<File> {
+        let lib = self.open_file_from_path(path)?;
         lib.set_text(self).with_durability(salsa::Durability::HIGH);
+        Some(lib)
+    }
 
+    fn fill_squirrel_native_functions(
+        &self,
+        lib: File,
+        map: &mut FxHashMap<FunctionId, NativeFunction>,
+    ) {
         for (native_function, sym_path) in [
             (NativeFunction::Array, ["array"].as_slice()),
             (NativeFunction::NewThread, ["newthread"].as_slice()),
@@ -382,19 +396,15 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(id, native_function);
+            map.insert(id, native_function);
         }
-
-        self.squirrel_lib = Some(lib);
     }
 
-    fn init_vscript_lib(&mut self, path: &Path) {
-        let Some(lib) = self.open_file_from_path(path) else {
-            return;
-        };
-
-        lib.set_text(self).with_durability(salsa::Durability::HIGH);
-
+    fn fill_vscript_native_functions(
+        &self,
+        lib: File,
+        map: &mut FxHashMap<FunctionId, NativeFunction>,
+    ) {
         for (native_function, sym_path) in [
             (NativeFunction::IncludeScript, ["IncludeScript"].as_slice()),
             (
@@ -437,10 +447,8 @@ impl Database {
                 continue;
             };
 
-            self.native_functions.insert(id, native_function);
+            map.insert(id, native_function);
         }
-
-        self.vscript_lib = Some(lib);
     }
 
     fn find_symbol(&self, file: File, path: &[&str]) -> Option<SymbolId> {
