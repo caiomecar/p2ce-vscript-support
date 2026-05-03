@@ -11,14 +11,10 @@ use sq_3_parser::Parse;
 
 use crate::{
     FinishedFile, Primitive, Source, SourceSymbol, SymbolId, Type,
-    arena::{ArenaId, ClassId, FunctionId},
+    arena::{ArenaId, FunctionId},
     resolver::Resolver,
     symbol::{FlatSymbolTable, to_flat_symbol_table},
 };
-
-// ---------------------------------------------------------------------------
-// Concrete database
-// ---------------------------------------------------------------------------
 
 #[salsa::db]
 #[derive(Default, Clone)]
@@ -31,7 +27,6 @@ pub struct Database {
     scripts_dir: Option<PathBuf>,
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
-    base_entity_class: Option<ClassId>,
     native_functions: FxHashMap<FunctionId, NativeFunction>,
 }
 
@@ -48,10 +43,6 @@ impl BaseDatabase for Database {
         &self.urls
     }
 }
-
-// ---------------------------------------------------------------------------
-// Domain types
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct Builtin {
@@ -94,16 +85,11 @@ pub enum NativeFunction {
     FindEntity,
 }
 
-// ---------------------------------------------------------------------------
-// VScriptDatabase trait
-// ---------------------------------------------------------------------------
-
 #[salsa::db]
 pub trait VScriptDatabase: BaseDatabase {
     fn builtins(&self) -> Option<&Builtins>;
     fn squirrel_lib(&self) -> Option<File>;
     fn vscript_lib(&self) -> Option<File>;
-    fn base_entity_class(&self) -> Option<ClassId>;
     fn check_native(&self, id: FunctionId) -> Option<NativeFunction>;
     fn instance_from_vscript_lib(&self, text: &str) -> Option<Type>;
 
@@ -128,10 +114,6 @@ impl VScriptDatabase for Database {
 
     fn vscript_lib(&self) -> Option<File> {
         self.vscript_lib
-    }
-
-    fn base_entity_class(&self) -> Option<ClassId> {
-        self.base_entity_class
     }
 
     fn check_native(&self, id: FunctionId) -> Option<NativeFunction> {
@@ -456,15 +438,6 @@ impl Database {
             };
 
             self.native_functions.insert(id, native_function);
-        }
-
-        if let Some(symbol) = self.find_symbol(lib, &["CBaseEntity"]) {
-            match source_symbol(self, lib).arena[symbol.idx()].typ.to_class() {
-                Ok(id) => self.base_entity_class = Some(id),
-                Err(_) => eprintln!(
-                    "Standard library symbol 'CBaseEntity' has a wrong type. (Expected 'class')"
-                ),
-            }
         }
 
         self.vscript_lib = Some(lib);

@@ -206,15 +206,6 @@ pub enum TypeState {
     Explicit(Type),
 }
 
-impl From<&TypeState> for Type {
-    fn from(value: &TypeState) -> Self {
-        match value {
-            TypeState::Absent => Self::UNKNOWN,
-            TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => typ.clone(),
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum ParamsState {
     #[default]

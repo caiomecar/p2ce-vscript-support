@@ -242,6 +242,16 @@ impl Type {
     }
 
     #[must_use]
+    pub fn this_to_concrete(&self, this: &Self) -> Self {
+        if self.type_flags().intersects(TypeFlags::THIS) {
+            self.remove_this()
+                .map_or_else(|| this.clone(), |typ| merge_types(this, &typ))
+        } else {
+            self.clone()
+        }
+    }
+
+    #[must_use]
     pub const fn is_useful(&self) -> bool {
         !TypeFlags::UNKNOWN_OR_NULL.contains(self.type_flags())
     }

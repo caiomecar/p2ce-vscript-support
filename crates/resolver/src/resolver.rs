@@ -139,10 +139,7 @@ impl From<&AssignmentLeftHandSide> for NullableExprKind {
     }
 }
 
-fn get_name<T>(node: &T) -> Option<SyntaxToken>
-where
-    T: HasName,
-{
+fn get_name<T: HasName>(node: &T) -> Option<SyntaxToken> {
     let name = node.name()?;
     name.identifier()
 }
@@ -1498,7 +1495,12 @@ impl<'db> Resolver<'db> {
                 Some((Type::INTEGER, typ))
             }
             Primitive::Generator(id) => {
-                let typ = id.map_or(Type::UNKNOWN, |id| Type::from(&self.get(id).yields));
+                let typ = id.map_or(Type::UNKNOWN, |id| match &self.get(id).yields {
+                    TypeState::Absent => Type::UNKNOWN,
+                    TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                        typ.this_to_concrete(&Type::UNKNOWN)
+                    }
+                });
 
                 Some((Type::INTEGER, typ))
             }
@@ -1516,7 +1518,7 @@ impl<'db> Resolver<'db> {
                     &arguments,
                     should_error.then_some("iterating"),
                 )
-                .map(|typ| (Type::UNKNOWN, typ))
+                .map(|typ| (Type::STRING.add_unknown(), typ))
             }
         }
     }
@@ -1628,9 +1630,9 @@ impl<'db> Resolver<'db> {
                 Some(if self.get(id).yields == TypeState::Absent {
                     match &self.get(id).ret {
                         TypeState::Absent => Type::UNKNOWN,
-                        TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => typ
-                            .remove_this()
-                            .map_or_else(|| context.clone(), |typ| merge_types(context, &typ)),
+                        TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                            typ.this_to_concrete(context)
+                        }
                     }
                 } else {
                     Type::Primitive(Primitive::Generator(Some(id)))
@@ -1710,10 +1712,7 @@ impl<'db> Resolver<'db> {
         }
     }
 
-    fn collect_function<T>(&mut self, node: &T) -> FunctionId
-    where
-        T: IsFunction + Clone + 'static,
-    {
+    fn collect_function<T: IsFunction + Clone + 'static>(&mut self, node: &T) -> FunctionId {
         let bindenv = node
             .environment()
             .and_then(|e| e.expression())
@@ -1776,10 +1775,7 @@ impl<'db> Resolver<'db> {
         id
     }
 
-    fn resolve_variable_doc<T>(&mut self, symbol: SymbolId, node: &T) -> bool
-    where
-        T: HasDoc,
-    {
+    fn resolve_variable_doc<T: HasDoc>(&mut self, symbol: SymbolId, node: &T) -> bool {
         let Some(doc) = node.doc() else {
             return false;
         };
@@ -1809,6 +1805,8 @@ impl<'db> Resolver<'db> {
                     let Some(doc_type) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
+
+                    let doc_type = doc_type.this_to_concrete(&self.execution_container().into());
 
                     if let Some(typ) = self.check_or_update_type(
                         &self.get(symbol).typ.clone(),
@@ -1914,6 +1912,8 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
+                    let doc_type = doc_type.this_to_concrete(&self.execution_container().into());
+
                     if let Some(typ) = self.check_or_update_type(
                         &self.get(param_id).typ.clone(),
                         self.get(param_id).is_type_explicit,
@@ -1961,11 +1961,13 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(typ) = self.doc_type(typ.types(), offset) else {
+                    let Some(doc_type) = self.doc_type(typ.types(), offset) else {
                         continue;
                     };
 
-                    let array = self.array(typ);
+                    let doc_type = doc_type.this_to_concrete(&self.execution_container().into());
+
+                    let array = self.array(doc_type);
                     if let Some(symbol) = self.get_mut(id) {
                         symbol.typ = Type::Primitive(Primitive::Array(Some(array)));
                         symbol.is_type_explicit = true;
@@ -1976,17 +1978,19 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(typ) = self.doc_type(tag_type.types(), offset) else {
+                    let Some(doc_type) = self.doc_type(tag_type.types(), offset) else {
                         continue;
                     };
 
-                    if let Ok(container) = Container::try_from(&typ) {
+                    let doc_type = doc_type.this_to_concrete(&self.execution_container().into());
+
+                    if let Ok(container) = Container::try_from(&doc_type) {
                         self.arena[entry.idx].bindenv = Some(container);
-                    } else if !typ.type_flags().intersects(TypeFlags::UNKNOWN) {
+                    } else if !doc_type.type_flags().intersects(TypeFlags::UNKNOWN) {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
-                                self.type_to_str_generic(&typ)
+                                self.type_to_str_generic(&doc_type)
                             ),
                             range: tag_type.syntax().text_range(),
                             severity: DiagnosticSeverity::Warning,
@@ -2024,7 +2028,7 @@ impl<'db> Resolver<'db> {
             .typ()
             .and_then(|t| self.doc_type(t.types(), tag.syntax().text_range().start()))
         {
-            symbol.typ = typ;
+            symbol.typ = typ.this_to_concrete(&self.execution_container().into());
             symbol.is_type_explicit = true;
         }
 
@@ -3923,15 +3927,13 @@ impl<'db> Resolver<'db> {
     }
 
     // Also used by class statement
-    fn expr_new_symbol<T>(
+    fn expr_new_symbol<T: HasDoc>(
         &mut self,
         expr: &T,
         name: Option<AssignmentLeftHandSide>,
         value: TypeWithRange,
         show_inlay_hint: bool,
-    ) where
-        T: HasDoc,
-    {
+    ) {
         match name {
             Some(AssignmentLeftHandSide::CanCreate {
                 parent,
@@ -4788,7 +4790,12 @@ impl<'db> Resolver<'db> {
     fn resume_expression(&mut self, expr: &ResumeExpression) -> NullableExprKind {
         let typ = self.expr_to_type(&expr.operand()?);
         match typ.to_generator() {
-            Ok(id) => Some(ExpressionKind::Literal((&self.get(id).yields).into())),
+            Ok(id) => Some(ExpressionKind::Literal(match &self.get(id).yields {
+                TypeState::Absent => Type::UNKNOWN,
+                TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+                    typ.this_to_concrete(&Type::UNKNOWN)
+                }
+            })),
             Err(ToPrimitiveError::WrongType) => {
                 self.diagnostics.push(Diagnostic {
                     message: "Only generators can be resumed".to_owned(),
