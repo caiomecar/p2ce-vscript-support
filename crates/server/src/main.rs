@@ -16,15 +16,13 @@ use lsp_server::Connection;
 use lsp_types::{
     CompletionOptions, Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentLinkOptions,
     HoverProviderCapability, InitializeParams, InitializeResult, NumberOrString, OneOf,
-    PublishDiagnosticsParams, RenameOptions, SemanticTokenModifier, SemanticTokenType,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelpOptions,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TypeDefinitionProviderCapability, Url,
-    WorkDoneProgressOptions,
+    RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
+    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TypeDefinitionProviderCapability, Url, WorkDoneProgressOptions,
     notification::{
         Cancel, DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles,
-        DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, LogTrace,
-        PublishDiagnostics, SetTrace,
+        DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, LogTrace, SetTrace,
     },
     request::{
         Completion, DocumentLinkRequest, DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition,
@@ -150,16 +148,17 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
 ) -> &mut NotificationRegistry<Db> {
     registry
         .on_mut::<DidOpenTextDocument>(|session, params| {
-            let url = &params.text_document.uri;
-            session.db.open_file(url, params.text_document.text);
-            publish_diagnostics(session, url)
+            let uri = &params.text_document.uri;
+            session.db.open_file(uri, params.text_document.text);
+            session.schedule_diagnostics(uri.clone(), compute_diagnostics);
+            Ok(())
         })
         .on_mut::<DidChangeTextDocument>(|session, params| {
-            let url = &params.text_document.uri;
+            let uri = &params.text_document.uri;
 
-            let Some(file) = session.db.get_file(url) else {
+            let Some(file) = session.db.get_file(uri) else {
                 return Err(anyhow::format_err!(
-                    "No file '{url}' was found in the database"
+                    "No file '{uri}' was found in the database"
                 ));
             };
 
@@ -176,7 +175,9 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
 
             file.set_text(&mut session.db).to(text);
 
-            publish_diagnostics(session, url)
+            session.schedule_diagnostics(uri.clone(), compute_diagnostics);
+
+            Ok(())
         })
         .on_mut::<DidChangeConfiguration>(|session, params| {
             let settings = params.settings;
@@ -201,7 +202,7 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                 let uri = &change.uri;
 
                 if session.db.get_file(uri).is_some() {
-                    publish_diagnostics(session, uri)?;
+                    session.schedule_diagnostics(uri.clone(), compute_diagnostics);
                 }
             }
             Ok(())
@@ -222,20 +223,16 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         .on::<LogTrace>(|_s, _p| Ok(()))
 }
 
-fn publish_diagnostics<Db: VScriptDatabase + Clone + RefUnwindSafe>(
-    session: &Session<Db>,
-    url: &Url,
-) -> Result<()> {
-    let file = session
-        .db
+fn compute_diagnostics<Db: VScriptDatabase>(db: &Db, url: &Url) -> Result<Vec<Diagnostic>> {
+    let file = db
         .get_file(url)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
-    let line_idx = positions::line_index(&session.db, file);
-    let parse = parse(&session.db, file);
-    let finished_file = FinishedFile::new(&session.db, file);
+    let line_idx = positions::line_index(db, file);
+    let parse = parse(db, file);
+    let finished_file = FinishedFile::new(db, file);
 
-    let diagnostics = parse
+    Ok(parse
         .errors()
         .iter()
         .filter_map(|error| {
@@ -269,21 +266,7 @@ fn publish_diagnostics<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                 ..Default::default()
             })
         }))
-        .collect();
-
-    let params = PublishDiagnosticsParams {
-        uri: url.clone(),
-        diagnostics,
-        version: None,
-    };
-
-    let notification = lsp_server::Notification::new(
-        <PublishDiagnostics as lsp_types::notification::Notification>::METHOD.to_string(),
-        params,
-    );
-
-    session.connection.sender.send(notification.into())?;
-    Ok(())
+        .collect())
 }
 
 fn extract_config(params: &InitializeParams) -> VScriptDbConfig {

@@ -18,6 +18,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 use std::panic::RefUnwindSafe;
 
+use crate::vendored::intent::ThreadIntent;
+
 use super::{
     notification_registry::NotificationRegistry, request_registry::RequestRegistry,
     session::Session,
@@ -25,12 +27,15 @@ use super::{
 
 use anyhow::Error;
 use crossbeam_channel::select;
+use db::Url;
 use lsp_server::Message;
+use lsp_types::{Diagnostic, PublishDiagnosticsParams, notification::PublishDiagnostics};
 
 #[derive(Debug)]
 pub enum Task {
     Response(lsp_server::Response),
     NotificationError(Error),
+    Diagnostics(Url, Vec<Diagnostic>),
 }
 
 impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
@@ -77,6 +82,21 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                     match task? {
                         Task::Response(resp) => RequestRegistry::complete(&mut self, resp)?,
                         Task::NotificationError(err) => NotificationRegistry::handle_error(&self, err)?,
+                        Task::Diagnostics(uri, diagnostics) => {
+                            let params = PublishDiagnosticsParams {
+                                uri,
+                                diagnostics,
+                                version: None,
+                            };
+
+                            let notification = lsp_server::Notification::new(
+                                <PublishDiagnostics as lsp_types::notification::Notification>::METHOD
+                                    .to_string(),
+                                params,
+                            );
+
+                            let _ = self.connection.sender.send(notification.into());
+                        }
                     }
                 }
             }
@@ -95,5 +115,30 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
         };
         self.connection.sender.send(Message::Notification(n))?;
         Ok(())
+    }
+
+    pub fn schedule_diagnostics(
+        &self,
+        uri: Url,
+        callback: fn(&Db, &Url) -> anyhow::Result<Vec<Diagnostic>>,
+    ) {
+        let db = self.db.clone();
+        let sender = self.task_sender.clone();
+        self.task_pool.spawn(
+            ThreadIntent::Worker,
+            std::panic::AssertUnwindSafe(move || {
+                match salsa::Cancelled::catch(|| callback(&db, &uri)) {
+                    Ok(Ok(diagnostics)) => {
+                        sender.send(Task::Diagnostics(uri, diagnostics)).unwrap()
+                    }
+                    Ok(Err(e)) => {
+                        sender.send(Task::NotificationError(e)).unwrap();
+                    }
+                    Err(e) => {
+                        eprintln!("Cancelled file processing: {e}");
+                    }
+                }
+            }),
+        );
     }
 }
