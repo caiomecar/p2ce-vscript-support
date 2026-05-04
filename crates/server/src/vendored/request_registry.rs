@@ -111,7 +111,8 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> RequestRegistry<Db> {
                 let cb = cb.clone();
                 match salsa::Cancelled::catch(|| cb(&db, params)) {
                     Err(e) => {
-                        log::warn!("Cancelled request: {e}");
+                        let method = req.method;
+                        log::warn!("Cancelled request '{method}': {e}");
                     }
                     Ok(result) => match result {
                         Ok(result) => sender

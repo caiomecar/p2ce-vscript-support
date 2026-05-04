@@ -210,7 +210,7 @@ impl VScriptDatabase for Database {
         let typ = &symbol.get_data(self).typ;
 
         let Ok(id) = typ.to_class() else {
-            eprintln!("Trying to get type of '{class}' but it doesn't point to a class");
+            log::warn!("Trying to get type of '{class}' but it doesn't point to a class");
             return None;
         };
 
@@ -355,7 +355,7 @@ impl Database {
                 .typ
                 .to_function()
             else {
-                eprintln!(
+                log::warn!(
                     "Standard library symbol '{sym_path:?}' has a wrong type. (Expected 'function')"
                 );
                 continue;
@@ -390,7 +390,7 @@ impl Database {
                 .typ
                 .to_function()
             else {
-                eprintln!(
+                log::warn!(
                     "Standard library symbol '{sym_path:?}' has a wrong type. (Expected 'function')"
                 );
                 continue;
@@ -441,7 +441,7 @@ impl Database {
                 .typ
                 .to_function()
             else {
-                eprintln!(
+                log::warn!(
                     "Standard library symbol '{sym_path:?}' has a wrong type. (Expected 'function')"
                 );
                 continue;
@@ -459,14 +459,14 @@ impl Database {
             let members = match last {
                 Some(id) => {
                     let Ok(class_id) = source.arena[id.idx()].typ.to_class() else {
-                        eprintln!(
+                        log::warn!(
                             "Symbol '{}' in '{path:?}' is not of type 'class'",
                             source.arena[id.idx()].name
                         );
                         return None;
                     };
                     if class_id.file() != file {
-                        eprintln!("Standard library symbol in '{path:?}' is defined externally");
+                        log::warn!("Standard library symbol in '{path:?}' is defined externally");
                         return None;
                     }
                     &source.arena[class_id.idx()].members
@@ -480,7 +480,7 @@ impl Database {
                 }
 
                 if ids.len() > 1 {
-                    eprintln!("Multiple definitions for the standard library symbol '{name}'");
+                    log::warn!("Multiple definitions for the standard library symbol '{name}'");
                 }
 
                 let id = ids
@@ -488,7 +488,7 @@ impl Database {
                     .expect("SymbolTable vector contains at least 1 symbol");
 
                 if id.file() != file {
-                    eprintln!("Standard library symbol '{name}' is defined externally");
+                    log::warn!("Standard library symbol '{name}' is defined externally");
                     return None;
                 }
 
@@ -496,7 +496,7 @@ impl Database {
                 continue 'inner;
             }
 
-            eprintln!("Couldn't find '{part}' in '{path:?}'");
+            log::warn!("Couldn't find '{part}' in '{path:?}'");
             return None;
         }
 
@@ -507,17 +507,19 @@ impl Database {
 #[salsa::tracked(returns(ref))]
 pub fn parse(db: &dyn BaseDatabase, file: File) -> Parse {
     let now = Instant::now();
+    log::info!("Started parsing");
     let result = Parse::new(file.text(db));
-    eprintln!("Parsing took {:?}", now.elapsed());
+    log::info!("Parsing took {:?}", now.elapsed());
     result
 }
 
 #[salsa::tracked(returns(ref))]
 pub fn source_symbol(db: &dyn VScriptDatabase, file: File) -> SourceSymbol {
     let now = Instant::now();
+    log::info!("Started source symbol");
     let p = parse(db, file);
     let source = Resolver::symbol_from_source_file(db, file, &p.source_file());
-    eprintln!("Source symbol took {:?}", now.elapsed());
+    log::info!("Source symbol took {:?}", now.elapsed());
     source
 }
 

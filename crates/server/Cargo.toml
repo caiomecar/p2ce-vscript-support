@@ -20,9 +20,10 @@ line-index = { workspace = true }
 bitflags = { workspace = true }
 crossbeam-channel = "0.5.15"
 crossbeam-utils = "0.8.21"
-log = "0.4.29"
+log = { workspace = true }
 jod-thread = "1.0.0"
 libc = "0.2.186"
+stderrlog = "0.6.0"
 
 # Contains unsafe in the vendored code, so no unsafe_code = "forbid"
 [lints.clippy]

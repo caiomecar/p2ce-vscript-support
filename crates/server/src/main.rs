@@ -38,6 +38,12 @@ use crate::vendored::{NotificationRegistry, RequestRegistry, Session};
 fn main() -> Result<()> {
     let (connection, io_threads) = Connection::stdio();
 
+    stderrlog::new()
+        .modules([module_path!(), "resolver"])
+        .verbosity(4)
+        .init()
+        .expect("It's the first logger we initialise");
+
     let (id, init_result) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(init_result)?;
 

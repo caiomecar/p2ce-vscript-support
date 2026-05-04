@@ -109,7 +109,10 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> NotificationRegistry<Db
             intent,
             std::panic::AssertUnwindSafe(move || {
                 match salsa::Cancelled::catch(|| cb(&db, params)) {
-                    Err(e) => log::warn!("Cancelled notification: {e}"),
+                    Err(e) => {
+                        let method = not.method;
+                        log::warn!("Cancelled notification '{method}': {e}");
+                    }
                     Ok(result) => {
                         if let Err(e) = result {
                             sender.send(Task::NotificationError(e)).unwrap();

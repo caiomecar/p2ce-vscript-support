@@ -15,6 +15,7 @@ rustc-hash = { workspace = true }
 salsa = { workspace = true }
 line-index = { workspace = true }
 bitflags = { workspace = true }
+log = { workspace = true }
 
 [lints]
 workspace = true

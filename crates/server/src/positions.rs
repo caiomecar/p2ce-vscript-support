@@ -10,7 +10,7 @@ pub fn test_size(line_idx: &LineIndex, position: Position) -> Option<TextSize> {
     };
 
     let Some(line_col) = line_idx.to_utf8(WideEncoding::Utf16, wide) else {
-        eprintln!(
+        log::error!(
             "Couldn't convert position {position:?} to a text size since it was missing from the line index"
         );
         return None;
@@ -28,7 +28,7 @@ pub fn text_range(line_idx: &LineIndex, range: Range) -> Option<TextRange> {
 
 pub fn position(line_idx: &LineIndex, offset: TextSize) -> Option<Position> {
     let Some(line_col) = line_idx.try_line_col(offset) else {
-        eprintln!(
+        log::error!(
             "Couldn't convert text size {offset:?} to a position since it was missing from the line index"
         );
         return None;

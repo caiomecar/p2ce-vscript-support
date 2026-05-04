@@ -54,19 +54,10 @@ impl Parse {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn new(text: &str) -> Self {
-        // let now = std::time::Instant::now();
         let (tokens, mut lex_errors) = Lexer::tokenise(text);
-        // eprintln!("Lexing took {:?}", now.elapsed());
-        // eprintln!("Tokens: {}", tokens.len());
-
-        // let now = std::time::Instant::now();
         let (events, parse_errors) = Parser::parse(tokens);
-        // eprintln!("Parsing took {:?}", now.elapsed());
-        // eprintln!("Events: {}", events.len());
 
         lex_errors.extend(parse_errors);
-
-        // let now = std::time::Instant::now();
 
         let mut builder = GreenNodeBuilder::new();
         for event in events {
@@ -110,8 +101,6 @@ impl Parse {
                 }
             }
         }
-
-        // eprintln!("Building a tree took {:?}", now.elapsed());
 
         Self {
             green_node: builder.finish(),

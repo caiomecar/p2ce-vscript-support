@@ -13,6 +13,7 @@ line-index = "0.1.2"
 bitflags = "2"
 phf = { version = "0.13.1", features = ["macros"] }
 lsp-types = "0.95.1"
+log = "0.4.29"
 
 [profile.release]
 codegen-units = 1

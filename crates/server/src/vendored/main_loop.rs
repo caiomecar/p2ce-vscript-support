@@ -135,7 +135,7 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                         sender.send(Task::NotificationError(e)).unwrap();
                     }
                     Err(e) => {
-                        eprintln!("Cancelled file processing: {e}");
+                        log::warn!("Cancelled diagnostics request: {e}");
                     }
                 }
             }),

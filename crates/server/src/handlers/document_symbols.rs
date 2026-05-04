@@ -60,7 +60,7 @@ pub fn handle_document_symbol(
         };
 
         if !symbol.range.contains_range(symbol.name_range) {
-            eprintln!("'name_range' is outside of 'range'");
+            log::error!("'name_range' is outside of 'range'");
             dbg!(symbol);
             dbg!(range);
             dbg!(name_range);
