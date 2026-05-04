@@ -17,7 +17,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
 use super::{intent::ThreadIntent, main_loop::Task, session::Session};
-use lsp_server::{Message, Request, RequestId, Response};
+use lsp_server::{ErrorCode, Message, Request, RequestId, Response};
 use std::{collections::HashMap, panic::RefUnwindSafe, sync::Arc};
 
 /// Callback for parallelized requests
@@ -187,7 +187,7 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> RequestRegistry<Db> {
             id,
             result: None,
             error: Some(lsp_server::ResponseError {
-                code: -32803, // RequestFailed
+                code: ErrorCode::RequestFailed as i32,
                 message: error.to_string(),
                 data: None,
             }),
@@ -199,7 +199,7 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> RequestRegistry<Db> {
             id,
             result: None,
             error: Some(lsp_server::ResponseError {
-                code: -32601, // MethodNotFound
+                code: ErrorCode::MethodNotFound as i32,
                 message: format!("Method mismatch for request '{error}'"),
                 data: None,
             }),
