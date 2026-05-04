@@ -49,7 +49,11 @@ pub struct RequestRegistry<Db: salsa::Database> {
 }
 
 impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> RequestRegistry<Db> {
-    pub fn on<R>(&mut self, handler: fn(&Db, R::Params) -> anyhow::Result<R::Result>) -> &mut Self
+    fn on_with_intent<R>(
+        &mut self,
+        intent: ThreadIntent,
+        handler: fn(&Db, R::Params) -> anyhow::Result<R::Result>,
+    ) -> &mut Self
     where
         R: lsp_types::request::Request,
     {
@@ -60,9 +64,25 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> RequestRegistry<Db> {
             Ok(serde_json::to_value(result)?)
         });
 
-        self.handlers
-            .insert(method, (callback, ThreadIntent::Worker));
+        self.handlers.insert(method, (callback, intent));
         self
+    }
+
+    pub fn on<R>(&mut self, handler: fn(&Db, R::Params) -> anyhow::Result<R::Result>) -> &mut Self
+    where
+        R: lsp_types::request::Request,
+    {
+        self.on_with_intent::<R>(ThreadIntent::Worker, handler)
+    }
+
+    pub fn on_important<R>(
+        &mut self,
+        handler: fn(&Db, R::Params) -> anyhow::Result<R::Result>,
+    ) -> &mut Self
+    where
+        R: lsp_types::request::Request,
+    {
+        self.on_with_intent::<R>(ThreadIntent::LatencySensitive, handler)
     }
 
     /// Register a synchronous mutable request handler.

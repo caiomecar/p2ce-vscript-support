@@ -15,8 +15,8 @@ use anyhow::Result;
 use lsp_server::Connection;
 use lsp_types::{
     CompletionOptions, Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentLinkOptions,
-    HoverProviderCapability, InitializeParams, InitializeResult, NumberOrString, OneOf,
-    RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
+    FileChangeType, HoverProviderCapability, InitializeParams, InitializeResult, NumberOrString,
+    OneOf, RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
     SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
     ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
     TypeDefinitionProviderCapability, Url, WorkDoneProgressOptions,
@@ -135,18 +135,18 @@ fn on_requests<Db: VScriptDatabase + Clone + RefUnwindSafe>(
     registry: &mut RequestRegistry<Db>,
 ) -> &mut RequestRegistry<Db> {
     registry
-        .on::<Completion>(handlers::handle_completion)
+        .on_important::<Completion>(handlers::handle_completion)
+        .on_important::<HoverRequest>(handlers::handle_hover)
+        .on_important::<PrepareRenameRequest>(handlers::handle_prepare_rename)
+        .on_important::<SemanticTokensFullRequest>(handlers::handle_semantic_tokens)
+        .on_important::<SignatureHelpRequest>(handlers::handle_signature_help)
         .on::<DocumentLinkRequest>(handlers::handle_document_link)
         .on::<DocumentSymbolRequest>(handlers::handle_document_symbol)
         .on::<References>(handlers::handle_references)
         .on::<GotoDefinition>(handlers::handle_go_to_definition)
         .on::<GotoTypeDefinition>(handlers::handle_go_to_type_definition)
-        .on::<HoverRequest>(handlers::handle_hover)
         .on::<InlayHintRequest>(handlers::handle_inlay_hint)
-        .on::<PrepareRenameRequest>(handlers::handle_prepare_rename)
         .on::<Rename>(handlers::handle_rename)
-        .on::<SemanticTokensFullRequest>(handlers::handle_semantic_tokens)
-        .on::<SignatureHelpRequest>(handlers::handle_signature_help)
 }
 
 fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
@@ -161,12 +161,10 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         })
         .on_mut::<DidChangeTextDocument>(|session, params| {
             let uri = &params.text_document.uri;
-
-            let Some(file) = session.db.get_file(uri) else {
-                return Err(anyhow::format_err!(
-                    "No file '{uri}' was found in the database"
-                ));
-            };
+            let file = session
+                .db
+                .get_file(uri)
+                .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
             let mut text = file.text(&session.db).clone();
 
@@ -205,6 +203,10 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         })
         .on_mut::<DidChangeWatchedFiles>(|session, params| {
             for change in params.changes {
+                if change.typ != FileChangeType::CHANGED {
+                    continue;
+                }
+
                 let uri = &change.uri;
 
                 if session.db.get_file(uri).is_some() {
