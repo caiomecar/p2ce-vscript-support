@@ -934,19 +934,13 @@ impl<'db> Resolver<'db> {
                     });
                 }
 
-                match result.len() {
-                    0 => doc_type.clone(),
-                    1 => Type::Primitive(result[0]),
-                    _ => {
-                        let flags = result
-                            .iter()
-                            .fold(TypeFlags::empty(), |f, p| f | p.type_flags());
-                        Type::Union(Union {
-                            primitives: result.into(),
-                            flags,
-                        })
-                    }
-                }
+                let flags = result
+                    .iter()
+                    .fold(TypeFlags::empty(), |f, p| f | p.type_flags());
+                Type::Union(Union {
+                    primitives: result.into(),
+                    flags,
+                })
             }
 
             (Type::Union(doc), Type::Primitive(other)) => {
