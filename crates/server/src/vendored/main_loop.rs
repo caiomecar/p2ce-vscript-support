@@ -81,10 +81,9 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                 recv(self.task_receiver) -> task => {
                     match task? {
                         Task::Response(resp) => RequestRegistry::complete(&mut self, resp)?,
+                        Task::Notification(not) => self.connection.sender.send(not.into())?,
                         Task::NotificationError(err) => NotificationRegistry::handle_error(&self, err)?,
-                        Task::Notification(not) => {
-                            let _ = self.connection.sender.send(not.into());
-                        }
+
                     }
                 }
             }
