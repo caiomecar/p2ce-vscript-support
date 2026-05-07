@@ -866,7 +866,7 @@ impl<'db> Resolver<'db> {
             | (Primitive::Generator(_), Primitive::Generator(_))
             | (Primitive::Thread(_), Primitive::Thread(_))
             | (Primitive::Instance(_), Primitive::Instance(_))
-            | (Primitive::Integer(_), Primitive::Integer(_))
+            | (Primitive::Integer(_) | Primitive::Float(_), Primitive::Integer(_))
             | (Primitive::Float(_), Primitive::Float(_))
             | (Primitive::Bool(_), Primitive::Bool(_))
             | (Primitive::Class(_), Primitive::Class(_))
@@ -926,7 +926,7 @@ impl<'db> Resolver<'db> {
                     result.push(*left);
                 }
 
-                if !matched && other.flags.intersects(TypeFlags::UNKNOWN) {
+                if !matched && !other.flags.intersects(TypeFlags::UNKNOWN) {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
@@ -949,10 +949,6 @@ impl<'db> Resolver<'db> {
                 }
             }
 
-            (Type::Primitive(Primitive::Unknown), _) | (_, Type::Primitive(Primitive::Unknown)) => {
-                doc_type.clone()
-            }
-
             (Type::Union(doc), Type::Primitive(other)) => {
                 let mut result = Vec::new();
                 let mut iter = doc.primitives.iter();
@@ -968,11 +964,13 @@ impl<'db> Resolver<'db> {
                     }
                 }
 
-                self.diagnostics.push(Diagnostic {
-                    message: message(self),
-                    range: error_range,
-                    severity: DiagnosticSeverity::Error,
-                });
+                if !matches!(other, Primitive::Null | Primitive::Unknown) {
+                    self.diagnostics.push(Diagnostic {
+                        message: message(self),
+                        range: error_range,
+                        severity: DiagnosticSeverity::Error,
+                    });
+                }
 
                 doc_type.clone()
             }
@@ -984,11 +982,13 @@ impl<'db> Resolver<'db> {
                     }
                 }
 
-                self.diagnostics.push(Diagnostic {
-                    message: message(self),
-                    range: error_range,
-                    severity: DiagnosticSeverity::Error,
-                });
+                if !other.flags.intersects(TypeFlags::UNKNOWN) {
+                    self.diagnostics.push(Diagnostic {
+                        message: message(self),
+                        range: error_range,
+                        severity: DiagnosticSeverity::Error,
+                    });
+                }
 
                 doc_type.clone()
             }
@@ -997,11 +997,13 @@ impl<'db> Resolver<'db> {
                 if let Some(merged) = self.check_primitive(*doc, *other, error_range) {
                     Type::Primitive(merged)
                 } else {
-                    self.diagnostics.push(Diagnostic {
-                        message: message(self),
-                        range: error_range,
-                        severity: DiagnosticSeverity::Error,
-                    });
+                    if !matches!(other, Primitive::Null | Primitive::Unknown) {
+                        self.diagnostics.push(Diagnostic {
+                            message: message(self),
+                            range: error_range,
+                            severity: DiagnosticSeverity::Error,
+                        });
+                    }
                     doc_type.clone()
                 }
             }
