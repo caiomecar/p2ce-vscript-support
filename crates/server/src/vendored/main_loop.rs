@@ -34,8 +34,8 @@ use lsp_types::{Diagnostic, PublishDiagnosticsParams, notification::PublishDiagn
 #[derive(Debug)]
 pub enum Task {
     Response(lsp_server::Response),
+    Notificiation(lsp_server::Notification),
     NotificationError(Error),
-    Diagnostics(Url, Vec<Diagnostic>),
 }
 
 impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
@@ -82,20 +82,8 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                     match task? {
                         Task::Response(resp) => RequestRegistry::complete(&mut self, resp)?,
                         Task::NotificationError(err) => NotificationRegistry::handle_error(&self, err)?,
-                        Task::Diagnostics(uri, diagnostics) => {
-                            let params = PublishDiagnosticsParams {
-                                uri,
-                                diagnostics,
-                                version: None,
-                            };
-
-                            let notification = lsp_server::Notification::new(
-                                <PublishDiagnostics as lsp_types::notification::Notification>::METHOD
-                                    .to_string(),
-                                params,
-                            );
-
-                            let _ = self.connection.sender.send(notification.into());
+                        Task::Notificiation(not) => {
+                            let _ = self.connection.sender.send(not.into());
                         }
                     }
                 }
@@ -128,9 +116,12 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
             ThreadIntent::Worker,
             std::panic::AssertUnwindSafe(move || {
                 match salsa::Cancelled::catch(|| callback(&db, &uri)) {
-                    Ok(Ok(diagnostics)) => {
-                        sender.send(Task::Diagnostics(uri, diagnostics)).unwrap()
-                    }
+                    Ok(Ok(diagnostics)) => sender
+                        .send(Task::Notificiation(diagnostics_to_notification(
+                            uri,
+                            diagnostics,
+                        )))
+                        .unwrap(),
                     Ok(Err(e)) => {
                         sender.send(Task::NotificationError(e)).unwrap();
                     }
@@ -141,4 +132,25 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
             }),
         );
     }
+
+    pub fn clear_diagnostics(&self, uri: Url) {
+        self.task_sender
+            .send(Task::Notificiation(diagnostics_to_notification(
+                uri,
+                Vec::new(),
+            )));
+    }
+}
+
+fn diagnostics_to_notification(uri: Url, diagnostics: Vec<Diagnostic>) -> lsp_server::Notification {
+    let params = PublishDiagnosticsParams {
+        uri,
+        diagnostics,
+        version: None,
+    };
+
+    lsp_server::Notification::new(
+        <PublishDiagnostics as lsp_types::notification::Notification>::METHOD.to_string(),
+        params,
+    )
 }

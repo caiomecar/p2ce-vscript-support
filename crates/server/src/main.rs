@@ -225,8 +225,12 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
             }
             Ok(())
         })
+        .on_mut::<DidCloseTextDocument>(|session, params| {
+            // Publish empty diagnostics to clear them from the Problems panel
+            session.clear_diagnostics(params.text_document.uri);
+            Ok(())
+        })
         .on::<DidSaveTextDocument>(|_s, _p| Ok(()))
-        .on::<DidCloseTextDocument>(|_s, _p| Ok(()))
         .on::<SetTrace>(|_s, _p| Ok(()))
         .on::<LogTrace>(|_s, _p| Ok(()))
 }
