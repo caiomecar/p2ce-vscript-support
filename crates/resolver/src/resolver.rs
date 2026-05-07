@@ -36,7 +36,7 @@ use crate::{
     db::NativeFunction,
     symbol::{
         LocalKind, Primitive, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable,
-        ToPrimitiveError, Type, TypeFlags, insert_symbol, merge_types,
+        ToPrimitiveError, Type, TypeFlags, Union, insert_symbol, merge_types,
     },
 };
 
@@ -746,19 +746,20 @@ impl<'db> Resolver<'db> {
         last_type
     }
 
-    fn check_type(
+    fn check_primitive(
         &mut self,
-        doc_type: &Type,
-        other: &Type,
-        source: CheckTypeSource,
+        original: Primitive,
+        other: Primitive,
         error_range: TextRange,
-    ) -> Option<Type> {
-        match (doc_type, other) {
+    ) -> Option<Primitive> {
+        match (original, other) {
             (
-                Type::Primitive(Primitive::String { kind, .. }),
-                Type::Primitive(Primitive::String { literal, .. }),
+                Primitive::String { kind, .. },
+                Primitive::String {
+                    literal: Some(literal),
+                    ..
+                },
             ) => {
-                let literal = *literal.as_ref()?;
                 let text = &self.get(literal).text;
 
                 let text = if kind.is_case_sensetive() {
@@ -808,19 +809,19 @@ impl<'db> Resolver<'db> {
                     });
                 }
 
-                let typ = Type::Primitive(Primitive::String {
-                    kind: *kind,
+                let prim = Primitive::String {
+                    kind,
                     literal: Some(literal),
-                });
+                };
 
                 if literal.file() == self.file {
                     self.range_to_expr.insert(
                         self.get(literal).range,
-                        ExpressionKind::Literal(typ.clone()),
+                        ExpressionKind::Literal(Type::Primitive(prim)),
                     );
                 }
 
-                Some(typ)
+                Some(prim)
             }
             // We have doc type of table but only the value assigned can have the shape of the table
             // so to not lose this information we use the assigned value type
@@ -835,125 +836,209 @@ impl<'db> Resolver<'db> {
             // // error
             // a = regexp();
             // ```
-            (Type::Primitive(Primitive::Table(_)), Type::Primitive(Primitive::Table(id))) => {
-                let id = *id.as_ref()?;
-                Some(Type::Primitive(Primitive::Table(Some(id))))
-            }
-            (Type::Primitive(Primitive::Array(_)), Type::Primitive(Primitive::Array(kind))) => {
-                let kind = kind.as_ref()?;
-                Some(Type::Primitive(Primitive::Array(Some(*kind))))
-            }
-            (Type::Primitive(Primitive::Function(_)), Type::Primitive(Primitive::Function(id))) => {
-                let id = *id.as_ref()?;
-                Some(Type::Primitive(Primitive::Function(Some(id))))
-            }
-            (
-                Type::Primitive(Primitive::Generator(_)),
-                Type::Primitive(Primitive::Generator(id)),
-            ) => {
-                let id = *id.as_ref()?;
-                Some(Type::Primitive(Primitive::Generator(Some(id))))
-            }
-            (Type::Primitive(Primitive::Thread(_)), Type::Primitive(Primitive::Thread(id))) => {
-                let id = *id.as_ref()?;
-                Some(Type::Primitive(Primitive::Thread(Some(id))))
-            }
-            _ => {
-                let flags = other.type_flags();
-                let doc_flags = doc_type.type_flags();
-                if doc_flags.intersects(flags) {
-                    return None;
+            (Primitive::Instance(Some(original_id)), Primitive::Instance(Some(other_id))) => {
+                let mut class_id = Some(other_id);
+                while let Some(id) = class_id {
+                    if id == original_id {
+                        return Some(original);
+                    }
+                    let class = self.get(id);
+                    class_id = class.inherits;
                 }
-
-                if doc_flags.intersects(TypeFlags::FLOAT) && flags.intersects(TypeFlags::INTEGER) {
-                    return None;
-                }
-
-                if flags.intersects(TypeFlags::UNKNOWN) {
-                    return None;
-                }
-
-                self.diagnostics.push(Diagnostic {
-                    message: match source {
-                        CheckTypeSource::Variable => format!(
-                            "Trying to assign a variable of type '{}' to '{}'",
-                            self.type_to_str(doc_type),
-                            self.type_to_str(other)
-                        ),
-                        CheckTypeSource::VarArgs |
-                        CheckTypeSource::Parameter => format!(
-                            "Expected parameter of type '{}', but got '{}'",
-                            self.type_to_str(doc_type),
-                            self.type_to_str(other)
-                        ),
-                        CheckTypeSource::Return => format!(
-                            "Trying to return a value of type '{}' in a function with declared return type of '{}'",
-                            self.type_to_str(doc_type),
-                            self.type_to_str(other),
-                        ),
-                        CheckTypeSource::Throw => format!(
-                            "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
-                            self.type_to_str(doc_type),
-                            self.type_to_str(other),
-                        ),
-                        CheckTypeSource::Yield => format!(
-                            "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
-                            self.type_to_str(doc_type),
-                            self.type_to_str(other),
-                        ),
-                    },
-                    range: error_range,
-                    severity: DiagnosticSeverity::Warning,
-                });
 
                 None
+                // Err(format!(
+                //     "Instance of class '{}' does not inherit from class '{}'",
+                //     self.primitive_to_str(&other),
+                //     self.primitive_to_str(&original)
+                // ))
             }
+            (Primitive::Table(None), Primitive::Table(Some(_)))
+            | (Primitive::Array(None), Primitive::Array(Some(_)))
+            | (Primitive::Function(None), Primitive::Function(Some(_)))
+            | (Primitive::Generator(None), Primitive::Generator(Some(_)))
+            | (Primitive::Thread(None), Primitive::Thread(Some(_))) => Some(other),
+            //
+            (Primitive::String { .. }, Primitive::String { .. })
+            | (Primitive::Table(_), Primitive::Table(_))
+            | (Primitive::Array(_), Primitive::Array(_))
+            | (Primitive::Function(_), Primitive::Function(_))
+            | (Primitive::Generator(_), Primitive::Generator(_))
+            | (Primitive::Thread(_), Primitive::Thread(_))
+            | (Primitive::Instance(_), Primitive::Instance(_))
+            | (Primitive::Integer(_), Primitive::Integer(_))
+            | (Primitive::Float(_), Primitive::Float(_))
+            | (Primitive::Bool(_), Primitive::Bool(_))
+            | (Primitive::Class(_), Primitive::Class(_))
+            | (Primitive::Weakref, Primitive::Weakref)
+            | (Primitive::Null, Primitive::Null) => Some(original),
+            (_, _) => None,
         }
     }
 
-    fn check_or_update_type(
+    fn check_type(
+        &mut self,
+        doc_type: &Type,
+        other_type: &Type,
+        source: CheckTypeSource,
+        error_range: TextRange,
+    ) -> Type {
+        let message = |this: &Self| match source {
+            CheckTypeSource::Variable => format!(
+                "Trying to assign a variable of type '{}' to '{}'",
+                this.type_to_str(doc_type),
+                this.type_to_str(other_type)
+            ),
+            CheckTypeSource::VarArgs | CheckTypeSource::Parameter => format!(
+                "Expected parameter of type '{}', but got '{}'",
+                this.type_to_str(doc_type),
+                this.type_to_str(other_type)
+            ),
+            CheckTypeSource::Return => format!(
+                "Trying to return a value of type '{}' in a function with declared return type of '{}'",
+                this.type_to_str(doc_type),
+                this.type_to_str(other_type),
+            ),
+            CheckTypeSource::Throw => format!(
+                "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
+                this.type_to_str(doc_type),
+                this.type_to_str(other_type),
+            ),
+            CheckTypeSource::Yield => format!(
+                "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
+                this.type_to_str(doc_type),
+                this.type_to_str(other_type),
+            ),
+        };
+
+        match (doc_type, other_type) {
+            (Type::Union(doc), Type::Union(other)) => {
+                let mut result = Vec::new();
+                let mut matched = false;
+                'inner: for left in doc.primitives.iter() {
+                    for right in other.primitives.iter() {
+                        if let Some(merged) = self.check_primitive(*left, *right, error_range) {
+                            result.push(merged);
+                            matched = true;
+                            continue 'inner;
+                        }
+                    }
+                    result.push(*left);
+                }
+
+                if !matched && other.flags.intersects(TypeFlags::UNKNOWN) {
+                    self.diagnostics.push(Diagnostic {
+                        message: message(self),
+                        range: error_range,
+                        severity: DiagnosticSeverity::Error,
+                    });
+                }
+
+                match result.len() {
+                    0 => doc_type.clone(),
+                    1 => Type::Primitive(result[0]),
+                    _ => {
+                        let flags = result
+                            .iter()
+                            .fold(TypeFlags::empty(), |f, p| f | p.type_flags());
+                        Type::Union(Union {
+                            primitives: result.into(),
+                            flags,
+                        })
+                    }
+                }
+            }
+
+            (Type::Primitive(Primitive::Unknown), _) | (_, Type::Primitive(Primitive::Unknown)) => {
+                doc_type.clone()
+            }
+
+            (Type::Union(doc), Type::Primitive(other)) => {
+                let mut result = Vec::new();
+                let mut iter = doc.primitives.iter();
+                while let Some(left) = iter.next() {
+                    if let Some(merged) = self.check_primitive(*left, *other, error_range) {
+                        result.push(merged);
+                        result.extend(&mut iter);
+
+                        return Type::Union(Union {
+                            primitives: result.into(),
+                            flags: doc.flags,
+                        });
+                    }
+                }
+
+                self.diagnostics.push(Diagnostic {
+                    message: message(self),
+                    range: error_range,
+                    severity: DiagnosticSeverity::Error,
+                });
+
+                doc_type.clone()
+            }
+
+            (Type::Primitive(doc), Type::Union(other)) => {
+                for right in other.primitives.iter() {
+                    if let Some(merged) = self.check_primitive(*doc, *right, error_range) {
+                        return Type::Primitive(merged);
+                    }
+                }
+
+                self.diagnostics.push(Diagnostic {
+                    message: message(self),
+                    range: error_range,
+                    severity: DiagnosticSeverity::Error,
+                });
+
+                doc_type.clone()
+            }
+
+            (Type::Primitive(doc), Type::Primitive(other)) => {
+                if let Some(merged) = self.check_primitive(*doc, *other, error_range) {
+                    Type::Primitive(merged)
+                } else {
+                    self.diagnostics.push(Diagnostic {
+                        message: message(self),
+                        range: error_range,
+                        severity: DiagnosticSeverity::Error,
+                    });
+                    doc_type.clone()
+                }
+            }
+
+            _ => doc_type.clone(),
+        }
+    }
+
+    fn update_type(
         &mut self,
         current: &Type,
         is_type_explicit: bool,
         new: NewType,
-        source: CheckTypeSource,
-    ) -> Option<Type> {
+        check: CheckTypeSource,
+    ) -> Type {
         if is_type_explicit {
             match new {
-                NewType::Explicit { typ, .. } => Some(typ),
-                NewType::NotExplicit(new) => self.check_type(current, &new.kind, source, new.range),
+                NewType::Explicit { typ, .. } => typ,
+                NewType::NotExplicit(new) => self.check_type(current, &new.kind, check, new.range),
             }
         } else {
             match new {
                 NewType::NotExplicit(new) => {
                     let flags = current.type_flags();
                     if flags == TypeFlags::UNKNOWN_OR_NULL {
-                        Some(new.kind.add_unknown())
+                        new.kind.add_unknown()
                     } else if flags == TypeFlags::NULL {
-                        Some(new.kind)
+                        new.kind
                     } else {
-                        Some(merge_types(current, &new.kind))
+                        merge_types(current, &new.kind)
                     }
                 }
-                NewType::Explicit { typ, value_range } => Some(
-                    self.check_type(&typ, current, source, value_range)
-                        .unwrap_or(typ),
-                ),
+                NewType::Explicit { typ, value_range } => {
+                    self.check_type(&typ, current, check, value_range)
+                }
             }
         }
-        // match current_state {
-        //     TypeState::NotAssigned => Some(match new {
-        //         NewType::Explicit { typ, .. } => typ,
-        //         NewType::NotExplicit(new) => Some(merge_types(&Type::UNKNOWN, &new.kind)),
-        //     }),
-        //     TypeState::Inferred => match new {
-        //         NewType::NotExplicit(new) => Some(merge_types(current, &new.kind)),
-        //         NewType::Explicit { typ, value_range } => Some(
-        //             self.check_type(&typ, current, source, value_range)
-        //                 .unwrap_or(typ),
-        //         ),
-        //     },
-        // }
     }
 
     fn collect_params(
@@ -1400,10 +1485,14 @@ impl<'db> Resolver<'db> {
             && (operand_flags.intersects(TypeFlags::STRING)
                 || with_flags.intersects(TypeFlags::STRING))
         {
-            return Some(Type::Primitive(Primitive::String {
+            let ret = Type::Primitive(Primitive::String {
                 kind: StringKind::Arbitrary,
                 literal: None,
-            }));
+            });
+            if operand_flags == TypeFlags::STRING {
+                return Some(ret);
+            }
+            return Some(ret.add_unknown());
         }
 
         if !operand_flags.intersects(TypeFlags::ARITHMETIC) {
@@ -1428,11 +1517,19 @@ impl<'db> Resolver<'db> {
 
         if operand_flags.intersects(TypeFlags::INTEGER) && with_flags.intersects(TypeFlags::INTEGER)
         {
-            return Some(Type::Primitive(Primitive::Integer(None)));
+            let ret = Type::Primitive(Primitive::Integer(None));
+            if operand_flags == TypeFlags::INTEGER {
+                return Some(ret);
+            }
+            return Some(ret.add_unknown());
         }
 
         if operand_flags.intersects(TypeFlags::NUMBER) && with_flags.intersects(TypeFlags::NUMBER) {
-            return Some(Type::Primitive(Primitive::Float(None)));
+            let ret = Type::Primitive(Primitive::Integer(None));
+            if TypeFlags::NUMBER.contains(operand_flags) {
+                return Some(ret);
+            }
+            return Some(ret.add_unknown());
         }
 
         if operand_flags.intersects(TypeFlags::TABLE_OR_INSTANCE) {
@@ -1443,6 +1540,13 @@ impl<'db> Resolver<'db> {
                 std::slice::from_ref(with),
                 should_error.then_some(keyword),
             )
+            .map(|t| {
+                if TypeFlags::TABLE_OR_INSTANCE.contains(operand_flags) {
+                    t
+                } else {
+                    t.add_unknown()
+                }
+            })
         } else {
             if !with_flags.intersects(TypeFlags::UNKNOWN) {
                 self.no_support(
@@ -1455,7 +1559,7 @@ impl<'db> Resolver<'db> {
                     with.range,
                 );
             }
-            Some(Type::Primitive(operand))
+            Some(Type::Primitive(operand).add_unknown())
         }
     }
 
@@ -1567,14 +1671,12 @@ impl<'db> Resolver<'db> {
                             continue;
                         };
 
-                        let Some(new_typ) = self.check_or_update_type(
+                        let new_typ = self.update_type(
                             &self.get(id).kind.clone(),
                             self.get(vargv).is_type_explicit,
                             NewType::NotExplicit(argument),
                             CheckTypeSource::VarArgs,
-                        ) else {
-                            continue;
-                        };
+                        );
 
                         if let Some(array) = self.get_mut(id) {
                             array.kind = new_typ;
@@ -1582,14 +1684,12 @@ impl<'db> Resolver<'db> {
                         continue;
                     };
 
-                    let Some(new) = self.check_or_update_type(
+                    let new = self.update_type(
                         &self.get(param).typ.clone(),
                         self.get(param).is_type_explicit,
                         NewType::NotExplicit(argument),
                         CheckTypeSource::Parameter,
-                    ) else {
-                        continue;
-                    };
+                    );
 
                     if let Some(param) = self.get_mut(param) {
                         param.typ = new;
@@ -1808,7 +1908,7 @@ impl<'db> Resolver<'db> {
 
                     let doc_type = doc_type.this_to_concrete(&self.execution_container().into());
 
-                    if let Some(typ) = self.check_or_update_type(
+                    let typ = self.update_type(
                         &self.get(symbol).typ.clone(),
                         self.get(symbol).is_type_explicit,
                         NewType::Explicit {
@@ -1816,8 +1916,9 @@ impl<'db> Resolver<'db> {
                             value_range: self.get(symbol).range,
                         },
                         CheckTypeSource::Variable,
-                    ) && let Some(symbol) = self.get_mut(symbol)
-                    {
+                    );
+
+                    if let Some(symbol) = self.get_mut(symbol) {
                         symbol.typ = typ;
                         symbol.is_type_explicit = true;
                     }
@@ -1914,7 +2015,7 @@ impl<'db> Resolver<'db> {
 
                     let doc_type = doc_type.this_to_concrete(&self.execution_container().into());
 
-                    if let Some(typ) = self.check_or_update_type(
+                    let typ = self.update_type(
                         &self.get(param_id).typ.clone(),
                         self.get(param_id).is_type_explicit,
                         NewType::Explicit {
@@ -1922,8 +2023,9 @@ impl<'db> Resolver<'db> {
                             value_range: self.get(param_id).range,
                         },
                         CheckTypeSource::Variable,
-                    ) && let Some(param) = self.get_mut(param_id)
-                    {
+                    );
+
+                    if let Some(param) = self.get_mut(param_id) {
                         param.typ = typ;
                         param.is_type_explicit = true;
                     }
@@ -2081,14 +2183,14 @@ impl<'db> Resolver<'db> {
                     TypeState::NotExplicit(typ) => (typ, false),
                 };
 
-                if let Some(new) = self.check_or_update_type(
+                let new = self.update_type(
                     &ret,
                     is_explicit,
                     NewType::NotExplicit(new_ret),
                     CheckTypeSource::Return,
-                ) {
-                    self.arena[idx].ret = TypeState::Explicit(new);
-                }
+                );
+
+                self.arena[idx].ret = TypeState::Explicit(new);
             }
             FunctionBody::Stmt(stmt) => {
                 self.collect_stmt(stmt);
@@ -3066,7 +3168,7 @@ impl<'db> Resolver<'db> {
             TypeState::NotExplicit(typ) => (typ, false),
         };
 
-        if let Some(new) = self.check_or_update_type(
+        let new = self.update_type(
             &ret,
             is_explicit,
             NewType::NotExplicit(TypeWithRange {
@@ -3074,9 +3176,9 @@ impl<'db> Resolver<'db> {
                 range: stmt.syntax().text_range(),
             }),
             CheckTypeSource::Return,
-        ) {
-            self.arena[function].ret = TypeState::NotExplicit(new);
-        }
+        );
+
+        self.arena[function].ret = TypeState::NotExplicit(new);
     }
 
     fn yield_statement(&mut self, stmt: &YieldStatement) {
@@ -3106,14 +3208,14 @@ impl<'db> Resolver<'db> {
             TypeState::NotExplicit(typ) => (typ, false),
         };
 
-        if let Some(new) = self.check_or_update_type(
+        let new = self.update_type(
             &yields,
             is_explicit,
             NewType::NotExplicit(value),
             CheckTypeSource::Yield,
-        ) {
-            self.arena[function].yields = TypeState::NotExplicit(new);
-        }
+        );
+
+        self.arena[function].yields = TypeState::NotExplicit(new);
     }
 
     fn continue_statement(&mut self, stmt: &ContinueStatement) {
@@ -3198,7 +3300,7 @@ impl<'db> Resolver<'db> {
             TypeState::NotExplicit(typ) => (typ, false),
         };
 
-        if let Some(new) = self.check_or_update_type(
+        let new = self.update_type(
             &throws,
             is_explicit,
             NewType::NotExplicit(TypeWithRange {
@@ -3206,9 +3308,9 @@ impl<'db> Resolver<'db> {
                 range: stmt.syntax().text_range(),
             }),
             CheckTypeSource::Throw,
-        ) {
-            self.arena[function].throws = TypeState::NotExplicit(new);
-        }
+        );
+
+        self.arena[function].throws = TypeState::NotExplicit(new);
     }
 
     fn expr_to_type(&mut self, expr: &Expr) -> Type {
@@ -4162,13 +4264,14 @@ impl<'db> Resolver<'db> {
                     return right_kind;
                 }
 
-                if let Some(new) = self.check_or_update_type(
+                let new = self.update_type(
                     &self.get(symbol).typ.clone(),
                     self.get(symbol).is_type_explicit,
                     NewType::NotExplicit(right),
                     CheckTypeSource::Variable,
-                ) && let Some(symbol) = self.get_mut(symbol)
-                {
+                );
+
+                if let Some(symbol) = self.get_mut(symbol) {
                     symbol.typ = new;
                 }
             }
@@ -4505,13 +4608,14 @@ impl<'db> Resolver<'db> {
                     return Some(typ);
                 }
 
-                if let Some(new) = self.check_or_update_type(
+                let new = self.update_type(
                     &self.get(symbol).typ.clone(),
                     self.get(symbol).is_type_explicit,
                     NewType::NotExplicit(type_with_range),
                     CheckTypeSource::Variable,
-                ) && let Some(symbol) = self.get_mut(symbol)
-                {
+                );
+
+                if let Some(symbol) = self.get_mut(symbol) {
                     symbol.typ = new;
                 }
                 Some(typ)
