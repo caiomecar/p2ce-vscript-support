@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.1.1]
+- Improve retrying mechanism
+- Upload syntax and semantic diagnostics separately
+
 ## [3.1.0]
 - Replace `@entity` and `@input` tag with `@var` tag (where you also get 'self', 'activator', 'caller' as variable name completions)
 - Don't omit the shape of the type if type is specified explicitly in a generic form (so `/** @type {table} */ local a = { wow = 1}`

@@ -55,3 +55,4 @@ would also get diagnostics for doing incorrect operations on the variable
 
 # Credits
 - Valve Development Community for VScript function signatures and documentation https://developer.valvesoftware.com/wiki/VScript
+- Parts of LSP handling from [rust-analyzer](https://github.com/rust-lang/rust-analyzer) and [auto-lsp](https://github.com/adclz/auto-lsp)
