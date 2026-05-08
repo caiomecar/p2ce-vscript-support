@@ -104,19 +104,15 @@ pub fn handle_completion(
     params: CompletionParams,
 ) -> anyhow::Result<Option<CompletionResponse>> {
     let uri = params.text_document_position.text_document.uri;
-
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
-
     let offset = positions::test_size(line_idx, params.text_document_position.position)
         .ok_or_else(|| anyhow::format_err!("Position is out of bounds"))?;
-
     let syntax = parse(db, file).syntax();
-
-    let finished_file = FinishedFile::new(db, file);
 
     let scope = finished_file.scope(offset);
     let trigger_char = params.context.and_then(|c| c.trigger_character);

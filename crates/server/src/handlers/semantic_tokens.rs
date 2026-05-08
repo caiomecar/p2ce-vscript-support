@@ -36,9 +36,9 @@ pub fn handle_semantic_tokens_full(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
-    let finished_file = FinishedFile::new(db, file);
 
     let mut entries: Vec<_> = finished_file
         .range_to_symbol()
@@ -82,11 +82,11 @@ pub fn handle_semantic_tokens_range(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let highlight_range = positions::text_range(line_idx, params.range)
         .ok_or_else(|| anyhow::format_err!("Range is out of bounds"))?;
-    let finished_file = FinishedFile::new(db, file);
 
     let mut entries: Vec<_> = finished_file
         .range_to_symbol()

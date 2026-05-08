@@ -11,6 +11,7 @@ pub fn handle_references(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position.position)
@@ -24,7 +25,6 @@ pub fn handle_references(
 
     let range = token_name_range(&token);
 
-    let finished_file = FinishedFile::new(db, file);
     let Some(reference_id) = finished_file.symbol_at(range) else {
         return Ok(None);
     };

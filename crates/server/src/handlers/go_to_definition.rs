@@ -13,10 +13,10 @@ pub fn handle_go_to_definition(
     params: GotoDefinitionParams,
 ) -> anyhow::Result<Option<GotoDefinitionResponse>> {
     let uri = params.text_document_position_params.text_document.uri;
-
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position_params.position)
@@ -27,8 +27,6 @@ pub fn handle_go_to_definition(
         .token_at_offset(offset)
         .right_biased()
         .ok_or_else(|| anyhow::format_err!("No token found"))?;
-
-    let finished_file = FinishedFile::new(db, file);
 
     if let Some(ExpressionKind::Literal(Type::Primitive(Primitive::String {
         kind,

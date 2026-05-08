@@ -1098,6 +1098,8 @@ pub struct FinishedFile<'db>(&'db dyn VScriptDatabase, File);
 
 impl<'db> FinishedFile<'db> {
     pub fn new(db: &'db dyn VScriptDatabase, file: File) -> Self {
+        // Wait until ready: source symbol has been computed
+        source_symbol(db, file);
         Self(db, file)
     }
 

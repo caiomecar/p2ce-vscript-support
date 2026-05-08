@@ -17,6 +17,7 @@ pub fn handle_signature_help(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position_params.position)
@@ -37,7 +38,6 @@ pub fn handle_signature_help(
         return Ok(None);
     };
 
-    let finished_file = FinishedFile::new(db, file);
     let kind = finished_file.expr_kind_at(callee.syntax().text_range());
     let (name, typ) = match kind {
         Some(ExpressionKind::Literal(typ)) => (String::new(), typ),

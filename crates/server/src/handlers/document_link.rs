@@ -15,10 +15,9 @@ pub fn handle_document_link(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
-
-    let finished_file = FinishedFile::new(db, file);
 
     let links: Vec<_> = finished_file
         .range_to_expr()
