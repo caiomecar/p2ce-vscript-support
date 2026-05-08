@@ -930,7 +930,7 @@ impl<'db> Resolver<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
-                        severity: DiagnosticSeverity::Error,
+                        severity: DiagnosticSeverity::Warning,
                     });
                 }
 
@@ -963,7 +963,7 @@ impl<'db> Resolver<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
-                        severity: DiagnosticSeverity::Error,
+                        severity: DiagnosticSeverity::Warning,
                     });
                 }
 
@@ -981,7 +981,7 @@ impl<'db> Resolver<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
-                        severity: DiagnosticSeverity::Error,
+                        severity: DiagnosticSeverity::Warning,
                     });
                 }
 
@@ -996,7 +996,7 @@ impl<'db> Resolver<'db> {
                         self.diagnostics.push(Diagnostic {
                             message: message(self),
                             range: error_range,
-                            severity: DiagnosticSeverity::Error,
+                            severity: DiagnosticSeverity::Warning,
                         });
                     }
                     doc_type.clone()
