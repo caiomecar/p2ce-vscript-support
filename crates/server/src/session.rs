@@ -131,8 +131,8 @@ pub struct Session<Db: salsa::Database + Clone + Send + RefUnwindSafe> {
     task_receiver: crossbeam_channel::Receiver<Task>,
     task_sender: crossbeam_channel::Sender<Task>,
     task_pool: Pool,
-    syntax_diagnostics: Vec<Diagnostic>,
-    semantic_diagnostics: Vec<Diagnostic>,
+    syntax_diagnostics: FxHashMap<Url, Vec<Diagnostic>>,
+    semantic_diagnostics: FxHashMap<Url, Vec<Diagnostic>>,
     pub req_queue: ReqQueue<Db>,
     pub connection: Connection,
     pub db: Db,
@@ -152,8 +152,8 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
             task_receiver,
             task_sender,
             task_pool: Pool::new(max_threads),
-            syntax_diagnostics: Vec::new(),
-            semantic_diagnostics: Vec::new(),
+            syntax_diagnostics: FxHashMap::default(),
+            semantic_diagnostics: FxHashMap::default(),
             req_queue: ReqQueue::default(),
             connection,
             db,
@@ -189,12 +189,16 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                         Task::Diagnostics(kind, uri, mut diagnostics) => {
                             match kind {
                                 DiagnosticKind::Syntax => {
-                                    self.syntax_diagnostics.clone_from(&diagnostics);
-                                    diagnostics.extend(self.semantic_diagnostics.iter().cloned());
+                                    self.syntax_diagnostics.insert(uri.clone(), diagnostics.clone());
+                                    if let Some(semantic) = self.semantic_diagnostics.get(&uri) {
+                                        diagnostics.extend(semantic.clone());
+                                    }
                                 }
                                 DiagnosticKind::Semantic => {
-                                    self.semantic_diagnostics.clone_from(&diagnostics);
-                                    diagnostics.extend(self.syntax_diagnostics.iter().cloned());
+                                    self.semantic_diagnostics.insert(uri.clone(), diagnostics.clone());
+                                    if let Some(syntax) = self.syntax_diagnostics.get(&uri) {
+                                        diagnostics.extend(syntax.clone());
+                                    }
                                 }
                             }
 
