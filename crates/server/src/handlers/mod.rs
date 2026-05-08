@@ -21,5 +21,5 @@ pub use hover::handle_hover;
 pub use inlay_hints::handle_inlay_hint;
 pub use prepare_rename::handle_prepare_rename;
 pub use rename::handle_rename;
-pub use semantic_tokens::handle_semantic_tokens;
+pub use semantic_tokens::{handle_semantic_tokens_full, handle_semantic_tokens_range};
 pub use signature_help::handle_signature_help;

@@ -937,6 +937,7 @@ impl<'db> Resolver<'db> {
                 let flags = result
                     .iter()
                     .fold(TypeFlags::empty(), |f, p| f | p.type_flags());
+
                 Type::Union(Union {
                     primitives: result.into(),
                     flags,

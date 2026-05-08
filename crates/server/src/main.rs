@@ -27,7 +27,7 @@ use lsp_types::{
     request::{
         Completion, DocumentLinkRequest, DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition,
         HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename,
-        SemanticTokensFullRequest, SignatureHelpRequest,
+        SemanticTokensFullRequest, SemanticTokensRangeRequest, SignatureHelpRequest,
     },
 };
 use resolver::{Database, FinishedFile, Source as _, VScriptDatabase, VScriptDbConfig, parse};
@@ -88,6 +88,7 @@ fn main() -> Result<()> {
                     ],
                 },
                 full: Some(SemanticTokensFullOptions::Bool(true)),
+                range: Some(true),
                 ..Default::default()
             },
         )),
@@ -138,7 +139,8 @@ fn on_requests<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         .on_important::<Completion>(handlers::handle_completion)
         .on_important::<HoverRequest>(handlers::handle_hover)
         .on_important::<PrepareRenameRequest>(handlers::handle_prepare_rename)
-        .on_important::<SemanticTokensFullRequest>(handlers::handle_semantic_tokens)
+        .on::<SemanticTokensFullRequest>(handlers::handle_semantic_tokens_full)
+        .on::<SemanticTokensRangeRequest>(handlers::handle_semantic_tokens_range)
         .on_important::<SignatureHelpRequest>(handlers::handle_signature_help)
         .on::<DocumentLinkRequest>(handlers::handle_document_link)
         .on::<DocumentSymbolRequest>(handlers::handle_document_symbol)
@@ -167,8 +169,8 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                 .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
 
             let mut text = file.text(&session.db).clone();
-
             let line_index = positions::line_index(&session.db, file);
+
             for change in params.content_changes {
                 let range = change.range.expect("Incremental changes always have range");
                 let Some(text_range) = positions::text_range(line_index, range) else {
