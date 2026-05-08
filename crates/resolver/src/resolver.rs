@@ -896,18 +896,18 @@ impl<'db> Resolver<'db> {
             ),
             CheckTypeSource::Return => format!(
                 "Trying to return a value of type '{}' in a function with declared return type of '{}'",
-                this.type_to_str(doc_type),
                 this.type_to_str(other_type),
+                this.type_to_str(doc_type),
             ),
             CheckTypeSource::Throw => format!(
                 "Trying to throw a value of type '{}' in a function with declared throw type of '{}'",
-                this.type_to_str(doc_type),
                 this.type_to_str(other_type),
+                this.type_to_str(doc_type),
             ),
             CheckTypeSource::Yield => format!(
                 "Trying to yield a value of type '{}' in a function with declared yield type of '{}'",
-                this.type_to_str(doc_type),
                 this.type_to_str(other_type),
+                this.type_to_str(doc_type),
             ),
         };
 
