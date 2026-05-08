@@ -7084,7 +7084,7 @@ Constants <- {
 	}
 }
 
-/** @type {array} */
+/** @type {[integer]} */
 ScriptDebugDefaultWatchColor <- [0, 192, 0]
 /** @type {bool} */
 ScriptDebugDrawTextEnabled <- true
