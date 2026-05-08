@@ -1,5 +1,6 @@
 mod handlers;
 mod positions;
+mod session;
 #[allow(
     unused,
     clippy::all,
@@ -33,7 +34,7 @@ use lsp_types::{
 use resolver::{Database, FinishedFile, Source as _, VScriptDatabase, VScriptDbConfig, parse};
 use salsa::Setter as _;
 
-use crate::vendored::{NotificationRegistry, RequestRegistry, Session};
+use crate::session::{NotificationHandlers, RequestHandlers, Session};
 
 fn main() -> Result<()> {
     let (connection, io_threads) = Connection::stdio();
@@ -119,8 +120,8 @@ fn main() -> Result<()> {
 
     let session = Session::new(connection, db);
 
-    let mut request_registry = RequestRegistry::<Database>::default();
-    let mut notification_registry = NotificationRegistry::<Database>::default();
+    let mut request_registry = RequestHandlers::<Database>::default();
+    let mut notification_registry = NotificationHandlers::<Database>::default();
 
     session.main_loop(
         on_requests(&mut request_registry),
@@ -133,15 +134,15 @@ fn main() -> Result<()> {
 }
 
 fn on_requests<Db: VScriptDatabase + Clone + RefUnwindSafe>(
-    registry: &mut RequestRegistry<Db>,
-) -> &mut RequestRegistry<Db> {
+    registry: &mut RequestHandlers<Db>,
+) -> &mut RequestHandlers<Db> {
     registry
-        .on_important::<Completion>(handlers::handle_completion)
-        .on_important::<HoverRequest>(handlers::handle_hover)
-        .on_important::<PrepareRenameRequest>(handlers::handle_prepare_rename)
-        .on_important::<SemanticTokensFullRequest>(handlers::handle_semantic_tokens_full)
-        .on_important::<SemanticTokensRangeRequest>(handlers::handle_semantic_tokens_range)
-        .on_important::<SignatureHelpRequest>(handlers::handle_signature_help)
+        .on_latency_sensitive::<Completion>(handlers::handle_completion)
+        .on_latency_sensitive::<HoverRequest>(handlers::handle_hover)
+        .on_latency_sensitive::<PrepareRenameRequest>(handlers::handle_prepare_rename)
+        .on_latency_sensitive::<SemanticTokensFullRequest>(handlers::handle_semantic_tokens_full)
+        .on_latency_sensitive::<SemanticTokensRangeRequest>(handlers::handle_semantic_tokens_range)
+        .on_latency_sensitive::<SignatureHelpRequest>(handlers::handle_signature_help)
         .on::<DocumentLinkRequest>(handlers::handle_document_link)
         .on::<DocumentSymbolRequest>(handlers::handle_document_symbol)
         .on::<References>(handlers::handle_references)
@@ -152,8 +153,8 @@ fn on_requests<Db: VScriptDatabase + Clone + RefUnwindSafe>(
 }
 
 fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
-    registry: &mut NotificationRegistry<Db>,
-) -> &mut NotificationRegistry<Db> {
+    registry: &mut NotificationHandlers<Db>,
+) -> &mut NotificationHandlers<Db> {
     registry
         .on_mut::<DidOpenTextDocument>(|session, params| {
             let uri = &params.text_document.uri;
