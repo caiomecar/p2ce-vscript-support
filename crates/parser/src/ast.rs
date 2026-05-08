@@ -1085,7 +1085,6 @@ ast_enum!(Tag {
     Hide(HideTag),
     Deprecated(DeprecatedTag),
     Const(ConstTag),
-    Input(InputTag),
     Static(StaticTag),
     This(ThisTag),
 });
@@ -1155,10 +1154,6 @@ impl IsTag for DeprecatedTag {}
 ast_node!(ConstTag, ConstTag);
 impl HasDocDescription for ConstTag {}
 impl IsTag for ConstTag {}
-
-ast_node!(InputTag, InputTag);
-impl HasDocDescription for InputTag {}
-impl IsTag for InputTag {}
 
 ast_node!(StaticTag, StaticTag);
 impl HasDocDescription for StaticTag {}

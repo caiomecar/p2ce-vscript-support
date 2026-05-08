@@ -262,7 +262,6 @@ impl<'a> DocComment<'a> {
             "deprecated" => SyntaxKind::DeprecatedTag,
             "hide" => SyntaxKind::HideTag,
             "const" => SyntaxKind::ConstTag,
-            "input" => SyntaxKind::InputTag,
             "static" => SyntaxKind::StaticTag,
             _ => {
                 self.errors.push(SyntaxError {
