@@ -242,10 +242,10 @@ fn compute_diagnostics<Db: VScriptDatabase>(db: &Db, url: &Url) -> Result<Vec<Di
     let file = db
         .get_file(url)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let parse = parse(db, file);
-    let finished_file = FinishedFile::new(db, file);
 
     Ok(parse
         .errors()
