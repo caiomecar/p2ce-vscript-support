@@ -1120,7 +1120,6 @@ fn completion_doc_tag(
         "@native",
         "@var ",
         "@const",
-        "@input",
         "@extends ",
         "@static",
         "@this ",
@@ -1255,20 +1254,40 @@ fn completion_doc_auto_generated(
 
         match &func.ret {
             TypeState::Absent => {}
-            TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+            TypeState::Explicit(typ) => {
                 stop_idx += 1;
 
                 let _ = write!(
                     text,
                     "\n * @returns {{${{{stop_idx}:{}}}}}",
-                    finished_file.type_to_str(typ.null_to_any())
+                    finished_file.type_to_str(typ)
                 );
+            }
+            TypeState::NotExplicit(typ) => {
+                if *typ != Type::NULL {
+                    stop_idx += 1;
+
+                    let _ = write!(
+                        text,
+                        "\n * @returns {{${{{stop_idx}:{}}}}}",
+                        finished_file.type_to_str(typ.null_to_any())
+                    );
+                }
             }
         }
 
         match &func.throws {
             TypeState::Absent => {}
-            TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+            TypeState::Explicit(typ) => {
+                stop_idx += 1;
+
+                let _ = write!(
+                    text,
+                    "\n * @throws {{${{{stop_idx}:{}}}}}",
+                    finished_file.type_to_str(typ)
+                );
+            }
+            TypeState::NotExplicit(typ) => {
                 stop_idx += 1;
 
                 let _ = write!(
@@ -1281,7 +1300,16 @@ fn completion_doc_auto_generated(
 
         match &func.yields {
             TypeState::Absent => {}
-            TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
+            TypeState::Explicit(typ) => {
+                stop_idx += 1;
+
+                let _ = write!(
+                    text,
+                    "\n * @yields {{${{{stop_idx}:{}}}}}",
+                    finished_file.type_to_str(typ)
+                );
+            }
+            TypeState::NotExplicit(typ) => {
                 stop_idx += 1;
 
                 let _ = write!(
