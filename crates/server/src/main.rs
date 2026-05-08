@@ -159,7 +159,11 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         .on_mut::<DidOpenTextDocument>(|session, params| {
             let uri = &params.text_document.uri;
             session.db.open_file(uri, params.text_document.text);
-            session.schedule_diagnostics(uri.clone(), compute_diagnostics);
+            session.schedule_diagnostics(
+                uri.clone(),
+                compute_syntax_diagnostics,
+                compute_semantic_diagnostics,
+            );
             Ok(())
         })
         .on_mut::<DidChangeTextDocument>(|session, params| {
@@ -182,7 +186,11 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
 
             file.set_text(&mut session.db).to(text);
 
-            session.schedule_diagnostics(uri.clone(), compute_diagnostics);
+            session.schedule_diagnostics(
+                uri.clone(),
+                compute_syntax_diagnostics,
+                compute_semantic_diagnostics,
+            );
 
             Ok(())
         })
@@ -213,7 +221,11 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                 let uri = &change.uri;
 
                 if session.db.get_file(uri).is_some() {
-                    session.schedule_diagnostics(uri.clone(), compute_diagnostics);
+                    session.schedule_diagnostics(
+                        uri.clone(),
+                        compute_syntax_diagnostics,
+                        compute_semantic_diagnostics,
+                    );
                 }
             }
             Ok(())
@@ -238,11 +250,10 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         .on::<LogTrace>(|_s, _p| Ok(()))
 }
 
-fn compute_diagnostics<Db: VScriptDatabase>(db: &Db, url: &Url) -> Result<Vec<Diagnostic>> {
+fn compute_syntax_diagnostics<Db: VScriptDatabase>(db: &Db, url: &Url) -> Result<Vec<Diagnostic>> {
     let file = db
         .get_file(url)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let parse = parse(db, file);
@@ -257,7 +268,24 @@ fn compute_diagnostics<Db: VScriptDatabase>(db: &Db, url: &Url) -> Result<Vec<Di
                 ..Default::default()
             })
         })
-        .chain(finished_file.diagnostics().iter().filter_map(|diagnostic| {
+        .collect())
+}
+
+fn compute_semantic_diagnostics<Db: VScriptDatabase>(
+    db: &Db,
+    url: &Url,
+) -> Result<Vec<Diagnostic>> {
+    let file = db
+        .get_file(url)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
+
+    let line_idx = positions::line_index(db, file);
+
+    Ok(finished_file
+        .diagnostics()
+        .iter()
+        .filter_map(|diagnostic| {
             let (severity, tags) = match diagnostic.severity {
                 resolver::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
                 resolver::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
@@ -280,10 +308,9 @@ fn compute_diagnostics<Db: VScriptDatabase>(db: &Db, url: &Url) -> Result<Vec<Di
                 tags,
                 ..Default::default()
             })
-        }))
+        })
         .collect())
 }
-
 fn extract_config(params: &InitializeParams) -> VScriptDbConfig {
     let options = params.initialization_options.as_ref();
 
