@@ -131,8 +131,18 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> RequestRegistry<Db> {
                 let cb = cb.clone();
                 match salsa::Cancelled::catch(|| cb(&db, params)) {
                     Err(e) => {
-                        let method = req.method;
-                        log::warn!("Cancelled request '{method}': {e}");
+                        log::warn!("Cancelled request '{}': {}", req.method, e);
+                        sender
+                            .send(Task::Response(Response {
+                                id,
+                                result: None,
+                                error: Some(lsp_server::ResponseError {
+                                    code: ErrorCode::ServerCancelled as i32,
+                                    message: e.to_string(),
+                                    data: None,
+                                }),
+                            }))
+                            .unwrap();
                     }
                     Ok(result) => match result {
                         Ok(result) => sender

@@ -16,7 +16,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
-use std::panic::RefUnwindSafe;
+use std::{
+    panic::RefUnwindSafe,
+    sync::atomic::{AtomicI32, Ordering},
+};
 
 use crate::vendored::intent::ThreadIntent;
 
@@ -83,7 +86,6 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                         Task::Response(resp) => RequestRegistry::complete(&mut self, resp)?,
                         Task::Notification(not) => self.connection.sender.send(not.into())?,
                         Task::NotificationError(err) => NotificationRegistry::handle_error(&self, err)?,
-
                     }
                 }
             }
