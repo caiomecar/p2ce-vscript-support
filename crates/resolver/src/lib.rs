@@ -1058,15 +1058,28 @@ pub trait Source {
                 label.push_str(", ");
             }
             let start = label.len();
-            label.push_str("...vargv");
-            let symbol = self.get(id);
-            if let Type::Primitive(Primitive::Array(Some(id))) = &symbol.typ {
-                let typ = &self.get(*id).kind;
 
-                if *typ != Type::UNKNOWN {
-                    let _ = write!(label, ": {}", self.type_to_str(typ));
+            match kind {
+                FunctionMarkdown::Anonymous => {
+                    label.push_str("...");
+                    let symbol = self.get(id);
+                    if let Type::Primitive(Primitive::Array(Some(id))) = &symbol.typ {
+                        label.push_str(&self.type_to_str(&self.get(*id).kind));
+                    }
+                }
+                FunctionMarkdown::Full(_) => {
+                    label.push_str("...vargv");
+                    let symbol = self.get(id);
+                    if let Type::Primitive(Primitive::Array(Some(id))) = &symbol.typ {
+                        let typ = &self.get(*id).kind;
+
+                        if *typ != Type::UNKNOWN {
+                            let _ = write!(label, ": {}", self.type_to_str(typ));
+                        }
+                    }
                 }
             }
+
             let end = label.len();
             param_ranges.push([
                 u32::try_from(start).unwrap_or(u32::MAX),

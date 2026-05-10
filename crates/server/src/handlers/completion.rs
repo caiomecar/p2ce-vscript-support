@@ -5,9 +5,9 @@ use lsp_types::{
     MarkupKind, TextEdit,
 };
 use resolver::{
-    DisplayType, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers, Primitive,
-    ScopeId, Source, StringKind, Symbol, SymbolFlags, SymbolKind, Type, TypeFlags, TypeState,
-    VScriptDatabase, parse,
+    DisplayType, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers, ParamsState,
+    Primitive, ScopeId, Source, StringKind, Symbol, SymbolFlags, SymbolKind, Type, TypeFlags,
+    TypeState, VScriptDatabase, parse,
 };
 use sq_3_parser::{
     AstNode, KEYWORDS, SyntaxKind, SyntaxNode, TextRange, TextSize,
@@ -792,7 +792,7 @@ fn modify_if_function(
     if let Some(id) = id {
         let func = finished_file.get(id);
 
-        if func.params.is_empty() {
+        if func.params.is_empty() && !matches!(func.params_state, ParamsState::VarArgs(_, _)) {
             *insert_text = Some(format!("{text}()"));
             *label = format!("{label}()");
             return None;
