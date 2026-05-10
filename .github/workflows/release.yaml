@@ -33,7 +33,7 @@ jobs:
             code-target: darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: ${{ env.FETCH_DEPTH }}
       - uses: dtolnay/rust-toolchain@stable
@@ -54,7 +54,7 @@ jobs:
       - name: Move Standard Library
         shell: bash
         run: cp -r ./vscript_lib editors/code/vscript_lib
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - name: Copy LICENSE
@@ -73,7 +73,7 @@ jobs:
         run: npx vsce package --target ${{ matrix.code-target }}
         working-directory: editors/code
       - name: Upload VSIX
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tf2-vscript-support-${{ matrix.code-target }}
           path: editors/code/*.vsix
@@ -87,11 +87,17 @@ jobs:
         with:
           node-version: 22
       - name: Download All VSIXs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: tf2-vscript-support-*
           merge-multiple: true
           path: vsix
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: vsix/*.vsix
+          draft: true
       - name: Publish to VS Code Marketplace
         if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_marketplace
         run: |
