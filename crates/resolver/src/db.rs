@@ -182,13 +182,16 @@ impl VScriptDatabase for Database {
         let Some(scripts) = &self.scripts_dir else {
             return Vec::new();
         };
-        let scripts_str = scripts.as_str().trim_end_matches('/');
+        let scripts_str = scripts.as_str();
+        dbg!(scripts_str);
 
         self.get_files()
             .iter()
             .filter_map(|entry| {
                 let url = entry.key().as_str();
-                let rel = url.strip_prefix(scripts_str)?.trim_start_matches('/');
+                dbg!(url);
+                let rel = url.strip_prefix(scripts_str)?;
+                dbg!(rel);
 
                 if !std::path::Path::new(rel)
                     .extension()
