@@ -577,7 +577,7 @@ fn context_completions(
             }
 
             if !ast::MemberPart::can_cast(parent.kind()) {
-                return Some(ContextCompletions::Statement);
+                return Some(ContextCompletions::Expression);
             }
 
             let Some(member_access) = parent.parent() else {
