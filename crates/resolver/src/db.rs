@@ -257,6 +257,10 @@ impl Database {
             .filter(|e| e.path().extension().and_then(|e| e.to_str()) == Some("nut"))
         {
             let path = entry.into_path();
+            let Ok(path) = path.canonicalize() else {
+                continue;
+            };
+
             let Ok(url) = Url::from_file_path(&path) else {
                 continue;
             };
