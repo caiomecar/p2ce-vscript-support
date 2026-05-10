@@ -1,3 +1,8 @@
+/*
+Portions of this file are derived from auto-lsp
+Copyright (C) 2025 CLAUZEL Adrien
+Licensed under GPL-3.0: https://www.gnu.org/licenses/gpl-3.0.html
+*/
 #![allow(clippy::unwrap_used)]
 
 use anyhow::Error;
