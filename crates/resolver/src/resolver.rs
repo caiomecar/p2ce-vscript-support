@@ -1595,6 +1595,7 @@ impl<'db> Resolver<'db> {
                 let typ = kind.map_or(Type::UNKNOWN, |id| self.get(id).kind.clone());
                 Some((Type::INTEGER, typ))
             }
+            Primitive::String { .. } => Some((Type::INTEGER, Type::INTEGER)),
             Primitive::Generator(id) => {
                 let typ = id.map_or(Type::UNKNOWN, |id| match &self.get(id).yields {
                     TypeState::Absent => Type::UNKNOWN,
@@ -3651,25 +3652,22 @@ impl<'db> Resolver<'db> {
                             return Some(ExpressionKind::Literal(self.get(id).kind.clone()));
                         }
                     }
-                    Err(ToPrimitiveError::WrongTypeWithUnknown) => {
-                        return None;
-                    }
                     Err(ToPrimitiveError::NotSpecific) => {
                         if index_flags.intersects(TypeFlags::NUMBER) {
                             return None;
                         }
                     }
-                    Err(ToPrimitiveError::WrongType) => {
+                    Err(ToPrimitiveError::WrongTypeWithUnknown | ToPrimitiveError::WrongType) => {
                         if from.type_flags().intersects(TypeFlags::STRING)
                             && index_flags.intersects(TypeFlags::NUMBER)
                         {
                             return Some(ExpressionKind::Literal(Type::INTEGER));
                         }
-
-                        if from.type_flags().intersects(TypeFlags::HAS_MEMBERS_OR_ANY) {
-                            return None;
-                        }
                     }
+                }
+
+                if from.type_flags().intersects(TypeFlags::HAS_MEMBERS_OR_ANY) {
+                    return None;
                 }
 
                 if !index_flags.intersects(TypeFlags::UNKNOWN) {
