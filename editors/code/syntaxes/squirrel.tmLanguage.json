@@ -79,7 +79,7 @@
           },
           "patterns": [
             {
-              "match": "((@)(?:param|var))(?:\\s*((\\{)[^}\n]*(\\})))?(?:\\s*([A-Za-z_]\\w*))?",
+              "match": "((@)(?:param|var))\\b(?:\\s*((\\{)[^}\n]*(\\})))?(?:\\s*([A-Za-z_]\\w*))?",
               "captures": {
                 "1": {
                   "name": "keyword.documentation.sqdoc"
@@ -102,7 +102,7 @@
               }
             },
             {
-              "match": "((@)(?:type|vargv|varargs|returns?|throws?|yields?|extends|this))(?:\\s*((\\{)[^}\n]*(\\})))?",
+              "match": "((@)(?:type|vargv|varargs|returns?|throws?|yields?|extends|this))\\b(?:\\s*((\\{)[^}\n]*(\\})))?",
               "captures": {
                 "1": {
                   "name": "keyword.documentation.sqdoc"
