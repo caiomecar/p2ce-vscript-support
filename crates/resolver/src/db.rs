@@ -23,8 +23,8 @@ pub struct Database {
     files: Arc<DashMap<Url, File>>,
     urls: Arc<DashMap<File, Url>>,
     builtins: Option<Arc<Builtins>>,
-    tf2_root_dir: Option<PathBuf>,
-    scripts_dir: Option<PathBuf>,
+    tf2_root_dir: Option<Url>,
+    scripts_dir: Option<Url>,
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
     native_functions: Arc<FxHashMap<FunctionId, NativeFunction>>,
@@ -130,12 +130,12 @@ impl VScriptDatabase for Database {
         let scripts = root.join("tf/scripts/vscripts");
         if scripts.exists() {
             self.load_all_scripts(&scripts);
-            self.scripts_dir = Some(scripts);
+            self.scripts_dir = Url::from_directory_path(&scripts).ok();
         } else {
             self.scripts_dir = None;
         }
 
-        self.tf2_root_dir = Some(root);
+        self.tf2_root_dir = Url::from_directory_path(&root).ok();
     }
 
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
@@ -156,21 +156,24 @@ impl VScriptDatabase for Database {
         if path.is_absolute() {
             return Err(format!(
                 "Script path must be relative to '{}'",
-                scripts.display()
+                scripts.as_str()
             ));
         }
 
-        let full_path = scripts.join(&path);
-
-        let url = Url::from_file_path(&full_path)
-            .map_err(|()| format!("Couldn't convert '{}' to URL", full_path.display()))?;
+        let url = scripts
+            .join(path.to_str().ok_or("Script path is not valid UTF-8")?)
+            .map_err(|e| format!("Couldn't construct script URL: {e}"))?;
 
         if let Some(file) = self.get_file(&url) {
             return Ok(file);
         }
 
+        let full_path = url
+            .to_file_path()
+            .map_err(|()| format!("Couldn't convert '{url}' to path"))?;
+
         let text =
-            std::fs::read_to_string(&full_path).map_err(|_| "File does not exists".to_owned())?;
+            std::fs::read_to_string(&full_path).map_err(|_| "File does not exist".to_owned())?;
 
         Ok(self.open_file(&url, text))
     }
@@ -179,26 +182,22 @@ impl VScriptDatabase for Database {
         let Some(scripts) = &self.scripts_dir else {
             return Vec::new();
         };
+        let scripts_str = scripts.as_str().trim_end_matches('/');
 
         self.get_files()
             .iter()
             .filter_map(|entry| {
-                // Convert URL back to path only for the prefix stripping
-                let path = entry.key().to_file_path().ok()?;
-                let rel_path = path.strip_prefix(scripts).ok()?;
+                let url = entry.key().as_str();
+                let rel = url.strip_prefix(scripts_str)?.trim_start_matches('/');
 
-                if rel_path.extension().and_then(|e| e.to_str()) != Some("nut") {
+                if !std::path::Path::new(rel)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("nut"))
+                {
                     return None;
                 }
 
-                let forward_slash_path = rel_path
-                    .with_extension("")
-                    .components()
-                    .filter_map(|c| c.as_os_str().to_str())
-                    .collect::<Vec<_>>()
-                    .join("/");
-
-                Some(forward_slash_path)
+                Some(rel.trim_end_matches(".nut").to_owned())
             })
             .collect()
     }
