@@ -219,19 +219,35 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
             Ok(())
         })
         .on_mut::<DidChangeWatchedFiles>(|session, params| {
+            dbg!(&params);
             for change in params.changes {
-                if change.typ != FileChangeType::CHANGED {
-                    continue;
-                }
-
                 let uri = &change.uri;
-
-                if session.db.get_file(uri).is_some() {
-                    session.schedule_diagnostics(
-                        uri.clone(),
-                        compute_syntax_diagnostics,
-                        compute_semantic_diagnostics,
-                    );
+                match change.typ {
+                    FileChangeType::CHANGED | FileChangeType::CREATED => {
+                        let Some(file) = session.db.get_file(uri) else {
+                            continue;
+                        };
+                        let Ok(path) = uri.to_file_path() else {
+                            continue;
+                        };
+                        let Ok(text) = std::fs::read_to_string(&path) else {
+                            continue;
+                        };
+                        file.set_text(&mut session.db).to(text);
+                        session.schedule_diagnostics(
+                            uri.clone(),
+                            compute_syntax_diagnostics,
+                            compute_semantic_diagnostics,
+                        );
+                    }
+                    FileChangeType::DELETED => {
+                        let Some(file) = session.db.get_files().remove(uri).map(|e| e.1) else {
+                            continue;
+                        };
+                        file.set_text(&mut session.db).to(String::new());
+                        session.db.get_urls().remove(&file);
+                    }
+                    _ => {}
                 }
             }
             Ok(())

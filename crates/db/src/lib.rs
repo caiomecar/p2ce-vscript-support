@@ -26,4 +26,12 @@ pub trait BaseDatabase: salsa::Database {
         self.get_urls().insert(file, url.clone());
         file
     }
+
+    fn delete_file(&self, url: &Url) {
+        let Some(file) = self.get_files().get(url).map(|f| *f) else {
+            return;
+        };
+        self.get_urls().remove(&file);
+        self.get_files().remove(url);
+    }
 }
