@@ -119,6 +119,11 @@ enum GetMembersInner {
     Const,
 }
 
+pub enum FunctionMarkdown<'a> {
+    Full(&'a str),
+    Anonymous,
+}
+
 fn import_members_inner(
     db: &dyn VScriptDatabase,
     import: File,
@@ -857,6 +862,17 @@ pub trait Source {
         self.type_to_str_impl(typ, |prim| self.primitive_to_str(prim))
     }
 
+    fn symbol_detail(&self, id: SymbolId) -> String {
+        let s = self.get(id);
+        match Primitive::try_from(&s.typ) {
+            Ok(Primitive::Function(Some(id))) => {
+                let (signature, _) = self.function_markdown(FunctionMarkdown::Anonymous, id);
+                signature
+            }
+            _ => self.type_to_str(&s.typ).into_string(),
+        }
+    }
+
     fn symbol_markdown(&self, id: SymbolId) -> String {
         let s = self.get(id);
         let mut str = "\n```sqDoc\n".to_owned();
@@ -967,7 +983,7 @@ pub trait Source {
         match Primitive::try_from(&s.typ) {
             Ok(Primitive::Function(Some(id))) => {
                 str.push_str("function ");
-                let (signature, _) = self.function_markdown(&s.name, id);
+                let (signature, _) = self.function_markdown(FunctionMarkdown::Full(&s.name), id);
                 str.push_str(&signature);
             }
             Ok(Primitive::Function(None)) => {
@@ -994,9 +1010,13 @@ pub trait Source {
         str
     }
 
-    fn function_markdown(&self, name: &str, id: FunctionId) -> (String, Vec<[u32; 2]>) {
+    fn function_markdown(&self, kind: FunctionMarkdown, id: FunctionId) -> (String, Vec<[u32; 2]>) {
         let func = self.get(id);
-        let mut label = format!("{name}(");
+        let mut label = match kind {
+            FunctionMarkdown::Anonymous => "@(".to_owned(),
+            FunctionMarkdown::Full(name) => format!("{name}("),
+        };
+
         let mut param_ranges = Vec::new();
         let default_after = if let ParamsState::Default(after) = func.params_state {
             Some(after)
@@ -1010,14 +1030,21 @@ pub trait Source {
             }
             let start = label.len();
             let param = self.get(param_id);
-            label.push_str(&param.name);
-            if let Some(default_after) = default_after
-                && i >= default_after
-            {
-                label.push('?');
-            }
-            if param.typ != Type::UNKNOWN {
-                let _ = write!(label, ": {}", self.type_to_str(&param.typ));
+            match kind {
+                FunctionMarkdown::Anonymous => {
+                    label.push_str(&self.type_to_str(&param.typ));
+                }
+                FunctionMarkdown::Full(_) => {
+                    label.push_str(&param.name);
+                    if let Some(default_after) = default_after
+                        && i >= default_after
+                    {
+                        label.push('?');
+                    }
+                    if param.typ != Type::UNKNOWN {
+                        let _ = write!(label, ": {}", self.type_to_str(&param.typ));
+                    }
+                }
             }
             let end = label.len();
             param_ranges.push([

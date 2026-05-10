@@ -3,7 +3,8 @@ use lsp_types::{
     SignatureHelpParams, SignatureInformation,
 };
 use resolver::{
-    ExpressionKind, FinishedFile, FunctionIdResolution, Source, VScriptDatabase, parse,
+    ExpressionKind, FinishedFile, FunctionIdResolution, FunctionMarkdown, Source, VScriptDatabase,
+    parse,
 };
 use sq_3_parser::{AstNode, ast};
 
@@ -79,7 +80,7 @@ pub fn handle_signature_help(
         }
     }
 
-    let (label, param_ranges) = finished_file.function_markdown(&name, id);
+    let (label, param_ranges) = finished_file.function_markdown(FunctionMarkdown::Full(&name), id);
     let func = finished_file.get(id);
 
     let param_infos = func

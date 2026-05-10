@@ -1,7 +1,8 @@
 use ::line_index::LineIndex;
 use lsp_types::{
     Command, CompletionItem, CompletionItemKind, CompletionItemTag, CompletionParams,
-    CompletionResponse, CompletionTextEdit, InsertTextFormat, TextEdit,
+    CompletionResponse, CompletionTextEdit, Documentation, InsertTextFormat, MarkupContent,
+    MarkupKind, TextEdit,
 };
 use resolver::{
     DisplayType, ExpressionKind, FindSymbol, FinishedFile, FunctionId, ImportMembers, Primitive,
@@ -872,6 +873,11 @@ fn completions_flat(offset: TextSize, finished_file: &FinishedFile<'_>) -> Vec<C
                 command,
                 insert_text_format,
                 tags: symbol_tags(symbol),
+                detail: Some(finished_file.symbol_detail(id)),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: finished_file.symbol_markdown(id),
+                })),
                 ..Default::default()
             }
         })
@@ -897,6 +903,13 @@ fn completions_from_object(
             let mut label = name.into_string();
             let symbol = finished_file.get(id);
             let kind = Some(to_completion_kind(symbol));
+            let tags = symbol_tags(symbol);
+            let documentation = Some(Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: finished_file.symbol_markdown(id),
+            }));
+            let detail = Some(finished_file.symbol_detail(id));
+
             if can_use_identifier(&label) {
                 let mut insert_text = None;
                 let (insert_text_format, command) =
@@ -909,7 +922,9 @@ fn completions_from_object(
                     insert_text,
                     command,
                     insert_text_format,
-                    tags: symbol_tags(symbol),
+                    tags,
+                    documentation,
+                    detail,
                     ..Default::default()
                 });
             }
@@ -931,7 +946,9 @@ fn completions_from_object(
                 command,
                 insert_text_format,
                 additional_text_edits,
-                tags: symbol_tags(symbol),
+                tags,
+                documentation,
+                detail,
                 ..Default::default()
             })
         })
@@ -1016,6 +1033,11 @@ fn completions_from_object_as_string(
                 command,
                 insert_text_format,
                 tags: symbol_tags(symbol),
+                detail: Some(finished_file.symbol_detail(id)),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: finished_file.symbol_markdown(id),
+                })),
                 ..Default::default()
             })
         })
@@ -1094,6 +1116,11 @@ fn completions_root(
                 command,
                 insert_text_format,
                 tags: symbol_tags(symbol),
+                detail: Some(finished_file.symbol_detail(id)),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: finished_file.symbol_markdown(id),
+                })),
                 ..Default::default()
             }
         })

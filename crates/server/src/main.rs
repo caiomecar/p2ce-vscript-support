@@ -158,7 +158,13 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
     registry
         .on_mut::<DidOpenTextDocument>(|session, params| {
             let uri = &params.text_document.uri;
-            session.db.open_file(uri, params.text_document.text);
+            let text = params.text_document.text;
+            if let Some(file) = session.db.get_file(uri) {
+                file.set_text(&mut session.db).to(text);
+            } else {
+                session.db.open_file(uri, text);
+            }
+
             session.schedule_diagnostics(
                 uri.clone(),
                 compute_syntax_diagnostics,
