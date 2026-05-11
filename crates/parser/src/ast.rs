@@ -1001,8 +1001,13 @@ impl DocComment {
             if let Some(desc) = tag.description()
                 && let Some(content) = desc.content()
             {
-                tag_str.push_str(" \u{2014} "); // em dash
-                tag_str.push_str(content.trim());
+                let content = content.trim();
+                if content.starts_with("```") {
+                    tag_str.push('\n');
+                } else {
+                    tag_str.push_str(" \u{2014} "); // em dash
+                }
+                tag_str.push_str(content);
             }
 
             parts.push(tag_str);
@@ -1077,6 +1082,7 @@ ast_enum!(Tag {
     Return(ReturnTag),
     Param(ParamTag),
     VarArgs(VarArgsTag),
+    ExtendsTag(ExtendsTag),
     Type(TypeTag),
     Throw(ThrowTag),
     Yield(YieldTag),

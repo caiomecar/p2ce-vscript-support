@@ -2,11 +2,22 @@ use rowan::{TextRange, TextSize};
 
 use crate::{Event, Marker, SyntaxError, SyntaxKind};
 
+#[derive(Debug, Default)]
 pub struct DocComment<'a> {
     text: &'a str,
     pos: TextSize,
+    code_block_state: CodeBlockState,
+    connected_backticks: usize,
     events: Vec<Event>,
     errors: Vec<SyntaxError>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum CodeBlockState {
+    #[default]
+    None,
+    SingleLine,
+    MultiLine,
 }
 
 impl<'a> DocComment<'a> {
@@ -15,8 +26,7 @@ impl<'a> DocComment<'a> {
             text,
             // + 3 for /**
             pos: TextSize::new(3),
-            events: Vec::new(),
-            errors: Vec::new(),
+            ..Default::default()
         };
         this.finish_token(TextSize::new(0), SyntaxKind::DocSlashAsteriskAsterisk);
         this.body();
@@ -130,7 +140,36 @@ impl<'a> DocComment<'a> {
             let line_m = self.start();
             let start = self.start_token();
             loop {
+                if self.peek() == Some('`') {
+                    self.next();
+                    self.connected_backticks += 1;
+                    match (self.code_block_state, self.connected_backticks) {
+                        (CodeBlockState::None, 1) => {
+                            self.code_block_state = CodeBlockState::SingleLine;
+                        }
+                        (CodeBlockState::SingleLine, 3) => {
+                            self.connected_backticks = 0;
+                            self.code_block_state = CodeBlockState::MultiLine;
+                        }
+                        (CodeBlockState::SingleLine, 1) | (CodeBlockState::MultiLine, 3) => {
+                            self.connected_backticks = 0;
+                            self.code_block_state = CodeBlockState::None;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
+                if self.code_block_state == CodeBlockState::SingleLine
+                    && self.connected_backticks == 2
+                {
+                    self.code_block_state = CodeBlockState::None;
+                }
+                self.connected_backticks = 0;
                 match self.peek() {
+                    Some('@') if self.code_block_state != CodeBlockState::None => {
+                        self.next();
+                    }
                     None | Some('@') => {
                         if start == self.pos {
                             self.drop(line_m);
@@ -139,16 +178,30 @@ impl<'a> DocComment<'a> {
                             self.finish(line_m, SyntaxKind::DocDescriptionLine);
                         }
                         self.finish(m, SyntaxKind::DocDescription);
+                        if self.code_block_state != CodeBlockState::None {
+                            self.errors.push(SyntaxError {
+                                message: "Unterminated code block".to_owned(),
+                                range: self.next_char_range(),
+                            });
+                            self.code_block_state = CodeBlockState::None;
+                        }
                         return;
                     }
                     Some('\n') => {
+                        if self.code_block_state == CodeBlockState::SingleLine {
+                            self.errors.push(SyntaxError {
+                                message: "Unterminated code block".to_owned(),
+                                range: self.next_char_range(),
+                            });
+                            self.code_block_state = CodeBlockState::None;
+                        }
                         self.next();
                         self.finish_token(start, SyntaxKind::DocText);
                         self.finish(line_m, SyntaxKind::DocDescriptionLine);
                         self.after_new_line();
                         break;
                     }
-                    Some('\\') => {
+                    Some('\\') if self.code_block_state == CodeBlockState::None => {
                         self.next();
                         self.next();
                     }
