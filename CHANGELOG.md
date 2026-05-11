@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.1.4]
+- Resolve doc comment code blocks
+- Remove unknown type from explicit function declarations
+- Improve standard library documentation
+
 ## [3.1.3]
 - Stop giving statement completions in an expression context
 - Improve indexing into string
