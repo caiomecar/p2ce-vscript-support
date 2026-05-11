@@ -484,7 +484,19 @@ mod tests {
         let Some(qn) = f.name() else {
             panic!("expected qualified name")
         };
-        assert_eq!(qn.parts().count(), 3);
+        assert_eq!(qn.parts().count(), 2);
+        assert!(qn.name().is_some());
+    }
+
+    #[test]
+    fn function_statement_qualified_name_no_final() {
+        let stmt = first_stmt("function a::() {}", 1);
+        let Stmt::Function(f) = stmt else { panic!() };
+        let Some(qn) = f.name() else {
+            panic!("expected qualified name")
+        };
+        assert_eq!(qn.parts().count(), 1);
+        assert!(qn.name().is_none());
     }
 
     #[test]

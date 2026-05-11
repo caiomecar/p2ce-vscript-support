@@ -1448,6 +1448,7 @@ impl Parser {
             ParseStatement::BlockStatements
                 | ParseStatement::StatementBody { parse_end: true }
                 | ParseStatement::CaseStatements
+                | ParseStatement::TopStatements
         );
 
         if parse_end && !TokenSet::END_OF_STATEMENT.contains(self.prev_token.kind) {
