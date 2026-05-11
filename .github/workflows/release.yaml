@@ -48,6 +48,14 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.rust-target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.rust-target }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/code/package-lock.json
       - name: Build Server
         run: cargo build --release --target ${{ matrix.rust-target }}
       - name: Move Server
@@ -62,9 +70,6 @@ jobs:
       - name: Move Standard Library
         shell: bash
         run: cp -r ./vscript_lib editors/code/vscript_lib
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
       - name: Copy LICENSE
         run: cp LICENSE editors/code/LICENSE
       - name: Copy README
