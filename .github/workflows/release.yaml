@@ -22,6 +22,7 @@ permissions:
 env:
   CARGO_INCREMENTAL: 0
   FETCH_DEPTH: 0
+
 jobs:
   build:
     strategy:
