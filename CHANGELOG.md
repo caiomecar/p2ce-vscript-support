@@ -2,7 +2,7 @@
 
 ## [3.1.4]
 - Resolve doc comment code blocks
-- Remove unknown type from explicit function declarations
+- Remove unknown type from explicit function and class declarations
 - Improve standard library documentation
 
 ## [3.1.3]
