@@ -51,6 +51,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.rust-target }}
+          cache-targets: "true"
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -99,6 +100,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: editors/code/package-lock.json
+      - run: npm install -g @vscode/vsce ovsx
       - name: Download All VSIXs
         uses: actions/download-artifact@v8
         with:
