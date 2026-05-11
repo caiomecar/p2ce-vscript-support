@@ -4052,7 +4052,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: new_key.clone(),
-                    typ: value.kind,
+                    typ: value.kind.clone(),
                     kind: SymbolKind::Property { show_inlay_hint },
                     name_range,
                     range: expr.syntax().text_range(),
@@ -4109,7 +4109,7 @@ impl<'db> Resolver<'db> {
 
                     let symbol = self.symbol(Symbol {
                         name: name.clone(),
-                        typ: value.kind,
+                        typ: value.kind.clone(),
                         kind: SymbolKind::Property { show_inlay_hint },
                         name_range,
                         range: expr.syntax().text_range(),
