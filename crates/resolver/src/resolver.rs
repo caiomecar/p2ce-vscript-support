@@ -5112,6 +5112,10 @@ impl<'db> Resolver<'db> {
             return None;
         }
 
+        // All of this is prone to false positives since somebody can write "tf_weardjasgkdqwetqwewuqeq*"
+        // and it would propely pass the tf_wearable condition, however it's probably not worth solving
+        // this problem
+
         // tf_projectile_* | prop_* | item_*
         if text.starts_with("tf_pr") || text.starts_with("pr") || text.starts_with("it") {
             return self
@@ -5121,14 +5125,14 @@ impl<'db> Resolver<'db> {
         }
 
         // tf_weapon_* but not tf_weaponbase_*
-        if text.starts_with("tf_weap") && text.starts_with("tf_weaponb") {
+        if text.starts_with("tf_weap") && !text.starts_with("tf_weaponb") {
             return self
                 .db
                 .instance_from_vscript_lib("CTFWeaponBase")
                 .map(|t| t.add_null());
         }
 
-        // tf_wearable_*
+        // tf_wearable*
         if text.starts_with("tf_wear") {
             return self
                 .db
