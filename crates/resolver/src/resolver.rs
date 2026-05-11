@@ -854,13 +854,18 @@ impl<'db> Resolver<'db> {
                 // ))
             }
             (Primitive::Table(None), Primitive::Table(Some(_)))
+            | (Primitive::Class(None), Primitive::Class(Some(_)))
             | (Primitive::Array(None), Primitive::Array(Some(_)))
             | (Primitive::Function(None), Primitive::Function(Some(_)))
             | (Primitive::Generator(None), Primitive::Generator(Some(_)))
-            | (Primitive::Thread(None), Primitive::Thread(Some(_))) => Some(other),
+            | (Primitive::Thread(None), Primitive::Thread(Some(_)))
+            | (Primitive::Integer(None), Primitive::Integer(Some(_)))
+            | (Primitive::Float(None), Primitive::Float(Some(_)))
+            | (Primitive::Bool(None), Primitive::Bool(Some(_))) => Some(other),
             //
             (Primitive::String { .. }, Primitive::String { .. })
             | (Primitive::Table(_), Primitive::Table(_))
+            | (Primitive::Class(_), Primitive::Class(_))
             | (Primitive::Array(_), Primitive::Array(_))
             | (Primitive::Function(_), Primitive::Function(_))
             | (Primitive::Generator(_), Primitive::Generator(_))
@@ -869,7 +874,6 @@ impl<'db> Resolver<'db> {
             | (Primitive::Integer(_) | Primitive::Float(_), Primitive::Integer(_))
             | (Primitive::Float(_), Primitive::Float(_))
             | (Primitive::Bool(_), Primitive::Bool(_))
-            | (Primitive::Class(_), Primitive::Class(_))
             | (Primitive::Weakref, Primitive::Weakref)
             | (Primitive::Null, Primitive::Null) => Some(original),
             (_, _) => None,
@@ -2349,7 +2353,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     name_range: name.text_range(),
                     range: method.syntax().text_range(),
                     ..Default::default()
@@ -2372,7 +2376,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     name_range: keyword.text_range(),
                     range: constructor.syntax().text_range(),
                     ..Default::default()
@@ -2402,7 +2406,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     flags: if did_swap {
                         SymbolFlags::default()
                     } else {
@@ -2431,7 +2435,7 @@ impl<'db> Resolver<'db> {
 
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
-                    typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
+                    typ: Type::Primitive(Primitive::Function(Some(id))),
                     flags: if did_swap {
                         SymbolFlags::default()
                     } else {
@@ -2645,7 +2649,7 @@ impl<'db> Resolver<'db> {
 
         let symbol = self.symbol(Symbol {
             name: name.text().into(),
-            typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
+            typ: Type::Primitive(Primitive::Function(Some(id))),
             kind: SymbolKind::Local(LocalKind::Function),
             name_range: name.text_range(),
             range: decl.syntax().text_range(),
@@ -2951,7 +2955,7 @@ impl<'db> Resolver<'db> {
 
         let symbol = self.symbol(Symbol {
             name: final_name.text().into(),
-            typ: Type::Primitive(Primitive::Function(Some(id))).add_unknown(),
+            typ: Type::Primitive(Primitive::Function(Some(id))),
             name_range: final_name.text_range(),
             range: stmt.syntax().text_range(),
             ..Default::default()
