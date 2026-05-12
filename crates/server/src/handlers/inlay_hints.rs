@@ -6,8 +6,8 @@ use resolver::{FinishedFile, LocalKind, Source, SymbolKind, VScriptDatabase};
 
 use crate::positions;
 
-pub fn handle_inlay_hint(
-    db: &impl VScriptDatabase,
+pub fn handle_inlay_hint<Db: VScriptDatabase>(
+    db: &Db,
     params: InlayHintParams,
 ) -> anyhow::Result<Option<Vec<InlayHint>>> {
     let uri = params.text_document.uri;

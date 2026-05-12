@@ -7,8 +7,8 @@ use resolver::{
 
 use crate::positions;
 
-pub fn handle_document_link(
-    db: &impl VScriptDatabase,
+pub fn handle_document_link<Db: VScriptDatabase>(
+    db: &Db,
     params: DocumentLinkParams,
 ) -> anyhow::Result<Option<Vec<DocumentLink>>> {
     let uri = params.text_document.uri;

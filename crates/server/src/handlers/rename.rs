@@ -7,8 +7,8 @@ use resolver::{
 
 use crate::positions;
 
-pub fn handle_rename(
-    db: &impl VScriptDatabase,
+pub fn handle_rename<Db: VScriptDatabase>(
+    db: &Db,
     params: RenameParams,
 ) -> anyhow::Result<Option<WorkspaceEdit>> {
     let uri = params.text_document_position.text_document.uri;

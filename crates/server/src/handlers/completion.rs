@@ -100,8 +100,8 @@ fn expression_keywords() -> Vec<CompletionItem> {
     ]
 }
 
-pub fn handle_completion(
-    db: &impl VScriptDatabase,
+pub fn handle_completion<Db: VScriptDatabase>(
+    db: &Db,
     params: CompletionParams,
 ) -> anyhow::Result<Option<CompletionResponse>> {
     let uri = params.text_document_position.text_document.uri;

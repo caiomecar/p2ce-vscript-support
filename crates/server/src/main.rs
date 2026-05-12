@@ -15,26 +15,34 @@ use std::{panic::RefUnwindSafe, path::PathBuf};
 use anyhow::Result;
 use lsp_server::Connection;
 use lsp_types::{
-    CompletionOptions, Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentLinkOptions,
+    CompletionOptions, DiagnosticOptions, DiagnosticServerCapabilities, DocumentLinkOptions,
     FileChangeType, HoverProviderCapability, InitializeParams, InitializeResult, NumberOrString,
-    OneOf, RenameOptions, SemanticTokenModifier, SemanticTokenType, SemanticTokensFullOptions,
-    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensServerCapabilities,
-    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TypeDefinitionProviderCapability, Url, WorkDoneProgressOptions,
+    OneOf, RenameOptions, SelectionRangeProviderCapability, SemanticTokenModifier,
+    SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelpOptions,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TypeDefinitionProviderCapability,
+    WorkDoneProgressOptions,
     notification::{
         Cancel, DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles,
         DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, LogTrace, SetTrace,
     },
     request::{
-        Completion, DocumentLinkRequest, DocumentSymbolRequest, GotoDefinition, GotoTypeDefinition,
-        HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename,
-        SemanticTokensFullRequest, SemanticTokensRangeRequest, SignatureHelpRequest,
+        Completion, DocumentDiagnosticRequest, DocumentLinkRequest, DocumentSymbolRequest,
+        GotoDefinition, GotoTypeDefinition, HoverRequest, InlayHintRequest, PrepareRenameRequest,
+        References, Rename, SelectionRangeRequest, SemanticTokensFullRequest,
+        SemanticTokensRangeRequest, SignatureHelpRequest, WorkspaceDiagnosticRequest,
+        WorkspaceSymbolRequest,
     },
 };
-use resolver::{Database, FinishedFile, Source as _, VScriptDatabase, VScriptDbConfig, parse};
+use resolver::{Database, VScriptDatabase, VScriptDbConfig};
 use salsa::Setter as _;
 
 use crate::session::{NotificationHandlers, RequestHandlers, Session};
+
+struct LspConfig {
+    pub inlay_hints: bool,
+    pub workspace_diagnostics: bool,
+}
 
 fn main() -> Result<()> {
     let (connection, io_threads) = Connection::stdio();
@@ -48,14 +56,21 @@ fn main() -> Result<()> {
     let (id, init_result) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(init_result)?;
 
-    let config = extract_config(&params);
+    let db_config = extract_db_config(&params);
+    let lsp_config = extract_lsp_config(&params);
 
-    let db = Database::new(config);
+    let db = Database::new(db_config);
 
     let server_capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
             TextDocumentSyncKind::INCREMENTAL,
         )),
+        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+            identifier: Some("vscript-native".to_owned()),
+            inter_file_dependencies: true,
+            workspace_diagnostics: lsp_config.workspace_diagnostics,
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec![
                 ".".to_owned(),
@@ -95,6 +110,7 @@ fn main() -> Result<()> {
         )),
         document_symbol_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Right(RenameOptions {
             prepare_provider: Some(true),
             work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -103,12 +119,13 @@ fn main() -> Result<()> {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
             ..Default::default()
         }),
-        inlay_hint_provider: Some(OneOf::Left(true)),
+        inlay_hint_provider: lsp_config.inlay_hints.then_some(OneOf::Left(true)),
         type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
         document_link_provider: Some(DocumentLinkOptions {
             resolve_provider: Some(false),
             work_done_progress_options: WorkDoneProgressOptions::default(),
         }),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         ..Default::default()
     };
 
@@ -143,13 +160,17 @@ fn on_requests<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         .on_latency_sensitive::<SemanticTokensFullRequest>(handlers::handle_semantic_tokens_full)
         .on_latency_sensitive::<SemanticTokensRangeRequest>(handlers::handle_semantic_tokens_range)
         .on_latency_sensitive::<SignatureHelpRequest>(handlers::handle_signature_help)
+        .on::<DocumentDiagnosticRequest>(handlers::handle_diagnostics)
+        .on::<WorkspaceDiagnosticRequest>(handlers::handle_workspace_diagnostics)
         .on::<DocumentLinkRequest>(handlers::handle_document_link)
         .on::<DocumentSymbolRequest>(handlers::handle_document_symbol)
         .on::<References>(handlers::handle_references)
+        .on::<WorkspaceSymbolRequest>(handlers::handle_workspace_symbol)
         .on::<GotoDefinition>(handlers::handle_go_to_definition)
         .on::<GotoTypeDefinition>(handlers::handle_go_to_type_definition)
         .on::<InlayHintRequest>(handlers::handle_inlay_hint)
         .on::<Rename>(handlers::handle_rename)
+        .on::<SelectionRangeRequest>(handlers::handle_selection_range)
 }
 
 fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
@@ -165,11 +186,11 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                 session.db.open_file(uri, text);
             }
 
-            session.schedule_diagnostics(
-                uri.clone(),
-                compute_syntax_diagnostics,
-                compute_semantic_diagnostics,
-            );
+            // session.schedule_diagnostics(
+            //     uri.clone(),
+            //     compute_syntax_diagnostics,
+            //     compute_semantic_diagnostics,
+            // );
             Ok(())
         })
         .on_mut::<DidChangeTextDocument>(|session, params| {
@@ -192,11 +213,11 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
 
             file.set_text(&mut session.db).to(text);
 
-            session.schedule_diagnostics(
-                uri.clone(),
-                compute_syntax_diagnostics,
-                compute_semantic_diagnostics,
-            );
+            // session.schedule_diagnostics(
+            //     uri.clone(),
+            //     compute_syntax_diagnostics,
+            //     compute_semantic_diagnostics,
+            // );
 
             Ok(())
         })
@@ -234,11 +255,11 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                             continue;
                         };
                         file.set_text(&mut session.db).to(text);
-                        session.schedule_diagnostics(
-                            uri.clone(),
-                            compute_syntax_diagnostics,
-                            compute_semantic_diagnostics,
-                        );
+                        // session.schedule_diagnostics(
+                        //     uri.clone(),
+                        //     compute_syntax_diagnostics,
+                        //     compute_semantic_diagnostics,
+                        // );
                     }
                     FileChangeType::DELETED => {
                         let Some(file) = session.db.get_files().remove(uri).map(|e| e.1) else {
@@ -262,78 +283,13 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
             }
             Ok(())
         })
-        .on_mut::<DidCloseTextDocument>(|session, params| {
-            // Publish empty diagnostics to clear them from the Problems panel
-            session.clear_diagnostics(params.text_document.uri);
-            Ok(())
-        })
+        .on::<DidCloseTextDocument>(|_s, _p| Ok(()))
         .on::<DidSaveTextDocument>(|_s, _p| Ok(()))
         .on::<SetTrace>(|_s, _p| Ok(()))
         .on::<LogTrace>(|_s, _p| Ok(()))
 }
 
-fn compute_syntax_diagnostics<Db: VScriptDatabase>(db: &Db, url: &Url) -> Result<Vec<Diagnostic>> {
-    let file = db
-        .get_file(url)
-        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-
-    let line_idx = positions::line_index(db, file);
-    let parse = parse(db, file);
-
-    Ok(parse
-        .errors()
-        .iter()
-        .filter_map(|error| {
-            Some(Diagnostic {
-                message: error.message().to_owned(),
-                range: positions::range(line_idx, error.range())?,
-                ..Default::default()
-            })
-        })
-        .collect())
-}
-
-fn compute_semantic_diagnostics<Db: VScriptDatabase>(
-    db: &Db,
-    url: &Url,
-) -> Result<Vec<Diagnostic>> {
-    let file = db
-        .get_file(url)
-        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
-
-    let line_idx = positions::line_index(db, file);
-
-    Ok(finished_file
-        .diagnostics()
-        .iter()
-        .filter_map(|diagnostic| {
-            let (severity, tags) = match diagnostic.severity {
-                resolver::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
-                resolver::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
-                resolver::DiagnosticSeverity::Information => {
-                    (DiagnosticSeverity::INFORMATION, None)
-                }
-                resolver::DiagnosticSeverity::Unnecessary => (
-                    DiagnosticSeverity::WARNING,
-                    Some(vec![DiagnosticTag::UNNECESSARY]),
-                ),
-                resolver::DiagnosticSeverity::Deprecated => (
-                    DiagnosticSeverity::HINT,
-                    Some(vec![DiagnosticTag::DEPRECATED]),
-                ),
-            };
-            Some(Diagnostic {
-                message: diagnostic.message.clone(),
-                range: positions::range(line_idx, diagnostic.range)?,
-                severity: Some(severity),
-                tags,
-                ..Default::default()
-            })
-        })
-        .collect())
-}
-fn extract_config(params: &InitializeParams) -> VScriptDbConfig {
+fn extract_db_config(params: &InitializeParams) -> VScriptDbConfig {
     let options = params.initialization_options.as_ref();
 
     VScriptDbConfig {
@@ -353,5 +309,19 @@ fn extract_config(params: &InitializeParams) -> VScriptDbConfig {
             .and_then(|o| o.get("vscriptLibPath"))
             .and_then(|v| v.as_str())
             .map(PathBuf::from),
+    }
+}
+
+fn extract_lsp_config(params: &InitializeParams) -> LspConfig {
+    let options = params.initialization_options.as_ref();
+    LspConfig {
+        inlay_hints: options
+            .and_then(|o| o.get("inlayHints"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+        workspace_diagnostics: options
+            .and_then(|o| o.get("workspaceDiagnostics"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
     }
 }

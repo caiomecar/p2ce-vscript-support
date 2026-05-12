@@ -6,8 +6,8 @@ use resolver::{DisplayType, FinishedFile, Source, Symbol, SymbolFlags, VScriptDa
 
 use crate::positions;
 
-pub fn handle_document_symbol(
-    db: &impl VScriptDatabase,
+pub fn handle_document_symbol<Db: VScriptDatabase>(
+    db: &Db,
     params: DocumentSymbolParams,
 ) -> anyhow::Result<Option<DocumentSymbolResponse>> {
     let uri = params.text_document.uri;

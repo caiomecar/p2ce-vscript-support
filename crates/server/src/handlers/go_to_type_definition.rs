@@ -6,8 +6,8 @@ use resolver::{ArenaId, FinishedFile, Source, VScriptDatabase, parse, token_name
 
 use crate::positions;
 
-pub fn handle_go_to_type_definition(
-    db: &impl VScriptDatabase,
+pub fn handle_go_to_type_definition<Db: VScriptDatabase>(
+    db: &Db,
     params: GotoTypeDefinitionParams,
 ) -> anyhow::Result<Option<GotoTypeDefinitionResponse>> {
     let uri = params.text_document_position_params.text_document.uri;

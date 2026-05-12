@@ -3,8 +3,8 @@ use resolver::{FinishedFile, Source, SymbolKind, VScriptDatabase, parse, token_n
 
 use crate::positions;
 
-pub fn handle_references(
-    db: &impl VScriptDatabase,
+pub fn handle_references<Db: VScriptDatabase>(
+    db: &Db,
     params: ReferenceParams,
 ) -> anyhow::Result<Option<Vec<Location>>> {
     let uri = params.text_document_position.text_document.uri;

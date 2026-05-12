@@ -1,0 +1,127 @@
+use db::Url;
+use lsp_types::{
+    Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport,
+    RelatedFullDocumentDiagnosticReport, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    WorkspaceDiagnosticReportResult, WorkspaceDocumentDiagnosticReport,
+    WorkspaceFullDocumentDiagnosticReport,
+};
+use resolver::{FinishedFile, Source as _, VScriptDatabase, parse};
+
+use crate::positions;
+
+#[allow(clippy::needless_pass_by_value)]
+pub fn handle_diagnostics<Db: VScriptDatabase>(
+    db: &Db,
+    params: DocumentDiagnosticParams,
+) -> anyhow::Result<DocumentDiagnosticReportResult> {
+    dbg!(&params);
+    let uri = &params.text_document.uri;
+
+    let mut diagnostics = compute_syntax_diagnostics(db, uri)?;
+    diagnostics.extend(compute_semantic_diagnostics(db, uri)?);
+
+    Ok(DocumentDiagnosticReportResult::Report(
+        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+            related_documents: None,
+            full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                result_id: None,
+                items: diagnostics,
+            },
+        }),
+    ))
+}
+
+fn compute_syntax_diagnostics<Db: VScriptDatabase>(
+    db: &Db,
+    url: &Url,
+) -> anyhow::Result<Vec<Diagnostic>> {
+    let file = db
+        .get_file(url)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+
+    let line_idx = positions::line_index(db, file);
+    let parse = parse(db, file);
+
+    Ok(parse
+        .errors()
+        .iter()
+        .filter_map(|error| {
+            Some(Diagnostic {
+                message: error.message().to_owned(),
+                range: positions::range(line_idx, error.range())?,
+                ..Default::default()
+            })
+        })
+        .collect())
+}
+
+fn compute_semantic_diagnostics<Db: VScriptDatabase>(
+    db: &Db,
+    url: &Url,
+) -> anyhow::Result<Vec<Diagnostic>> {
+    let file = db
+        .get_file(url)
+        .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
+    let finished_file = FinishedFile::new(db, file);
+
+    let line_idx = positions::line_index(db, file);
+
+    Ok(finished_file
+        .diagnostics()
+        .iter()
+        .filter_map(|diagnostic| {
+            let (severity, tags) = match diagnostic.severity {
+                resolver::DiagnosticSeverity::Error => (DiagnosticSeverity::ERROR, None),
+                resolver::DiagnosticSeverity::Warning => (DiagnosticSeverity::WARNING, None),
+                resolver::DiagnosticSeverity::Information => {
+                    (DiagnosticSeverity::INFORMATION, None)
+                }
+                resolver::DiagnosticSeverity::Unnecessary => (
+                    DiagnosticSeverity::WARNING,
+                    Some(vec![DiagnosticTag::UNNECESSARY]),
+                ),
+                resolver::DiagnosticSeverity::Deprecated => (
+                    DiagnosticSeverity::HINT,
+                    Some(vec![DiagnosticTag::DEPRECATED]),
+                ),
+            };
+            Some(Diagnostic {
+                message: diagnostic.message.clone(),
+                range: positions::range(line_idx, diagnostic.range)?,
+                severity: Some(severity),
+                tags,
+                ..Default::default()
+            })
+        })
+        .collect())
+}
+
+pub fn handle_workspace_diagnostics<Db: VScriptDatabase>(
+    db: &Db,
+    _params: WorkspaceDiagnosticParams,
+) -> anyhow::Result<WorkspaceDiagnosticReportResult> {
+    let mut items = Vec::new();
+
+    for entry in db.get_files() {
+        let url = entry.key().clone();
+
+        let mut diagnostics = compute_syntax_diagnostics(db, &url)?;
+        diagnostics.extend(compute_semantic_diagnostics(db, &url)?);
+
+        items.push(WorkspaceDocumentDiagnosticReport::Full(
+            WorkspaceFullDocumentDiagnosticReport {
+                uri: url,
+                version: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id: None,
+                    items: diagnostics,
+                },
+            },
+        ));
+    }
+
+    Ok(WorkspaceDiagnosticReportResult::Report(
+        WorkspaceDiagnosticReport { items },
+    ))
+}

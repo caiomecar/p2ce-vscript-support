@@ -96,6 +96,16 @@
             "type": "string",
             "default": "",
             "description": "Path to your Team Fortress 2 installation directory."
+          },
+          "tf2vscript.inlayHints": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable inlay hints."
+          },
+          "tf2vscript.workspaceDiagnostics": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable workspace-wide diagnostics. May be slow for large workspaces."
           }
         }
       }

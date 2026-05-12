@@ -10,8 +10,8 @@ use sq_3_parser::{AstNode, ast};
 
 use crate::positions;
 
-pub fn handle_signature_help(
-    db: &impl VScriptDatabase,
+pub fn handle_signature_help<Db: VScriptDatabase>(
+    db: &Db,
     params: SignatureHelpParams,
 ) -> anyhow::Result<Option<SignatureHelp>> {
     let uri = params.text_document_position_params.text_document.uri;

@@ -3,8 +3,8 @@ use resolver::{FinishedFile, Source, VScriptDatabase, parse, token_name_range};
 
 use crate::positions;
 
-pub fn handle_prepare_rename(
-    db: &impl VScriptDatabase,
+pub fn handle_prepare_rename<Db: VScriptDatabase>(
+    db: &Db,
     params: TextDocumentPositionParams,
 ) -> anyhow::Result<Option<PrepareRenameResponse>> {
     let uri = params.text_document.uri;

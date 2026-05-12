@@ -7,9 +7,7 @@ Licensed under GPL-3.0: https://www.gnu.org/licenses/gpl-3.0.html
 
 use anyhow::Error;
 use crossbeam_channel::select;
-use db::Url;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
-use lsp_types::{Diagnostic, PublishDiagnosticsParams, notification::PublishDiagnostics};
 use rustc_hash::FxHashMap;
 use std::{num::NonZeroUsize, panic::RefUnwindSafe, sync::Arc};
 
@@ -18,8 +16,8 @@ use crate::vendored::{intent::ThreadIntent, pool::Pool};
 macro_rules! impl_handlers {
     ($struct_name:ident, $method_trait:path, $result:ty, $serialize:expr) => {
         pub struct $struct_name<Db: salsa::Database + Clone + Send + RefUnwindSafe> {
-            pub normal: FxHashMap<String, CallbackWithIntent<Db>>,
-            pub sync_mut: FxHashMap<String, SyncMutCallback<Db>>,
+            normal: FxHashMap<String, CallbackWithIntent<Db>>,
+            sync_mut: FxHashMap<String, SyncMutCallback<Db>>,
         }
 
         impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Default for $struct_name<Db> {
@@ -117,17 +115,10 @@ type SyncMutCallback<Db> =
 type ReqHandler<Db> = fn(&mut Session<Db>, lsp_server::Response);
 type ReqQueue<Db> = lsp_server::ReqQueue<String, ReqHandler<Db>>;
 
-type DiagnosticsCallback<Db> = fn(&Db, &Url) -> anyhow::Result<Vec<Diagnostic>>;
-#[derive(Debug)]
-enum DiagnosticKind {
-    Syntax,
-    Semantic,
-}
-
 #[derive(Debug)]
 enum Task {
     Response(Response),
-    Diagnostics(DiagnosticKind, Url, Vec<Diagnostic>),
+    // Diagnostics(DiagnosticKind, Url, Vec<Diagnostic>),
     Retry(Request),
     NotificationError(Error),
 }
@@ -136,8 +127,6 @@ pub struct Session<Db: salsa::Database + Clone + Send + RefUnwindSafe> {
     task_receiver: crossbeam_channel::Receiver<Task>,
     task_sender: crossbeam_channel::Sender<Task>,
     task_pool: Pool,
-    syntax_diagnostics: FxHashMap<Url, Vec<Diagnostic>>,
-    semantic_diagnostics: FxHashMap<Url, Vec<Diagnostic>>,
     pub req_queue: ReqQueue<Db>,
     pub connection: Connection,
     pub db: Db,
@@ -157,8 +146,6 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
             task_receiver,
             task_sender,
             task_pool: Pool::new(max_threads),
-            syntax_diagnostics: FxHashMap::default(),
-            semantic_diagnostics: FxHashMap::default(),
             req_queue: ReqQueue::default(),
             connection,
             db,
@@ -191,35 +178,6 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                 recv(self.task_receiver) -> task => {
                     match task? {
                         Task::Response(resp) => self.req_complete(resp)?,
-                        Task::Diagnostics(kind, uri, mut diagnostics) => {
-                            match kind {
-                                DiagnosticKind::Syntax => {
-                                    self.syntax_diagnostics.insert(uri.clone(), diagnostics.clone());
-                                    if let Some(semantic) = self.semantic_diagnostics.get(&uri) {
-                                        diagnostics.extend(semantic.clone());
-                                    }
-                                }
-                                DiagnosticKind::Semantic => {
-                                    self.semantic_diagnostics.insert(uri.clone(), diagnostics.clone());
-                                    if let Some(syntax) = self.syntax_diagnostics.get(&uri) {
-                                        diagnostics.extend(syntax.clone());
-                                    }
-                                }
-                            }
-
-                            let params = PublishDiagnosticsParams {
-                                uri,
-                                diagnostics,
-                                version: None,
-                            };
-
-                            let not = lsp_server::Notification::new(
-                                <PublishDiagnostics as lsp_types::notification::Notification>::METHOD.to_string(),
-                                params,
-                            );
-
-                            self.connection.sender.send(not.into())?;
-                        }
                         Task::Retry(req) => {
                             if self.req_queue.incoming.is_completed(&req.id) {
                                 continue;
@@ -373,65 +331,6 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
                 }),
             }))?;
         Ok(())
-    }
-
-    pub fn schedule_diagnostics(
-        &self,
-        uri: Url,
-        syntax: DiagnosticsCallback<Db>,
-        semantic: DiagnosticsCallback<Db>,
-    ) {
-        let db = self.db.clone();
-        let sender = self.task_sender.clone();
-        self.task_pool.spawn(
-            ThreadIntent::Worker,
-            std::panic::AssertUnwindSafe(move || {
-                match salsa::Cancelled::catch(|| syntax(&db, &uri)) {
-                    Ok(Ok(diagnostics)) => {
-                        sender
-                            .send(Task::Diagnostics(
-                                DiagnosticKind::Syntax,
-                                uri.clone(),
-                                diagnostics,
-                            ))
-                            .unwrap();
-
-                        match salsa::Cancelled::catch(|| semantic(&db, &uri)) {
-                            Ok(Ok(diagnostics)) => sender
-                                .send(Task::Diagnostics(
-                                    DiagnosticKind::Semantic,
-                                    uri,
-                                    diagnostics,
-                                ))
-                                .unwrap(),
-                            Ok(Err(e)) => {
-                                sender.send(Task::NotificationError(e)).unwrap();
-                            }
-                            Err(e) => {
-                                log::warn!("Cancelled semantic diagnostics request: {e}");
-                            }
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        sender.send(Task::NotificationError(e)).unwrap();
-                    }
-                    Err(e) => {
-                        log::warn!("Cancelled syntax diagnostics request: {e}");
-                    }
-                }
-            }),
-        );
-    }
-
-    pub fn clear_diagnostics(&self, uri: Url) {
-        let _ = self.task_sender.send(Task::Diagnostics(
-            DiagnosticKind::Syntax,
-            uri.clone(),
-            Vec::new(),
-        ));
-        let _ = self
-            .task_sender
-            .send(Task::Diagnostics(DiagnosticKind::Semantic, uri, Vec::new()));
     }
 }
 

@@ -70,6 +70,9 @@ export function activate(context: vscode.ExtensionContext) {
         });
     }
 
+    const inlayHints = config.get<boolean>('inlayHints') ?? true;
+    const workspaceDiagnostics = config.get<boolean>('workspaceDiagnostics') ?? false;
+
     const stdlibPath = inDebug() ?
         path.join(context.extensionPath, "..", "..", "vscript_lib") :
         path.join(context.extensionPath, "vscript_lib");
@@ -86,6 +89,8 @@ export function activate(context: vscode.ExtensionContext) {
             builtinsPath: path.join(stdlibPath, "builtins.nut"),
             squirrelLibPath: path.join(stdlibPath, "squirrel.nut"),
             vscriptLibPath: path.join(stdlibPath, "vscript.nut"),
+            inlayHints,
+            workspaceDiagnostics,
         }
     };
 
@@ -103,8 +108,17 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('tf2vscript.tf2Root')) {
+        vscode.workspace.onDidChangeConfiguration(async e => {
+            if (e.affectsConfiguration('tf2vscript.inlayHints') ||
+                e.affectsConfiguration('tf2vscript.workspaceDiagnostics')) {
+                const restart = await vscode.window.showInformationMessage(
+                    'TF2 VScript: Restart language server to apply changes.',
+                    'Restart'
+                );
+                if (restart === 'Restart') {
+                    await client.restart();
+                }
+            } else if (e.affectsConfiguration('tf2vscript.tf2Root')) {
                 client.sendNotification('workspace/didChangeConfiguration', {
                     settings: vscode.workspace.getConfiguration('tf2vscript')
                 });

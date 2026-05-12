@@ -4,8 +4,8 @@ use sq_3_parser::SyntaxKind;
 
 use crate::positions;
 
-pub fn handle_hover(
-    db: &impl VScriptDatabase,
+pub fn handle_hover<Db: VScriptDatabase>(
+    db: &Db,
     params: HoverParams,
 ) -> anyhow::Result<Option<Hover>> {
     let uri = params.text_document_position_params.text_document.uri;

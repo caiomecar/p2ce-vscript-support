@@ -28,8 +28,8 @@ bitflags::bitflags! {
     }
 }
 
-pub fn handle_semantic_tokens_full(
-    db: &impl VScriptDatabase,
+pub fn handle_semantic_tokens_full<Db: VScriptDatabase>(
+    db: &Db,
     params: SemanticTokensParams,
 ) -> anyhow::Result<Option<SemanticTokensResult>> {
     let uri = params.text_document.uri;
@@ -74,8 +74,8 @@ pub fn handle_semantic_tokens_full(
     }
 }
 
-pub fn handle_semantic_tokens_range(
-    db: &impl VScriptDatabase,
+pub fn handle_semantic_tokens_range<Db: VScriptDatabase>(
+    db: &Db,
     params: SemanticTokensRangeParams,
 ) -> anyhow::Result<Option<SemanticTokensRangeResult>> {
     let uri = params.text_document.uri;

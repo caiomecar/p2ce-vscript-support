@@ -1,4 +1,5 @@
 mod completion;
+mod diagnostics;
 mod document_link;
 mod document_symbols;
 mod find_references;
@@ -8,10 +9,13 @@ mod hover;
 mod inlay_hints;
 mod prepare_rename;
 mod rename;
+mod selection_range;
 mod semantic_tokens;
 mod signature_help;
+mod workspace_symbol;
 
 pub use completion::handle_completion;
+pub use diagnostics::{handle_diagnostics, handle_workspace_diagnostics};
 pub use document_link::handle_document_link;
 pub use document_symbols::handle_document_symbol;
 pub use find_references::handle_references;
@@ -21,5 +25,7 @@ pub use hover::handle_hover;
 pub use inlay_hints::handle_inlay_hint;
 pub use prepare_rename::handle_prepare_rename;
 pub use rename::handle_rename;
+pub use selection_range::handle_selection_range;
 pub use semantic_tokens::{handle_semantic_tokens_full, handle_semantic_tokens_range};
 pub use signature_help::handle_signature_help;
+pub use workspace_symbol::handle_workspace_symbol;

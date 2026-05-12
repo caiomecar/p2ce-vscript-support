@@ -8,8 +8,8 @@ use resolver::{
 
 use crate::positions;
 
-pub fn handle_go_to_definition(
-    db: &impl VScriptDatabase,
+pub fn handle_go_to_definition<Db: VScriptDatabase>(
+    db: &Db,
     params: GotoDefinitionParams,
 ) -> anyhow::Result<Option<GotoDefinitionResponse>> {
     let uri = params.text_document_position_params.text_document.uri;
