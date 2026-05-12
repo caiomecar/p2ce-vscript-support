@@ -8,11 +8,11 @@ mod token_set;
 use crate::{ast::SourceFile, doc_comment::DocComment, lexer::Lexer, parser::Parser};
 use rowan::GreenNodeBuilder;
 
-pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
+pub use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxNodePtr, SyntaxToken};
 pub use lexer::KEYWORDS;
 pub use rowan::{
     GreenNode, NodeOrToken, TextRange, TextSize,
-    ast::{AstChildren, AstNode, AstPtr, SyntaxNodePtr},
+    ast::{AstChildren, AstNode, AstPtr},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

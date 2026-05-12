@@ -20,7 +20,10 @@ use crate::{
 };
 
 pub use arena::{ArenaId, FunctionData, FunctionId, ParamsState, ScopeId, SymbolId, TypeState};
-pub use db::{Database, VScriptDatabase, VScriptDbConfig, parse, source_symbol};
+pub use db::{
+    Database, UnreachableCode, UnusedVariables, VScriptDatabase, VScriptDbConfig,
+    VScriptDbInitConfig, parse, source_symbol,
+};
 pub use symbol::{
     DisplayType, LocalKind, Primitive, StringKind, Symbol, SymbolFlags, SymbolKind, SymbolTable,
     ToPrimitiveError, Type, TypeFlags,
@@ -41,7 +44,8 @@ pub enum DiagnosticSeverity {
     Error,
     Warning,
     Information,
-    Unnecessary,
+    UnnecessaryWarn,
+    UnnecessaryHint,
     Deprecated,
 }
 
@@ -250,7 +254,7 @@ pub trait Source {
                 let mut last = None;
                 for id in ids {
                     let symbol = self.get(id);
-                    if symbol.range.end() >= offset {
+                    if symbol.node.text_range().end() >= offset {
                         break;
                     }
 
@@ -543,7 +547,8 @@ pub trait Source {
                         let mut last = None;
                         for id in ids {
                             let symbol = self.get(id);
-                            if range.contains_range(symbol.range) && symbol.range.end() >= offset {
+                            let symbol_range = symbol.node.text_range();
+                            if range.contains_range(symbol_range) && symbol_range.end() >= offset {
                                 break;
                             }
 
@@ -560,7 +565,7 @@ pub trait Source {
                         let mut last = None;
                         for id in ids {
                             let symbol = self.get(id);
-                            if symbol.range.end() >= offset {
+                            if symbol.node.text_range().end() >= offset {
                                 break;
                             }
 
@@ -715,7 +720,9 @@ pub trait Source {
         if let Some(range) = self.get_scope_execution_range(self.scope(offset)) {
             for id in symbols {
                 let symbol = self.get(*id);
-                if range.contains_range(symbol.range) && symbol.range.end() > offset {
+                if range.contains_range(symbol.node.text_range())
+                    && symbol.node.text_range().end() > offset
+                {
                     break;
                 }
 
@@ -724,7 +731,7 @@ pub trait Source {
         } else {
             for id in symbols {
                 let symbol = self.get(*id);
-                if symbol.range.end() > offset {
+                if symbol.node.text_range().end() > offset {
                     break;
                 }
 

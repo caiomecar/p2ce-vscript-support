@@ -395,3 +395,4 @@ impl Language for SquirrelLanguage {
 pub type SyntaxNode = rowan::SyntaxNode<SquirrelLanguage>;
 pub type SyntaxToken = rowan::SyntaxToken<SquirrelLanguage>;
 pub type SyntaxElement = rowan::NodeOrToken<SyntaxNode, SyntaxToken>;
+pub type SyntaxNodePtr = rowan::ast::SyntaxNodePtr<SquirrelLanguage>;

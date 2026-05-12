@@ -92,15 +92,45 @@
       {
         "title": "TF2 VScript",
         "properties": {
-          "tf2vscript.tf2Root": {
+          "tf2vscript.tf2RootPath": {
             "type": "string",
             "default": "",
             "description": "Path to your Team Fortress 2 installation directory."
           },
-          "tf2vscript.inlayHints": {
+          "tf2vscript.unusedVariables": {
+            "type": "string",
+            "default": "hint",
+            "enum": [
+              "warn",
+              "hint",
+              "off"
+            ],
+            "description": "Controls how unused variables are reported."
+          },
+          "tf2vscript.unreachableCode": {
+            "type": "string",
+            "default": "warn",
+            "enum": [
+              "warn",
+              "hint",
+              "off"
+            ],
+            "description": "Controls how unreachable code is reported."
+          },
+          "tf2vscript.inlayHints.typeHints": {
             "type": "boolean",
             "default": true,
-            "description": "Enable inlay hints."
+            "description": "Show type hints for variables and parameters."
+          },
+          "tf2vscript.inlayHints.enumMemberValue": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show value hints for auto-assigned enum member value."
+          },
+          "tf2vscript.inlayHints.parameterHints": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show parameter name hints on function calls."
           },
           "tf2vscript.workspaceDiagnostics": {
             "type": "boolean",

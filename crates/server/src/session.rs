@@ -332,6 +332,11 @@ impl<Db: salsa::Database + Clone + Send + RefUnwindSafe> Session<Db> {
             }))?;
         Ok(())
     }
+
+    pub fn refresh_request<T: lsp_types::request::Request>(&self) {
+        let request = Request::new(0.into(), T::METHOD.into(), ());
+        let _ = self.connection.sender.send(request.into());
+    }
 }
 
 fn response_error(id: RequestId, error: &anyhow::Error) -> Response {

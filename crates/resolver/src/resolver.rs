@@ -1,7 +1,7 @@
 use la_arena::Idx;
 use rustc_hash::FxHashMap;
 use sq_3_parser::{
-    AstNode, SyntaxKind, SyntaxNode, SyntaxToken, TextRange, TextSize,
+    AstNode, SyntaxKind, SyntaxNode, SyntaxNodePtr, SyntaxToken, TextRange, TextSize,
     ast::{
         self, ArrayLiteralExpression, BaseExpression, BinaryExpression, BinaryOperator,
         BlockStatement, BreakStatement, CallExpression, ClassExpression, ClassStatement,
@@ -26,7 +26,8 @@ use string_literals::CLASSNAMES_TO_CLASSES;
 
 use crate::{
     Diagnostic, DiagnosticSeverity, ExpressionKind, File, FindSymbol, ImportMembers,
-    NullableExprKind, Source, SourceSymbol, TypeWithRange, VScriptDatabase,
+    NullableExprKind, Source, SourceSymbol, TypeWithRange, UnreachableCode, UnusedVariables,
+    VScriptDatabase,
     arena::{
         ArenaAlloc, ArenaId, ArrayData, ArrayId, ClassData, ClassId, Container, EnumData, EnumId,
         FunctionData, FunctionId, ImportTarget, ParamsState, Scope, ScopeId, SourceArena,
@@ -389,7 +390,7 @@ impl<'db> Resolver<'db> {
             this.resolve_deferred_function_entry(&entry);
         }
 
-        if !is_native {
+        if !is_native && this.db.config().unused_variables != UnusedVariables::Off {
             this.unused_variables_diagnostics();
         }
 
@@ -1088,8 +1089,10 @@ impl<'db> Resolver<'db> {
                             typ: Type::UNKNOWN,
                             kind: SymbolKind::Local(LocalKind::Parameter),
                             name_range: name.text_range(),
-                            range: var.syntax().text_range(),
-                            ..Default::default()
+                            node: SyntaxNodePtr::new(var.syntax()),
+                            description: None,
+                            flags: SymbolFlags::default(),
+                            is_type_explicit: false,
                         });
 
                         self.resolve_variable_doc(symbol, &var);
@@ -1115,8 +1118,10 @@ impl<'db> Resolver<'db> {
                         typ: typ.add_unknown(),
                         kind: SymbolKind::Local(LocalKind::Parameter),
                         name_range: name.text_range(),
-                        range: var.syntax().text_range(),
-                        ..Default::default()
+                        node: SyntaxNodePtr::new(var.syntax()),
+                        description: None,
+                        flags: SymbolFlags::default(),
+                        is_type_explicit: false,
                     });
 
                     self.resolve_variable_doc(symbol, &var);
@@ -1145,11 +1150,13 @@ impl<'db> Resolver<'db> {
                         let array = self.array(Type::UNKNOWN);
                         let symbol = self.symbol(Symbol {
                             name: "vargv".into(),
+                            node: SyntaxNodePtr::new(var_args.syntax()),
                             typ: Type::Primitive(Primitive::Array(Some(array))),
                             kind: SymbolKind::Local(LocalKind::VariedArgs),
                             name_range: var_args.syntax().text_range(),
-                            range: var_args.syntax().text_range(),
-                            ..Default::default()
+                            description: None,
+                            flags: SymbolFlags::default(),
+                            is_type_explicit: false,
                         });
 
                         insert_symbol(&mut self.current_scope().locals, "vargv".into(), symbol);
@@ -1915,7 +1922,7 @@ impl<'db> Resolver<'db> {
                         self.get(symbol).is_type_explicit,
                         NewType::Explicit {
                             typ: doc_type,
-                            value_range: self.get(symbol).range,
+                            value_range: self.get(symbol).node.text_range(),
                         },
                         CheckTypeSource::Variable,
                     );
@@ -2022,7 +2029,7 @@ impl<'db> Resolver<'db> {
                         self.get(param_id).is_type_explicit,
                         NewType::Explicit {
                             typ: doc_type,
-                            value_range: self.get(param_id).range,
+                            value_range: self.get(param_id).node.text_range(),
                         },
                         CheckTypeSource::Variable,
                     );
@@ -2124,8 +2131,10 @@ impl<'db> Resolver<'db> {
             typ: Type::UNKNOWN,
             kind: SymbolKind::Local(LocalKind::Embedded),
             name_range: var_name.text_range(),
-            range: tag.syntax().text_range(),
-            ..Default::default()
+            node: SyntaxNodePtr::new(tag.syntax()),
+            description: None,
+            flags: SymbolFlags::default(),
+            is_type_explicit: false,
         };
 
         if let Some(typ) = tag
@@ -2354,9 +2363,14 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    kind: SymbolKind::Property {
+                        show_inlay_hint: false,
+                    },
                     name_range: name.text_range(),
-                    range: method.syntax().text_range(),
-                    ..Default::default()
+                    node: SyntaxNodePtr::new(method.syntax()),
+                    description: None,
+                    flags: SymbolFlags::default(),
+                    is_type_explicit: false,
                 });
 
                 if let Some(function) = self.get_mut(id) {
@@ -2377,9 +2391,14 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    kind: SymbolKind::Property {
+                        show_inlay_hint: false,
+                    },
                     name_range: keyword.text_range(),
-                    range: constructor.syntax().text_range(),
-                    ..Default::default()
+                    node: SyntaxNodePtr::new(constructor.syntax()),
+                    description: None,
+                    flags: SymbolFlags::default(),
+                    is_type_explicit: false,
                 });
 
                 if let Some(function) = self.get_mut(id) {
@@ -2407,14 +2426,18 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: name.text().into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    kind: SymbolKind::Property {
+                        show_inlay_hint: false,
+                    },
                     flags: if did_swap {
                         SymbolFlags::default()
                     } else {
                         SymbolFlags::STATIC
                     },
                     name_range: name.text_range(),
-                    range: method.syntax().text_range(),
-                    ..Default::default()
+                    node: SyntaxNodePtr::new(method.syntax()),
+                    description: None,
+                    is_type_explicit: false,
                 });
 
                 if let Some(function) = self.get_mut(id) {
@@ -2436,14 +2459,18 @@ impl<'db> Resolver<'db> {
                 let symbol = self.symbol(Symbol {
                     name: "constructor".into(),
                     typ: Type::Primitive(Primitive::Function(Some(id))),
+                    kind: SymbolKind::Property {
+                        show_inlay_hint: false,
+                    },
                     flags: if did_swap {
                         SymbolFlags::default()
                     } else {
                         SymbolFlags::STATIC
                     },
                     name_range: keyword.text_range(),
-                    range: constructor.syntax().text_range(),
-                    ..Default::default()
+                    node: SyntaxNodePtr::new(constructor.syntax()),
+                    description: None,
+                    is_type_explicit: false,
                 });
 
                 if let Some(function) = self.get_mut(id) {
@@ -2477,8 +2504,10 @@ impl<'db> Resolver<'db> {
                 show_inlay_hint: true,
             },
             name_range,
-            range: property.syntax().text_range(),
-            ..Default::default()
+            node: SyntaxNodePtr::new(property.syntax()),
+            description: None,
+            flags: SymbolFlags::default(),
+            is_type_explicit: false,
         });
 
         self.resolve_variable_doc(symbol, property);
@@ -2513,8 +2542,9 @@ impl<'db> Resolver<'db> {
                 SymbolFlags::STATIC
             },
             name_range,
-            range: property.syntax().text_range(),
-            ..Default::default()
+            node: SyntaxNodePtr::new(property.syntax()),
+            description: None,
+            is_type_explicit: false,
         });
 
         self.resolve_variable_doc(symbol, property);
@@ -2549,8 +2579,10 @@ impl<'db> Resolver<'db> {
             typ,
             kind: SymbolKind::EnumMember,
             name_range,
-            range: property.syntax().text_range(),
-            ..Default::default()
+            node: SyntaxNodePtr::new(property.syntax()),
+            description: None,
+            flags: SymbolFlags::default(),
+            is_type_explicit: false,
         });
 
         self.resolve_variable_doc(symbol, property);
@@ -2561,12 +2593,26 @@ impl<'db> Resolver<'db> {
 
     fn collect_stmt(&mut self, stmt: &Stmt) {
         if self.dead_code && !matches!(stmt, Stmt::Empty(_)) {
-            self.diagnostics.push(Diagnostic {
-                message: "Unreachable statement detected".to_owned(),
-                range: stmt.syntax().text_range(),
-                severity: DiagnosticSeverity::Unnecessary,
-            });
-            self.dead_code = false;
+            match self.db.config().unreachable_code {
+                UnreachableCode::Off => {}
+                UnreachableCode::Hint => {
+                    self.diagnostics.push(Diagnostic {
+                        message: "Unreachable statement detected".to_owned(),
+                        range: stmt.syntax().text_range(),
+                        severity: DiagnosticSeverity::UnnecessaryHint,
+                    });
+                }
+                UnreachableCode::Warn => {
+                    self.diagnostics.push(Diagnostic {
+                        message: "Unreachable statement detected".to_owned(),
+                        range: stmt.syntax().text_range(),
+                        severity: DiagnosticSeverity::UnnecessaryWarn,
+                    });
+                    // For warnings produce the diagnostic only once to not
+                    // create a lot of noise
+                    self.dead_code = false;
+                }
+            }
         }
 
         match stmt {
@@ -2611,8 +2657,10 @@ impl<'db> Resolver<'db> {
                     typ: Type::NULL.add_unknown(),
                     kind: SymbolKind::Local(LocalKind::Variable),
                     name_range: name.text_range(),
-                    range: var.syntax().text_range(),
-                    ..Default::default()
+                    node: SyntaxNodePtr::new(var.syntax()),
+                    description: None,
+                    flags: SymbolFlags::default(),
+                    is_type_explicit: false,
                 });
 
                 if !self.resolve_variable_doc(id, &var) {
@@ -2629,8 +2677,10 @@ impl<'db> Resolver<'db> {
                 typ: typ.add_unknown(),
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
-                range: var.syntax().text_range(),
-                ..Default::default()
+                node: SyntaxNodePtr::new(var.syntax()),
+                description: None,
+                flags: SymbolFlags::default(),
+                is_type_explicit: false,
             });
 
             if !self.resolve_variable_doc(id, &var) {
@@ -2652,8 +2702,10 @@ impl<'db> Resolver<'db> {
             typ: Type::Primitive(Primitive::Function(Some(id))),
             kind: SymbolKind::Local(LocalKind::Function),
             name_range: name.text_range(),
-            range: decl.syntax().text_range(),
-            ..Default::default()
+            node: SyntaxNodePtr::new(decl.syntax()),
+            description: None,
+            flags: SymbolFlags::default(),
+            is_type_explicit: false,
         });
 
         if let Some(function) = self.get_mut(id) {
@@ -2692,8 +2744,10 @@ impl<'db> Resolver<'db> {
             typ,
             kind: SymbolKind::Constant,
             name_range: name.text_range(),
-            range: stmt.syntax().text_range(),
-            ..Default::default()
+            node: SyntaxNodePtr::new(stmt.syntax()),
+            description: None,
+            flags: SymbolFlags::default(),
+            is_type_explicit: false,
         });
 
         self.resolve_variable_doc(symbol, stmt);
@@ -2731,8 +2785,10 @@ impl<'db> Resolver<'db> {
                 typ: key_type,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
-                range: key.syntax().text_range(),
-                ..Default::default()
+                node: SyntaxNodePtr::new(key.syntax()),
+                description: None,
+                flags: SymbolFlags::default(),
+                is_type_explicit: false,
             });
 
             self.resolve_variable_doc(symbol, &key);
@@ -2748,8 +2804,10 @@ impl<'db> Resolver<'db> {
                 typ: value_type,
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
-                range: value.syntax().text_range(),
-                ..Default::default()
+                node: SyntaxNodePtr::new(value.syntax()),
+                description: None,
+                flags: SymbolFlags::default(),
+                is_type_explicit: false,
             });
 
             self.resolve_variable_doc(symbol, &value);
@@ -2956,9 +3014,14 @@ impl<'db> Resolver<'db> {
         let symbol = self.symbol(Symbol {
             name: final_name.text().into(),
             typ: Type::Primitive(Primitive::Function(Some(id))),
+            kind: SymbolKind::Property {
+                show_inlay_hint: false,
+            },
             name_range: final_name.text_range(),
-            range: stmt.syntax().text_range(),
-            ..Default::default()
+            node: SyntaxNodePtr::new(stmt.syntax()),
+            description: None,
+            flags: SymbolFlags::default(),
+            is_type_explicit: false,
         });
 
         self.resolve_variable_doc(symbol, stmt);
@@ -2986,8 +3049,10 @@ impl<'db> Resolver<'db> {
                 typ: Type::Enum(enum_),
                 kind: SymbolKind::Constant,
                 name_range: name.text_range(),
-                range: stmt.syntax().text_range(),
-                ..Default::default()
+                node: SyntaxNodePtr::new(stmt.syntax()),
+                description: None,
+                flags: SymbolFlags::default(),
+                is_type_explicit: false,
             });
 
             self.resolve_variable_doc(symbol, stmt);
@@ -3266,8 +3331,10 @@ impl<'db> Resolver<'db> {
                 name: name.text().into(),
                 kind: SymbolKind::Local(LocalKind::Exception),
                 name_range: name.text_range(),
-                range: binding.syntax().text_range(),
-                ..Default::default()
+                node: SyntaxNodePtr::new(binding.syntax()),
+                description: None,
+                flags: SymbolFlags::default(),
+                is_type_explicit: false,
             });
 
             self.resolve_variable_doc(symbol, &binding);
@@ -4055,8 +4122,10 @@ impl<'db> Resolver<'db> {
                     typ: value.kind.clone(),
                     kind: SymbolKind::Property { show_inlay_hint },
                     name_range,
-                    range: expr.syntax().text_range(),
-                    ..Default::default()
+                    node: SyntaxNodePtr::new(expr.syntax()),
+                    description: None,
+                    flags: SymbolFlags::default(),
+                    is_type_explicit: false,
                 });
 
                 self.resolve_variable_doc(symbol, expr);
@@ -4112,8 +4181,10 @@ impl<'db> Resolver<'db> {
                         typ: value.kind.clone(),
                         kind: SymbolKind::Property { show_inlay_hint },
                         name_range,
-                        range: expr.syntax().text_range(),
-                        ..Default::default()
+                        node: SyntaxNodePtr::new(expr.syntax()),
+                        description: None,
+                        flags: SymbolFlags::default(),
+                        is_type_explicit: false,
                     });
 
                     self.resolve_variable_doc(symbol, expr);
@@ -5183,7 +5254,11 @@ impl<'db> Resolver<'db> {
                     _ => continue
                 },
                 range: symbol.name_range,
-                severity: DiagnosticSeverity::Unnecessary,
+                severity: if self.db.config().unused_variables == UnusedVariables::Hint {
+                    DiagnosticSeverity::UnnecessaryHint
+                } else {
+                    DiagnosticSeverity::UnnecessaryWarn
+                },
             });
         }
     }

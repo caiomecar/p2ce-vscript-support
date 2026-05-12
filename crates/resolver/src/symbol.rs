@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
-use sq_3_parser::TextRange;
+use sq_3_parser::{SyntaxNodePtr, TextRange};
 use string_literals::StringLiteralValues;
 
 use crate::arena::{ArrayId, ClassId, EnumId, FunctionId, StringLiteralId, SymbolId, TableId};
@@ -31,14 +31,14 @@ macro_rules! primitive_accessor {
     };
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Symbol {
     pub name: Box<str>,
+    pub node: SyntaxNodePtr,
+    pub name_range: TextRange,
     pub typ: Type,
     pub is_type_explicit: bool,
     pub kind: SymbolKind,
-    pub name_range: TextRange,
-    pub range: TextRange,
     pub description: Option<String>,
     pub flags: SymbolFlags,
 }

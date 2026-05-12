@@ -24,10 +24,12 @@ pub fn handle_document_symbol<Db: VScriptDatabase>(
         .collect();
 
     symbols.sort_by(|a, b| {
-        a.range
+        let a_range = a.node.text_range();
+        let b_range = b.node.text_range();
+        a_range
             .start()
-            .cmp(&b.range.start())
-            .then(b.range.len().cmp(&a.range.len()))
+            .cmp(&b_range.start())
+            .then(b_range.len().cmp(&a_range.len()))
     });
 
     let mut stack: Vec<(&Symbol, Vec<DocumentSymbol>)> = Vec::new();
@@ -35,7 +37,7 @@ pub fn handle_document_symbol<Db: VScriptDatabase>(
     let mut build_symbol = |stack: &mut Vec<(&Symbol, Vec<DocumentSymbol>)>,
                             symbol: &Symbol,
                             children: Vec<DocumentSymbol>| {
-        let Some(range) = positions::range(line_idx, symbol.range) else {
+        let Some(range) = positions::range(line_idx, symbol.node.text_range()) else {
             return;
         };
 
@@ -59,7 +61,7 @@ pub fn handle_document_symbol<Db: VScriptDatabase>(
             symbol.name.to_string()
         };
 
-        if !symbol.range.contains_range(symbol.name_range) {
+        if !symbol.node.text_range().contains_range(symbol.name_range) {
             log::error!("'name_range' is outside of 'range'");
             dbg!(symbol);
             dbg!(range);
@@ -95,7 +97,11 @@ pub fn handle_document_symbol<Db: VScriptDatabase>(
 
     for symbol in &symbols {
         while let Some((parent, _)) = stack.last() {
-            if parent.range.contains_range(symbol.range) {
+            if parent
+                .node
+                .text_range()
+                .contains_range(symbol.node.text_range())
+            {
                 break;
             }
             let (psymbol, children) = stack

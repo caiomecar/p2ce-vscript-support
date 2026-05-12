@@ -15,7 +15,6 @@ pub fn handle_diagnostics<Db: VScriptDatabase>(
     db: &Db,
     params: DocumentDiagnosticParams,
 ) -> anyhow::Result<DocumentDiagnosticReportResult> {
-    dbg!(&params);
     let uri = &params.text_document.uri;
 
     let mut diagnostics = compute_syntax_diagnostics(db, uri)?;
@@ -29,6 +28,56 @@ pub fn handle_diagnostics<Db: VScriptDatabase>(
                 items: diagnostics,
             },
         }),
+    ))
+}
+
+pub fn handle_workspace_diagnostics<Db: VScriptDatabase>(
+    db: &Db,
+    _params: WorkspaceDiagnosticParams,
+) -> anyhow::Result<WorkspaceDiagnosticReportResult> {
+    if !db.config().workspace_diagnostics {
+        let items = db
+            .get_urls()
+            .iter()
+            .map(|url| {
+                WorkspaceDocumentDiagnosticReport::Full(WorkspaceFullDocumentDiagnosticReport {
+                    uri: url.clone(),
+                    version: None,
+                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                        result_id: None,
+                        items: Vec::new(),
+                    },
+                })
+            })
+            .collect();
+
+        return Ok(WorkspaceDiagnosticReportResult::Report(
+            WorkspaceDiagnosticReport { items },
+        ));
+    }
+
+    let mut items = Vec::new();
+
+    for entry in db.get_files() {
+        let url = entry.key().clone();
+
+        let mut diagnostics = compute_syntax_diagnostics(db, &url)?;
+        diagnostics.extend(compute_semantic_diagnostics(db, &url)?);
+
+        items.push(WorkspaceDocumentDiagnosticReport::Full(
+            WorkspaceFullDocumentDiagnosticReport {
+                uri: url,
+                version: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id: None,
+                    items: diagnostics,
+                },
+            },
+        ));
+    }
+
+    Ok(WorkspaceDiagnosticReportResult::Report(
+        WorkspaceDiagnosticReport { items },
     ))
 }
 
@@ -77,8 +126,12 @@ fn compute_semantic_diagnostics<Db: VScriptDatabase>(
                 resolver::DiagnosticSeverity::Information => {
                     (DiagnosticSeverity::INFORMATION, None)
                 }
-                resolver::DiagnosticSeverity::Unnecessary => (
+                resolver::DiagnosticSeverity::UnnecessaryWarn => (
                     DiagnosticSeverity::WARNING,
+                    Some(vec![DiagnosticTag::UNNECESSARY]),
+                ),
+                resolver::DiagnosticSeverity::UnnecessaryHint => (
+                    DiagnosticSeverity::HINT,
                     Some(vec![DiagnosticTag::UNNECESSARY]),
                 ),
                 resolver::DiagnosticSeverity::Deprecated => (
@@ -95,33 +148,4 @@ fn compute_semantic_diagnostics<Db: VScriptDatabase>(
             })
         })
         .collect())
-}
-
-pub fn handle_workspace_diagnostics<Db: VScriptDatabase>(
-    db: &Db,
-    _params: WorkspaceDiagnosticParams,
-) -> anyhow::Result<WorkspaceDiagnosticReportResult> {
-    let mut items = Vec::new();
-
-    for entry in db.get_files() {
-        let url = entry.key().clone();
-
-        let mut diagnostics = compute_syntax_diagnostics(db, &url)?;
-        diagnostics.extend(compute_semantic_diagnostics(db, &url)?);
-
-        items.push(WorkspaceDocumentDiagnosticReport::Full(
-            WorkspaceFullDocumentDiagnosticReport {
-                uri: url,
-                version: None,
-                full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                    result_id: None,
-                    items: diagnostics,
-                },
-            },
-        ));
-    }
-
-    Ok(WorkspaceDiagnosticReportResult::Report(
-        WorkspaceDiagnosticReport { items },
-    ))
 }

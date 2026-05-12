@@ -37,7 +37,7 @@ async function selectTF2Root() {
 
     const selectedPath = result[0].fsPath;
     const config = vscode.workspace.getConfiguration('tf2vscript');
-    await config.update('tf2Root', selectedPath, vscode.ConfigurationTarget.Global);
+    await config.update('tf2RootPath', selectedPath, vscode.ConfigurationTarget.Global);
     vscode.window.showInformationMessage(`TF2 VScript: TF2Root set to "${selectedPath}"`);
 }
 
@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const config = vscode.workspace.getConfiguration('tf2vscript');
-    const tf2RootPath = config.get<string>('tf2Root') ?? '';
+    const tf2RootPath = config.get<string>('tf2RootPath') ?? '';
 
     if (!tf2RootPath) {
         vscode.window.showWarningMessage(
@@ -65,12 +65,16 @@ export function activate(context: vscode.ExtensionContext) {
             if (selection === 'Select Directory') {
                 selectTF2Root();
             } else if (selection === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'tf2vscript.tf2Root');
+                vscode.commands.executeCommand('workbench.action.openSettings', 'tf2vscript.tf2RootPath');
             }
         });
     }
 
-    const inlayHints = config.get<boolean>('inlayHints') ?? true;
+    const unusedVariables = config.get<string>('unusedVariables') ?? 'hint';
+    const unreachableCode = config.get<string>('unreachableCode') ?? 'warn';
+    const typeHints = config.get<boolean>('inlayHints.typeHints') ?? true;
+    const parameterHints = config.get<boolean>('inlayHints.parameterHints') ?? true;
+    const enumMemberValue = config.get<boolean>('inlayHints.enumMemberValue') ?? true;
     const workspaceDiagnostics = config.get<boolean>('workspaceDiagnostics') ?? false;
 
     const stdlibPath = inDebug() ?
@@ -85,11 +89,17 @@ export function activate(context: vscode.ExtensionContext) {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
         },
         initializationOptions: {
-            tf2RootPath,
             builtinsPath: path.join(stdlibPath, "builtins.nut"),
             squirrelLibPath: path.join(stdlibPath, "squirrel.nut"),
             vscriptLibPath: path.join(stdlibPath, "vscript.nut"),
-            inlayHints,
+            tf2RootPath,
+            unusedVariables,
+            unreachableCode,
+            inlayHints: {
+                typeHints,
+                enumMemberValue,
+                parameterHints,
+            },
             workspaceDiagnostics,
         }
     };
@@ -109,19 +119,16 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async e => {
-            if (e.affectsConfiguration('tf2vscript.inlayHints') ||
-                e.affectsConfiguration('tf2vscript.workspaceDiagnostics')) {
-                const restart = await vscode.window.showInformationMessage(
-                    'TF2 VScript: Restart language server to apply changes.',
-                    'Restart'
-                );
-                if (restart === 'Restart') {
-                    await client.restart();
-                }
-            } else if (e.affectsConfiguration('tf2vscript.tf2Root')) {
+            if (e.affectsConfiguration('tf2vscript')) {
                 client.sendNotification('workspace/didChangeConfiguration', {
                     settings: vscode.workspace.getConfiguration('tf2vscript')
                 });
+            }
+
+            if (e.affectsConfiguration('tf2vscript.tf2RootPath') || e.affectsConfiguration('tf2vscript.unusedVariables') || e.affectsConfiguration('tf2vscript.unusedVariables')) {
+                vscode.window.showInformationMessage(
+                    'TF2 VScript: Edit a file to refresh diagnostics with the new settings.'
+                );
             }
         })
     );

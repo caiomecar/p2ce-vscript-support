@@ -28,21 +28,20 @@ use lsp_types::{
     },
     request::{
         Completion, DocumentDiagnosticRequest, DocumentLinkRequest, DocumentSymbolRequest,
-        GotoDefinition, GotoTypeDefinition, HoverRequest, InlayHintRequest, PrepareRenameRequest,
-        References, Rename, SelectionRangeRequest, SemanticTokensFullRequest,
-        SemanticTokensRangeRequest, SignatureHelpRequest, WorkspaceDiagnosticRequest,
-        WorkspaceSymbolRequest,
+        GotoDefinition, GotoTypeDefinition, HoverRequest, InlayHintRefreshRequest,
+        InlayHintRequest, PrepareRenameRequest, References, Rename, SelectionRangeRequest,
+        SemanticTokensFullRequest, SemanticTokensRangeRequest, SignatureHelpRequest,
+        WorkspaceDiagnosticRefresh, WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
     },
 };
-use resolver::{Database, VScriptDatabase, VScriptDbConfig};
+use resolver::{
+    Database, UnreachableCode, UnusedVariables, VScriptDatabase, VScriptDbConfig,
+    VScriptDbInitConfig,
+};
 use salsa::Setter as _;
+use serde_json::Value;
 
 use crate::session::{NotificationHandlers, RequestHandlers, Session};
-
-struct LspConfig {
-    pub inlay_hints: bool,
-    pub workspace_diagnostics: bool,
-}
 
 fn main() -> Result<()> {
     let (connection, io_threads) = Connection::stdio();
@@ -56,10 +55,11 @@ fn main() -> Result<()> {
     let (id, init_result) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(init_result)?;
 
-    let db_config = extract_db_config(&params);
-    let lsp_config = extract_lsp_config(&params);
+    let init_config = extract_init_config(&params);
+    let mut db = Database::new(init_config);
 
-    let db = Database::new(db_config);
+    let config = extract_config(params.initialization_options.as_ref());
+    db.update_config(config);
 
     let server_capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -68,7 +68,7 @@ fn main() -> Result<()> {
         diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
             identifier: Some("vscript-native".to_owned()),
             inter_file_dependencies: true,
-            workspace_diagnostics: lsp_config.workspace_diagnostics,
+            workspace_diagnostics: true,
             work_done_progress_options: WorkDoneProgressOptions::default(),
         })),
         completion_provider: Some(CompletionOptions {
@@ -119,7 +119,7 @@ fn main() -> Result<()> {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
             ..Default::default()
         }),
-        inlay_hint_provider: lsp_config.inlay_hints.then_some(OneOf::Left(true)),
+        inlay_hint_provider: Some(OneOf::Left(true)),
         type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
         document_link_provider: Some(DocumentLinkOptions {
             resolve_provider: Some(false),
@@ -186,11 +186,6 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                 session.db.open_file(uri, text);
             }
 
-            // session.schedule_diagnostics(
-            //     uri.clone(),
-            //     compute_syntax_diagnostics,
-            //     compute_semantic_diagnostics,
-            // );
             Ok(())
         })
         .on_mut::<DidChangeTextDocument>(|session, params| {
@@ -213,34 +208,17 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
 
             file.set_text(&mut session.db).to(text);
 
-            // session.schedule_diagnostics(
-            //     uri.clone(),
-            //     compute_syntax_diagnostics,
-            //     compute_semantic_diagnostics,
-            // );
-
             Ok(())
         })
         .on_mut::<DidChangeConfiguration>(|session, params| {
             let settings = params.settings;
-
-            let Some(value) = settings.get("tf2Root") else {
-                return Ok(());
-            };
-
-            let tf2_root_path = value.as_str().and_then(|v| {
-                if v.is_empty() {
-                    None
-                } else {
-                    Some(PathBuf::from(v))
-                }
-            });
-
-            session.db.update_tf2_root(tf2_root_path);
+            let config = extract_config(Some(&settings));
+            session.db.update_config(config);
+            session.refresh_request::<WorkspaceDiagnosticRefresh>();
+            session.refresh_request::<InlayHintRefreshRequest>();
             Ok(())
         })
         .on_mut::<DidChangeWatchedFiles>(|session, params| {
-            dbg!(&params);
             for change in params.changes {
                 let uri = &change.uri;
                 match change.typ {
@@ -255,11 +233,6 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                             continue;
                         };
                         file.set_text(&mut session.db).to(text);
-                        // session.schedule_diagnostics(
-                        //     uri.clone(),
-                        //     compute_syntax_diagnostics,
-                        //     compute_semantic_diagnostics,
-                        // );
                     }
                     FileChangeType::DELETED => {
                         let Some(file) = session.db.get_files().remove(uri).map(|e| e.1) else {
@@ -289,14 +262,10 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
         .on::<LogTrace>(|_s, _p| Ok(()))
 }
 
-fn extract_db_config(params: &InitializeParams) -> VScriptDbConfig {
+fn extract_init_config(params: &InitializeParams) -> VScriptDbInitConfig {
     let options = params.initialization_options.as_ref();
 
-    VScriptDbConfig {
-        tf2_root_path: options
-            .and_then(|o| o.get("tf2RootPath"))
-            .and_then(|v| v.as_str())
-            .map(PathBuf::from),
+    VScriptDbInitConfig {
         builtins_path: options
             .and_then(|o| o.get("builtinsPath"))
             .and_then(|v| v.as_str())
@@ -312,11 +281,43 @@ fn extract_db_config(params: &InitializeParams) -> VScriptDbConfig {
     }
 }
 
-fn extract_lsp_config(params: &InitializeParams) -> LspConfig {
-    let options = params.initialization_options.as_ref();
-    LspConfig {
-        inlay_hints: options
+fn extract_config(options: Option<&Value>) -> VScriptDbConfig {
+    VScriptDbConfig {
+        tf2_root_path: options
+            .and_then(|o| o.get("tf2RootPath"))
+            .and_then(|v| v.as_str())
+            .map(PathBuf::from),
+        unused_variables: match options
+            .and_then(|o| o.get("unusedVariables"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("hint")
+        {
+            "warn" => UnusedVariables::Warn,
+            "off" => UnusedVariables::Off,
+            _ => UnusedVariables::Hint,
+        },
+        unreachable_code: match options
+            .and_then(|o| o.get("unreachableCode"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("warn")
+        {
+            "hint" => UnreachableCode::Hint,
+            "off" => UnreachableCode::Off,
+            _ => UnreachableCode::Warn,
+        },
+        type_hints: options
             .and_then(|o| o.get("inlayHints"))
+            .and_then(|o| o.get("typeHints"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+        enum_member_value: options
+            .and_then(|o| o.get("inlayHints"))
+            .and_then(|o| o.get("enumMemberValue"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+        parameter_hints: options
+            .and_then(|o| o.get("inlayHints"))
+            .and_then(|o| o.get("parameterHints"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true),
         workspace_diagnostics: options
