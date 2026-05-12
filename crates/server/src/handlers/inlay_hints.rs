@@ -203,6 +203,9 @@ fn expr_obviously_has_type(expr: &Expr, typ: &Type) -> bool {
         Expr::TableLiteral(_) => {
             matches!(primitive, Primitive::Table(_))
         }
+        Expr::ArrayLiteral(_) => {
+            matches!(primitive, Primitive::Array(None))
+        }
         _ => false,
     }
 }
