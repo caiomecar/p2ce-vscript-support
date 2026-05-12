@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.2.0]
+- Move to pull-based diagnostics (sadly losing syntax and semantic separation)
+- Add some more configuration options
+- Add workspace diagnostics
+- Handle selection range
+- Handle workspace symbol
+- Inlay hints:
+  - Reduce noise by skipping obvious type hints
+  - Add parameter hints
+  - Add enum member value hints
+
 ## [3.1.4]
 - Resolve doc comment code blocks
 - Remove unknown type from explicit function and class declarations

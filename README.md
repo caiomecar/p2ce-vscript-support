@@ -17,16 +17,19 @@
 - Find references
 - Rename
 - Semantic tokens
-- Inlay hints (only for types)
+- Inlay hints
 - Signature help
 - Document symbols
 - Document link for imports
+- Workspace symbol
+- Selection range
 
 ## Diagnostics
 - Syntax checking
 - Type checking for operations and function call arguments
 - Unused local variables
 - Unreachable code
+- Workspace diagnostics (disabled by default)
 
 ## Additional
 - String literal name resolution
