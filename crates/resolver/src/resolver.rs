@@ -3327,7 +3327,7 @@ impl<'db> Resolver<'db> {
             && let Some(name) = get_name(&binding)
         {
             let symbol = self.symbol(Symbol {
-                typ: Type::Any,
+                typ: Type::STRING.add_unknown(),
                 name: name.text().into(),
                 kind: SymbolKind::Local(LocalKind::Exception),
                 name_range: name.text_range(),
