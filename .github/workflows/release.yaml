@@ -97,13 +97,9 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v6
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: editors/code/package-lock.json
       - run: npm install -g @vscode/vsce ovsx
       - name: Download All VSIXs
         uses: actions/download-artifact@v8
