@@ -674,7 +674,7 @@ pub trait Source {
             for (name, id) in additional {
                 let symbol = self.get(id);
                 if symbol.flags.intersects(SymbolFlags::HIDE)
-                    && for_instance == symbol.flags.intersects(SymbolFlags::STATIC)
+                    || for_instance == symbol.flags.intersects(SymbolFlags::STATIC)
                 {
                     members.remove(&name);
                 } else {

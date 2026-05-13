@@ -120,7 +120,6 @@ pub fn handle_completion<Db: VScriptDatabase>(
 
     Ok(Some(CompletionResponse::Array(
         match context_completions(&syntax, offset, trigger_char.as_deref(), &finished_file) {
-            // Some(ContextCompletions::Flat) => completions_flat(offset, &finished_file),
             Some(ContextCompletions::Statement) => {
                 let mut completions = completions_flat(offset, &finished_file);
                 completions.extend(statement_keywords());
