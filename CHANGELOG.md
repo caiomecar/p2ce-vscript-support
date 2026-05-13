@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.2.2]
+- Fix explicit type of 'any' not allowing setting the value to anything
+- Fix wrong omitting condition for static class members
+
 ## [3.2.1]
 - Replace every 'unknown' type with 'any' since they're used similarly
 - Don't show single argument function parameter hints (unless they're bool or nullable)
