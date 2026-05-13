@@ -105,7 +105,7 @@ fn type_hints(
             _ => return None,
         }
 
-        // skip if type is unknown or null - nothing useful to show
+        // skip if type is any or null - nothing useful to show
         if !symbol.typ.is_useful() {
             return None;
         }

@@ -45,7 +45,6 @@ macro_rules! dispatch_union {
     // For methods returning Option<T>
     ($self:ident, $operand:expr, $error_keyword:expr, $single_method:ident $(, $extra:expr)*) => {{
         match &$operand.kind {
-            Type::Any => None,
             Type::Enum(_) => {
                 $self.no_support("enum", $error_keyword, $operand.range);
                 None
@@ -62,7 +61,7 @@ macro_rules! dispatch_union {
                         return Some(result);
                     }
                 }
-                if !union.flags.intersects(TypeFlags::UNKNOWN) {
+                if !union.flags.intersects(TypeFlags::ANY) {
                     $self.no_support(&$self.type_to_str(&$operand.kind), $error_keyword, $operand.range);
                 }
                 return None;
@@ -455,7 +454,7 @@ impl<'db> Resolver<'db> {
                     });
                     None
                 }
-                Err(ToPrimitiveError::WrongTypeWithUnknown | ToPrimitiveError::NotSpecific) => None,
+                Err(ToPrimitiveError::WrongTypeWithAny | ToPrimitiveError::NotSpecific) => None,
             }
         } else {
             None
@@ -667,7 +666,7 @@ impl<'db> Resolver<'db> {
                 let identifier = name.identifier()?;
                 let text = identifier.text();
                 let typ = match text {
-                    "any" => Type::Any,
+                    "any" => Type::ANY,
                     "int" | "integer" => Type::INTEGER,
                     "float" => Type::FLOAT,
                     "string" => Type::STRING,
@@ -697,7 +696,7 @@ impl<'db> Resolver<'db> {
                                     range: name.syntax().text_range(),
                                     severity: DiagnosticSeverity::Information,
                                 });
-                                return Some(Type::UNKNOWN);
+                                return Some(Type::ANY);
                             };
 
                             let Ok(id) = &self.get(id).typ.to_class() else {
@@ -716,9 +715,7 @@ impl<'db> Resolver<'db> {
                 Some(typ)
             }
             DocType::Array(array) => {
-                let typ = self
-                    .doc_type(array.types(), offset)
-                    .unwrap_or(Type::UNKNOWN);
+                let typ = self.doc_type(array.types(), offset).unwrap_or(Type::ANY);
                 Some(Type::Primitive(Primitive::Array(Some(self.array(typ)))))
             }
         }
@@ -931,7 +928,7 @@ impl<'db> Resolver<'db> {
                     result.push(*left);
                 }
 
-                if !matched && !other.flags.intersects(TypeFlags::UNKNOWN) {
+                if !matched && !other.flags.intersects(TypeFlags::ANY) {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
@@ -964,7 +961,7 @@ impl<'db> Resolver<'db> {
                     }
                 }
 
-                if !matches!(other, Primitive::Null | Primitive::Unknown) {
+                if !matches!(other, Primitive::Null | Primitive::Any) {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
@@ -982,7 +979,7 @@ impl<'db> Resolver<'db> {
                     }
                 }
 
-                if !other.flags.intersects(TypeFlags::UNKNOWN) {
+                if !other.flags.intersects(TypeFlags::ANY) {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
@@ -997,7 +994,7 @@ impl<'db> Resolver<'db> {
                 if let Some(merged) = self.check_primitive(*doc, *other, error_range) {
                     Type::Primitive(merged)
                 } else {
-                    if !matches!(other, Primitive::Null | Primitive::Unknown) {
+                    if !matches!(other, Primitive::Null | Primitive::Any) {
                         self.diagnostics.push(Diagnostic {
                             message: message(self),
                             range: error_range,
@@ -1028,8 +1025,8 @@ impl<'db> Resolver<'db> {
             match new {
                 NewType::NotExplicit(new) => {
                     let flags = current.type_flags();
-                    if flags == TypeFlags::UNKNOWN_OR_NULL {
-                        new.kind.add_unknown()
+                    if flags == TypeFlags::ANY_OR_NULL {
+                        new.kind.add_any()
                     } else if flags == TypeFlags::NULL {
                         new.kind
                     } else {
@@ -1086,7 +1083,7 @@ impl<'db> Resolver<'db> {
 
                         let symbol = self.symbol(Symbol {
                             name: name.text().into(),
-                            typ: Type::UNKNOWN,
+                            typ: Type::ANY,
                             kind: SymbolKind::Local(LocalKind::Parameter),
                             name_range: name.text_range(),
                             node: SyntaxNodePtr::new(var.syntax()),
@@ -1115,7 +1112,7 @@ impl<'db> Resolver<'db> {
                         // abc(null) // This causes the function body to error
                         // abc(GetListenServerHost())
                         // ```
-                        typ: typ.add_unknown(),
+                        typ: typ.add_any(),
                         kind: SymbolKind::Local(LocalKind::Parameter),
                         name_range: name.text_range(),
                         node: SyntaxNodePtr::new(var.syntax()),
@@ -1147,7 +1144,7 @@ impl<'db> Resolver<'db> {
                 }
                 Parameter::Ellipsis(var_args) => match params_state {
                     ParamsState::NoDefault => {
-                        let array = self.array(Type::UNKNOWN);
+                        let array = self.array(Type::ANY);
                         let symbol = self.symbol(Symbol {
                             name: "vargv".into(),
                             node: SyntaxNodePtr::new(var_args.syntax()),
@@ -1197,7 +1194,7 @@ impl<'db> Resolver<'db> {
         match callable {
             Primitive::Table(id) => {
                 let Some(id) = id else {
-                    return Some(Type::UNKNOWN);
+                    return Some(Type::ANY);
                 };
 
                 let table = self.get(id);
@@ -1239,7 +1236,7 @@ impl<'db> Resolver<'db> {
             }
             Primitive::Instance(id) => {
                 let Some(id) = id else {
-                    return Some(Type::UNKNOWN);
+                    return Some(Type::ANY);
                 };
 
                 let Some(member) =
@@ -1266,7 +1263,7 @@ impl<'db> Resolver<'db> {
                     arguments,
                 )
             }
-            Primitive::Unknown => None,
+            Primitive::Any => None,
             _ => {
                 if let Some(keyword) = error_keyword {
                     self.no_support(self.primitive_to_str_generic(&callable), keyword, range);
@@ -1286,7 +1283,6 @@ impl<'db> Resolver<'db> {
         error_keyword: &str,
     ) -> Option<Type> {
         match &operand.kind {
-            Type::Any => None,
             Type::Enum(_) => {
                 self.no_support("enum", error_keyword, operand.range);
                 None
@@ -1310,7 +1306,7 @@ impl<'db> Resolver<'db> {
                         return Some(result);
                     }
                 }
-                if should_error && !union.flags.intersects(TypeFlags::UNKNOWN) {
+                if should_error && !union.flags.intersects(TypeFlags::ANY) {
                     self.no_support(
                         &self.type_to_str_generic(&operand.kind),
                         error_keyword,
@@ -1366,7 +1362,6 @@ impl<'db> Resolver<'db> {
 
     fn new_slot(&mut self, operand: &TypeWithRange, arguments: &[TypeWithRange]) -> NewSlotResult {
         match &operand.kind {
-            Type::Any => NewSlotResult::Allowed,
             Type::Enum(_) => {
                 self.no_support("enum", "new slot operator", operand.range);
                 NewSlotResult::NotAllowed
@@ -1386,7 +1381,7 @@ impl<'db> Resolver<'db> {
                     return NewSlotResult::Allowed;
                 }
 
-                if !union.flags.intersects(TypeFlags::UNKNOWN) {
+                if !union.flags.intersects(TypeFlags::ANY) {
                     self.no_support(
                         &self.type_to_str_generic(&operand.kind),
                         "new slot operator",
@@ -1473,10 +1468,6 @@ impl<'db> Resolver<'db> {
         operator: BinaryOperator,
         should_error: bool,
     ) -> Option<Type> {
-        if matches!(with.kind, Type::Any) {
-            return Some(Type::Any);
-        }
-
         let (metamethod, keyword) = match operator {
             BinaryOperator::Add | BinaryOperator::AddAssign => ("_add", "adding"),
             BinaryOperator::Subtract | BinaryOperator::SubtractAssign => ("_sub", "subtracting"),
@@ -1500,16 +1491,16 @@ impl<'db> Resolver<'db> {
             if operand_flags == TypeFlags::STRING {
                 return Some(ret);
             }
-            return Some(ret.add_unknown());
+            return Some(ret.add_any());
         }
 
         if !operand_flags.intersects(TypeFlags::ARITHMETIC) {
-            if should_error && !operand_flags.intersects(TypeFlags::UNKNOWN) {
+            if should_error && !operand_flags.intersects(TypeFlags::ANY) {
                 self.no_support(self.primitive_to_str_generic(&operand), keyword, range);
             }
 
             if !with_flags.intersects(TypeFlags::ARITHMETIC)
-                && !with_flags.intersects(TypeFlags::UNKNOWN)
+                && !with_flags.intersects(TypeFlags::ANY)
             {
                 if should_error {
                     self.no_support(&self.type_to_str_generic(&with.kind), keyword, with.range);
@@ -1517,10 +1508,10 @@ impl<'db> Resolver<'db> {
                 return None;
             }
             // Stuff like
-            // player: unknown
+            // player: any
             // player.EyeAngles() * 30 will output integer
             // which is not correct and will lead us to error
-            return Some(with.kind.add_unknown());
+            return Some(with.kind.add_any());
         }
 
         if operand_flags.intersects(TypeFlags::INTEGER) && with_flags.intersects(TypeFlags::INTEGER)
@@ -1529,7 +1520,7 @@ impl<'db> Resolver<'db> {
             if operand_flags == TypeFlags::INTEGER {
                 return Some(ret);
             }
-            return Some(ret.add_unknown());
+            return Some(ret.add_any());
         }
 
         if operand_flags.intersects(TypeFlags::NUMBER) && with_flags.intersects(TypeFlags::NUMBER) {
@@ -1537,7 +1528,7 @@ impl<'db> Resolver<'db> {
             if TypeFlags::NUMBER.contains(operand_flags) {
                 return Some(ret);
             }
-            return Some(ret.add_unknown());
+            return Some(ret.add_any());
         }
 
         if operand_flags.intersects(TypeFlags::TABLE_OR_INSTANCE) {
@@ -1552,11 +1543,11 @@ impl<'db> Resolver<'db> {
                 if TypeFlags::TABLE_OR_INSTANCE.contains(operand_flags) {
                     t
                 } else {
-                    t.add_unknown()
+                    t.add_any()
                 }
             })
         } else {
-            if !with_flags.intersects(TypeFlags::UNKNOWN) {
+            if !with_flags.intersects(TypeFlags::ANY) {
                 self.no_support(
                     &format!(
                         "{}' and '{}",
@@ -1567,7 +1558,7 @@ impl<'db> Resolver<'db> {
                     with.range,
                 );
             }
-            Some(Type::Primitive(operand).add_unknown())
+            Some(Type::Primitive(operand).add_any())
         }
     }
 
@@ -1600,24 +1591,24 @@ impl<'db> Resolver<'db> {
                     range,
                 }];
                 self.call_metamethod_primitive(iterable, range, "_nexti", &arguments, None);
-                Some((Type::STRING.add_unknown(), Type::UNKNOWN))
+                Some((Type::STRING.add_any(), Type::ANY))
             }
             Primitive::Array(kind) => {
-                let typ = kind.map_or(Type::UNKNOWN, |id| self.get(id).kind.clone());
+                let typ = kind.map_or(Type::ANY, |id| self.get(id).kind.clone());
                 Some((Type::INTEGER, typ))
             }
             Primitive::String { .. } => Some((Type::INTEGER, Type::INTEGER)),
             Primitive::Generator(id) => {
-                let typ = id.map_or(Type::UNKNOWN, |id| match &self.get(id).yields {
-                    TypeState::Absent => Type::UNKNOWN,
+                let typ = id.map_or(Type::ANY, |id| match &self.get(id).yields {
+                    TypeState::Absent => Type::ANY,
                     TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
-                        typ.this_to_concrete(&Type::UNKNOWN)
+                        typ.this_to_concrete(&Type::ANY)
                     }
                 });
 
                 Some((Type::INTEGER, typ))
             }
-            Primitive::Class(_) => Some((Type::STRING.add_unknown(), Type::UNKNOWN)),
+            Primitive::Class(_) => Some((Type::STRING.add_any(), Type::ANY)),
             _ => {
                 let arguments = [TypeWithRange {
                     kind: Type::NULL,
@@ -1631,7 +1622,7 @@ impl<'db> Resolver<'db> {
                     &arguments,
                     should_error.then_some("iterating"),
                 )
-                .map(|typ| (Type::STRING.add_unknown(), typ))
+                .map(|typ| (Type::STRING.add_any(), typ))
             }
         }
     }
@@ -1651,7 +1642,7 @@ impl<'db> Resolver<'db> {
         match callable {
             Primitive::Function(id) => {
                 let Some(id) = id else {
-                    return Some(Type::UNKNOWN);
+                    return Some(Type::ANY);
                 };
 
                 let data = self.deferred_entry(id);
@@ -1738,7 +1729,7 @@ impl<'db> Resolver<'db> {
 
                 Some(if self.get(id).yields == TypeState::Absent {
                     match &self.get(id).ret {
-                        TypeState::Absent => Type::UNKNOWN,
+                        TypeState::Absent => Type::ANY,
                         TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
                             typ.this_to_concrete(context)
                         }
@@ -1830,7 +1821,7 @@ impl<'db> Resolver<'db> {
                 if let Ok(container) = Container::try_from(&typ) {
                     Some(container)
                 } else {
-                    if !typ.type_flags().intersects(TypeFlags::UNKNOWN) {
+                    if !typ.type_flags().intersects(TypeFlags::ANY) {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
@@ -2097,7 +2088,7 @@ impl<'db> Resolver<'db> {
 
                     if let Ok(container) = Container::try_from(&doc_type) {
                         self.arena[entry.idx].bindenv = Some(container);
-                    } else if !doc_type.type_flags().intersects(TypeFlags::UNKNOWN) {
+                    } else if !doc_type.type_flags().intersects(TypeFlags::ANY) {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
                                 "Trying to use '{}' as function's environment",
@@ -2128,7 +2119,7 @@ impl<'db> Resolver<'db> {
         let text = var_name.text();
         let mut symbol = Symbol {
             name: text.into(),
-            typ: Type::UNKNOWN,
+            typ: Type::ANY,
             kind: SymbolKind::Local(LocalKind::Embedded),
             name_range: var_name.text_range(),
             node: SyntaxNodePtr::new(tag.syntax()),
@@ -2275,7 +2266,7 @@ impl<'db> Resolver<'db> {
                 let second = arguments
                     .get(1)
                     .map_or(Type::NULL, |t| t.kind.clone())
-                    .add_unknown();
+                    .add_any();
 
                 return Some(Type::Primitive(Primitive::Array(Some(self.array(second)))));
             }
@@ -2487,7 +2478,7 @@ impl<'db> Resolver<'db> {
     fn collect_table_property(&mut self, property: &Property) {
         let typ = property
             .value()
-            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
+            .map_or(Type::ANY, |v| self.expr_to_type(&v));
 
         let Some(name) = property.name() else {
             return;
@@ -2499,7 +2490,7 @@ impl<'db> Resolver<'db> {
 
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ: typ.add_unknown(),
+            typ: typ.add_any(),
             kind: SymbolKind::Property {
                 show_inlay_hint: true,
             },
@@ -2518,7 +2509,7 @@ impl<'db> Resolver<'db> {
     fn collect_class_property(&mut self, property: &Property) {
         let typ = property
             .value()
-            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
+            .map_or(Type::ANY, |v| self.expr_to_type(&v));
 
         let did_swap = self.try_swap_to_instance(property, typ.to_function().ok());
 
@@ -2532,7 +2523,7 @@ impl<'db> Resolver<'db> {
 
         let symbol = self.symbol(Symbol {
             name: text.clone(),
-            typ: typ.add_unknown(),
+            typ: typ.add_any(),
             kind: SymbolKind::Property {
                 show_inlay_hint: true,
             },
@@ -2654,7 +2645,7 @@ impl<'db> Resolver<'db> {
             let Some(expr) = var.initialiser().and_then(|i| i.expression()) else {
                 let id = self.symbol(Symbol {
                     name: name.text().into(),
-                    typ: Type::NULL.add_unknown(),
+                    typ: Type::NULL.add_any(),
                     kind: SymbolKind::Local(LocalKind::Variable),
                     name_range: name.text_range(),
                     node: SyntaxNodePtr::new(var.syntax()),
@@ -2674,7 +2665,7 @@ impl<'db> Resolver<'db> {
             let typ = self.expr_to_type(&expr);
             let id = self.symbol(Symbol {
                 name: name.text().into(),
-                typ: typ.add_unknown(),
+                typ: typ.add_any(),
                 kind: SymbolKind::Local(LocalKind::Variable),
                 name_range: name.text_range(),
                 node: SyntaxNodePtr::new(var.syntax()),
@@ -2729,7 +2720,7 @@ impl<'db> Resolver<'db> {
         let typ = stmt
             .value()
             .and_then(|v| v.expression())
-            .map_or(Type::UNKNOWN, |expr| {
+            .map_or(Type::ANY, |expr| {
                 let value = self.collect_expr(&expr);
                 self.check_constant(value.as_ref(), expr.syntax().text_range());
                 self.expr_kind_to_type(value.as_ref())
@@ -2775,7 +2766,7 @@ impl<'db> Resolver<'db> {
                 let typ = self.expr_to_type_with_range(&iterable);
                 self.iterable(&typ)
             })
-            .unwrap_or_else(|| (Type::STRING.add_unknown(), Type::UNKNOWN));
+            .unwrap_or_else(|| (Type::STRING.add_any(), Type::ANY));
 
         if let Some(key) = stmt.key()
             && let Some(name) = get_name(&key)
@@ -2945,7 +2936,7 @@ impl<'db> Resolver<'db> {
                     range: typ.range,
                 },
                 TypeWithRange {
-                    kind: Type::UNKNOWN,
+                    kind: Type::ANY,
                     range: segment.syntax().text_range(),
                 },
             ];
@@ -3168,8 +3159,8 @@ impl<'db> Resolver<'db> {
                         let case_type = self.expr_to_type_with_range(&test);
                         let case_flags = case_type.kind.type_flags();
                         if let Some(flags) = discriminant_flags
-                            && !case_flags.intersects(TypeFlags::UNKNOWN)
-                            && !flags.intersects(TypeFlags::UNKNOWN)
+                            && !case_flags.intersects(TypeFlags::ANY)
+                            && !flags.intersects(TypeFlags::ANY)
                             && !(case_flags.intersects(flags)
                                 || case_flags.intersects(TypeFlags::NUMBER)
                                     && flags.intersects(TypeFlags::NUMBER))
@@ -3327,7 +3318,7 @@ impl<'db> Resolver<'db> {
             && let Some(name) = get_name(&binding)
         {
             let symbol = self.symbol(Symbol {
-                typ: Type::STRING.add_unknown(),
+                typ: Type::STRING.add_any(),
                 name: name.text().into(),
                 kind: SymbolKind::Local(LocalKind::Exception),
                 name_range: name.text_range(),
@@ -3351,9 +3342,7 @@ impl<'db> Resolver<'db> {
 
     fn throw_statement(&mut self, stmt: &ThrowStatement) {
         // mark current function as exception throwing
-        let value = stmt
-            .value()
-            .map_or(Type::UNKNOWN, |v| self.expr_to_type(&v));
+        let value = stmt.value().map_or(Type::ANY, |v| self.expr_to_type(&v));
 
         self.dead_code = true;
         let Some(function) = self.function else {
@@ -3728,7 +3717,7 @@ impl<'db> Resolver<'db> {
                             return None;
                         }
                     }
-                    Err(ToPrimitiveError::WrongTypeWithUnknown | ToPrimitiveError::WrongType) => {
+                    Err(ToPrimitiveError::WrongTypeWithAny | ToPrimitiveError::WrongType) => {
                         if from.type_flags().intersects(TypeFlags::STRING)
                             && index_flags.intersects(TypeFlags::NUMBER)
                         {
@@ -3741,7 +3730,7 @@ impl<'db> Resolver<'db> {
                     return None;
                 }
 
-                if !index_flags.intersects(TypeFlags::UNKNOWN) {
+                if !index_flags.intersects(TypeFlags::ANY) {
                     self.diagnostics.push(Diagnostic {
                         message: format!(
                             "Trying to index into '{}' using '{}'",
@@ -4249,7 +4238,7 @@ impl<'db> Resolver<'db> {
                 range: expr.syntax().text_range(),
             },
             |r| TypeWithRange {
-                kind: self.expr_kind_to_type(Some(r)).add_unknown(),
+                kind: self.expr_kind_to_type(Some(r)).add_any(),
                 range: expr
                     .rhs()
                     .expect(
@@ -4373,10 +4362,6 @@ impl<'db> Resolver<'db> {
             return ExpressionKind::Literal(Type::BOOL);
         };
 
-        if matches!(right.kind, Type::Any) {
-            return ExpressionKind::Literal(Type::BOOL);
-        }
-
         let flags = right.kind.type_flags();
 
         if flags.intersects(TypeFlags::ARRAY_OR_STRING) {
@@ -4447,16 +4432,12 @@ impl<'db> Resolver<'db> {
     }
 
     fn is_comparable(&mut self, comparable: &TypeWithRange) -> bool {
-        if matches!(comparable.kind, Type::Any) {
-            return false;
-        }
-
         let flags = comparable.kind.type_flags();
         if flags.intersects(TypeFlags::CAN_COMPARE) {
             return true;
         }
 
-        if !flags.intersects(TypeFlags::UNKNOWN) {
+        if !flags.intersects(TypeFlags::ANY) {
             self.diagnostics.push(Diagnostic {
                 message: format!(
                     "'{}' does not support comparison",
@@ -4551,17 +4532,13 @@ impl<'db> Resolver<'db> {
     }
 
     fn has_bitwise_operations(&mut self, operand: &TypeWithRange) -> bool {
-        if matches!(operand.kind, Type::Any) {
-            return false;
-        }
-
         let flags = operand.kind.type_flags();
 
         if flags.intersects(TypeFlags::INTEGER) {
             return true;
         }
 
-        if !flags.intersects(TypeFlags::UNKNOWN) {
+        if !flags.intersects(TypeFlags::ANY) {
             self.diagnostics.push(Diagnostic {
                 message: format!(
                     "'{}' does not support bitwise operations",
@@ -4590,8 +4567,8 @@ impl<'db> Resolver<'db> {
         let (left, right) = self.extract_lhs_and_rhs(expr);
 
         ExpressionKind::Literal(merge_types(
-            &left.map_or(Type::UNKNOWN, |l| l.kind),
-            &right.map_or(Type::UNKNOWN, |r| r.kind),
+            &left.map_or(Type::ANY, |l| l.kind),
+            &right.map_or(Type::ANY, |r| r.kind),
         ))
     }
 
@@ -4701,7 +4678,7 @@ impl<'db> Resolver<'db> {
                     || !flags.intersects(TypeFlags::ARRAY_OR_STRING)
                 {
                     if !flags.intersects(TypeFlags::HAS_MEMBERS_OR_ANY)
-                        && !name_flags.intersects(TypeFlags::UNKNOWN)
+                        && !name_flags.intersects(TypeFlags::ANY)
                     {
                         self.diagnostics.push(Diagnostic {
                             message: format!(
@@ -4747,12 +4724,12 @@ impl<'db> Resolver<'db> {
         let then_type = expr
             .then_branch()
             .and_then(|b| b.expression())
-            .map_or(Type::UNKNOWN, |expr| self.expr_to_type(&expr));
+            .map_or(Type::ANY, |expr| self.expr_to_type(&expr));
 
         let else_type = expr
             .else_branch()
             .and_then(|b| b.expression())
-            .map_or(Type::UNKNOWN, |expr| self.expr_to_type(&expr));
+            .map_or(Type::ANY, |expr| self.expr_to_type(&expr));
 
         ExpressionKind::Literal(merge_types(&then_type, &else_type))
     }
@@ -4965,9 +4942,9 @@ impl<'db> Resolver<'db> {
         let typ = self.expr_to_type(&expr.operand()?);
         match typ.to_generator() {
             Ok(id) => Some(ExpressionKind::Literal(match &self.get(id).yields {
-                TypeState::Absent => Type::UNKNOWN,
+                TypeState::Absent => Type::ANY,
                 TypeState::Explicit(typ) | TypeState::NotExplicit(typ) => {
-                    typ.this_to_concrete(&Type::UNKNOWN)
+                    typ.this_to_concrete(&Type::ANY)
                 }
             })),
             Err(ToPrimitiveError::WrongType) => {
@@ -4978,7 +4955,7 @@ impl<'db> Resolver<'db> {
                 });
                 None
             }
-            Err(ToPrimitiveError::WrongTypeWithUnknown | ToPrimitiveError::NotSpecific) => None,
+            Err(ToPrimitiveError::WrongTypeWithAny | ToPrimitiveError::NotSpecific) => None,
         }
     }
 

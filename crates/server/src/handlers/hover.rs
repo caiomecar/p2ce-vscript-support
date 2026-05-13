@@ -29,7 +29,7 @@ pub fn handle_hover<Db: VScriptDatabase>(
     let content = if let Some(id) = finished_file.symbol_at(range) {
         finished_file.symbol_markdown(id)
     } else if token.kind() == SyntaxKind::Identifier {
-        format!("```sqDoc\n{}: unknown\n```", token.text())
+        format!("```sqDoc\n{}: any\n```", token.text())
     } else {
         return Ok(None);
     };

@@ -18,8 +18,8 @@ macro_rules! primitive_accessor {
         pub fn $name(&self) -> Result<$ret, ToPrimitiveError> {
             let flags = self.type_flags();
             if !flags.intersects(TypeFlags::$flag) {
-                return Err(if flags.intersects(TypeFlags::UNKNOWN) {
-                    ToPrimitiveError::WrongTypeWithUnknown
+                return Err(if flags.intersects(TypeFlags::ANY) {
+                    ToPrimitiveError::WrongTypeWithAny
                 } else {
                     ToPrimitiveError::WrongType
                 });
@@ -104,7 +104,6 @@ pub fn to_flat_symbol_table(table: SymbolTable) -> FlatSymbolTable {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    Any,
     Primitive(Primitive),
     Enum(EnumId),
     Union(Union),
@@ -152,7 +151,7 @@ impl TryFrom<&Type> for Primitive {
                 let mut new = union
                     .primitives
                     .iter()
-                    .filter(|prim| !matches!(prim, Self::Null | Self::Unknown))
+                    .filter(|prim| !matches!(prim, Self::Null | Self::Any))
                     .copied();
 
                 new.next()
@@ -160,14 +159,14 @@ impl TryFrom<&Type> for Primitive {
                     .ok_or(())
             }
             Type::Primitive(prim) => Ok(*prim),
-            Type::Enum(_) | Type::Any => Err(()),
+            Type::Enum(_) => Err(()),
         }
     }
 }
 
 pub enum ToPrimitiveError {
     WrongType,
-    WrongTypeWithUnknown,
+    WrongTypeWithAny,
     NotSpecific,
 }
 
@@ -175,7 +174,6 @@ impl Type {
     #[must_use]
     pub const fn type_flags(&self) -> TypeFlags {
         match self {
-            Self::Any => TypeFlags::all(),
             Self::Enum(_) => TypeFlags::empty(),
             Self::Primitive(prim) => prim.type_flags(),
             Self::Union(union) => union.flags,
@@ -187,7 +185,7 @@ impl Type {
         T: Fn(Primitive) -> Option<U>,
     {
         match self {
-            Self::Any | Self::Enum(_) => None,
+            Self::Enum(_) => None,
             Self::Union(union) => union.primitives.iter().find_map(|p| func(*p)),
             Self::Primitive(prim) => func(*prim),
         }
@@ -199,7 +197,7 @@ impl Type {
         V: Fn(Primitive) -> bool,
     {
         match self {
-            Self::Any | Self::Enum(_) => None,
+            Self::Enum(_) => None,
             Self::Union(union) => union
                 .primitives
                 .iter()
@@ -210,8 +208,8 @@ impl Type {
     }
 
     #[must_use]
-    pub fn add_unknown(&self) -> Self {
-        merge_types(self, &Self::UNKNOWN)
+    pub fn add_any(&self) -> Self {
+        merge_types(self, &Self::ANY)
     }
 
     #[must_use]
@@ -222,7 +220,6 @@ impl Type {
     #[must_use]
     pub fn remove_this(&self) -> Option<Self> {
         match self {
-            Self::Any => Some(Self::Any),
             Self::Primitive(prim) => (*prim != Primitive::This).then_some(Self::Primitive(*prim)),
             Self::Enum(enum_id) => Some(Self::Enum(*enum_id)),
             Self::Union(union) => {
@@ -253,12 +250,12 @@ impl Type {
 
     #[must_use]
     pub const fn is_useful(&self) -> bool {
-        !TypeFlags::UNKNOWN_OR_NULL.contains(self.type_flags())
+        !TypeFlags::ANY_OR_NULL.contains(self.type_flags())
     }
 
     #[must_use]
     pub const fn null_to_any(&self) -> &Self {
-        if self.is_useful() { self } else { &Self::Any }
+        if self.is_useful() { self } else { &Self::ANY }
     }
 
     primitive_accessor!(
@@ -310,7 +307,7 @@ impl Type {
         Primitive::Generator(id) => id
     );
 
-    pub const UNKNOWN: Self = Self::Primitive(Primitive::Unknown);
+    pub const ANY: Self = Self::Primitive(Primitive::Any);
     pub const INTEGER: Self = Self::Primitive(Primitive::Integer(None));
     pub const FLOAT: Self = Self::Primitive(Primitive::Float(None));
     pub const STRING: Self = Self::Primitive(Primitive::String {
@@ -337,12 +334,12 @@ impl Type {
 /// for instances tables with different keys, or
 /// instances coming from different classes.
 /// It's better to use None here rather than to turn everything
-/// into Unknown since we at least can get partial completions
+/// into Any since we at least can get partial completions
 /// and operations
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Primitive {
     #[default]
-    Unknown,
+    Any,
     Integer(Option<i32>),
     Float(Option<f32>),
     String {
@@ -366,7 +363,7 @@ impl Primitive {
     #[must_use]
     pub const fn type_flags(&self) -> TypeFlags {
         match self {
-            Self::Unknown => TypeFlags::UNKNOWN,
+            Self::Any => TypeFlags::ANY,
             Self::Integer(_) => TypeFlags::INTEGER,
             Self::Float(_) => TypeFlags::FLOAT,
             Self::String { .. } => TypeFlags::STRING,
@@ -420,7 +417,7 @@ impl Default for SymbolKind {
 bitflags::bitflags! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
     pub struct TypeFlags: u16 {
-        const UNKNOWN = 1 << 0;
+        const ANY = 1 << 0;
         const NULL = 1 << 1;
         const INTEGER = 1 << 2;
         const FLOAT = 1 << 3;
@@ -439,21 +436,21 @@ bitflags::bitflags! {
 }
 
 impl TypeFlags {
-    pub const UNKNOWN_OR_NULL: Self = Self::UNKNOWN.union(Self::NULL);
+    pub const ANY_OR_NULL: Self = Self::ANY.union(Self::NULL);
 
     pub const NUMBER: Self = Self::INTEGER.union(Self::FLOAT);
-    pub const NUMBER_OR_ANY: Self = Self::NUMBER.union(Self::UNKNOWN);
+    pub const NUMBER_OR_ANY: Self = Self::NUMBER.union(Self::ANY);
 
     pub const ARRAY_OR_STRING: Self = Self::ARRAY.union(Self::STRING);
 
-    pub const INSTANCE_OR_ANY: Self = Self::INSTANCE.union(Self::UNKNOWN);
-    pub const CLASS_OR_ANY: Self = Self::CLASS.union(Self::UNKNOWN);
+    pub const INSTANCE_OR_ANY: Self = Self::INSTANCE.union(Self::ANY);
+    pub const CLASS_OR_ANY: Self = Self::CLASS.union(Self::ANY);
 
     pub const TABLE_OR_INSTANCE: Self = Self::TABLE.union(Self::INSTANCE);
 
     pub const HAS_MEMBERS: Self = Self::CLASS.union(Self::TABLE).union(Self::INSTANCE);
 
-    pub const HAS_MEMBERS_OR_ANY: Self = Self::HAS_MEMBERS.union(Self::UNKNOWN);
+    pub const HAS_MEMBERS_OR_ANY: Self = Self::HAS_MEMBERS.union(Self::ANY);
 
     pub const CAN_COMPARE: Self = Self::NULL
         .union(Self::FLOAT)
@@ -470,7 +467,7 @@ impl TypeFlags {
         .union(Self::NUMBER)
         .union(Self::BOOL)
         .union(Self::STRING)
-        .union(Self::UNKNOWN);
+        .union(Self::ANY);
 }
 
 pub fn merge_primitives(left: Primitive, right: Primitive) -> Option<Primitive> {
@@ -505,7 +502,6 @@ pub fn merge_primitives(left: Primitive, right: Primitive) -> Option<Primitive> 
 
 pub fn merge_types(left: &Type, right: &Type) -> Type {
     match (left, right) {
-        (Type::Any, _) | (_, Type::Any) => Type::Any,
         (Type::Enum(_), other) | (other, Type::Enum(_)) => other.clone(),
         (Type::Union(left), Type::Union(right)) => {
             let mut primitives = Vec::new();

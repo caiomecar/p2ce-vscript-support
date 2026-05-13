@@ -476,7 +476,7 @@ pub trait Source {
             Primitive::Thread(_) => thread_members(self.db()),
             Primitive::Weakref => weakref_members(self.db()),
             Primitive::Null => null_members(self.db()),
-            Primitive::Unknown | Primitive::This => return FlatSymbolTable::default(),
+            Primitive::Any | Primitive::This => return FlatSymbolTable::default(),
         };
 
         if !hide_unnecessary {
@@ -496,7 +496,6 @@ pub trait Source {
         hide_unnecessary: bool,
     ) -> FlatSymbolTable {
         match typ {
-            Type::Any => FlatSymbolTable::default(),
             Type::Enum(id) => self.enum_members(id),
             Type::Primitive(prim) => self.members_of_primitive(prim, settings, hide_unnecessary),
             Type::Union(union) => union
@@ -766,7 +765,7 @@ pub trait Source {
                     Primitive::Thread(_) => thread_symbol(self.db())?,
                     Primitive::Weakref => weakref_symbol(self.db())?,
                     Primitive::Null => null_symbol(self.db())?,
-                    Primitive::Unknown | Primitive::This => return None,
+                    Primitive::Any | Primitive::This => return None,
                 })
             },
             |prim| !matches!(prim, Primitive::Null),
@@ -811,7 +810,7 @@ pub trait Source {
 
                 let kind = &self.get(*id).kind;
 
-                if *kind == Type::UNKNOWN {
+                if *kind == Type::ANY {
                     return "array".into();
                 }
 
@@ -823,7 +822,7 @@ pub trait Source {
 
     fn primitive_to_str_generic(&self, primitive: &Primitive) -> &'static str {
         match primitive {
-            Primitive::Unknown => "unknown",
+            Primitive::Any => "any",
             Primitive::Integer(_) => "integer",
             Primitive::Float(_) => "float",
             Primitive::String { .. } => "string",
@@ -847,13 +846,12 @@ pub trait Source {
         prim_to_str: impl Fn(&Primitive) -> Box<str>,
     ) -> Box<str> {
         match typ {
-            Type::Any => "any".into(),
             Type::Enum(_) => "enum".into(),
             Type::Primitive(prim) => prim_to_str(prim),
             Type::Union(id) => id
                 .primitives
                 .iter()
-                .filter(|prim| **prim != Primitive::Unknown)
+                .filter(|prim| **prim != Primitive::Any)
                 .map(prim_to_str)
                 .collect::<Vec<_>>()
                 .join("|")
@@ -1048,9 +1046,7 @@ pub trait Source {
                     {
                         label.push('?');
                     }
-                    if param.typ != Type::UNKNOWN {
-                        let _ = write!(label, ": {}", self.type_to_str(&param.typ));
-                    }
+                    let _ = write!(label, ": {}", self.type_to_str(&param.typ));
                 }
             }
             let end = label.len();
@@ -1080,9 +1076,7 @@ pub trait Source {
                     if let Type::Primitive(Primitive::Array(Some(id))) = &symbol.typ {
                         let typ = &self.get(*id).kind;
 
-                        if *typ != Type::UNKNOWN {
-                            let _ = write!(label, ": {}", self.type_to_str(typ));
-                        }
+                        let _ = write!(label, ": {}", self.type_to_str(typ));
                     }
                 }
             }
@@ -1103,7 +1097,7 @@ pub trait Source {
         match &func.ret {
             TypeState::Absent => {}
             TypeState::NotExplicit(typ) | TypeState::Explicit(typ) => {
-                if !matches!(typ, Type::Primitive(Primitive::Unknown | Primitive::Null)) {
+                if *typ != Type::NULL {
                     let _ = write!(label, " -> {}", self.type_to_str(typ));
                 }
             }
