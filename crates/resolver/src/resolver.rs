@@ -661,7 +661,7 @@ impl<'db> Resolver<'db> {
     }
 
     fn doc_type_single(&mut self, typ: &DocType, offset: TextSize) -> Option<Type> {
-        match typ {
+        Some(match typ {
             DocType::Name(name) => {
                 let identifier = name.identifier()?;
                 let text = identifier.text();
@@ -700,7 +700,7 @@ impl<'db> Resolver<'db> {
                             };
 
                             let Ok(id) = &self.get(id).typ.to_class() else {
-                                return None;
+                                return Some(Type::ANY);
                             };
 
                             Type::Primitive(Primitive::Instance(Some(*id)))
@@ -712,13 +712,13 @@ impl<'db> Resolver<'db> {
                     self.new_reference(name.syntax().text_range(), symbol);
                 }
 
-                Some(typ)
+                typ
             }
             DocType::Array(array) => {
                 let typ = self.doc_type(array.types(), offset).unwrap_or(Type::ANY);
-                Some(Type::Primitive(Primitive::Array(Some(self.array(typ)))))
+                Type::Primitive(Primitive::Array(Some(self.array(typ))))
             }
-        }
+        })
     }
 
     fn doc_type(
@@ -928,7 +928,10 @@ impl<'db> Resolver<'db> {
                     result.push(*left);
                 }
 
-                if !matched && !other.flags.intersects(TypeFlags::ANY) {
+                if !matched
+                    && !doc.flags.intersects(TypeFlags::ANY)
+                    && !other.flags.intersects(TypeFlags::ANY)
+                {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
@@ -961,7 +964,9 @@ impl<'db> Resolver<'db> {
                     }
                 }
 
-                if !matches!(other, Primitive::Null | Primitive::Any) {
+                if !doc.flags.intersects(TypeFlags::ANY)
+                    && !matches!(other, Primitive::Null | Primitive::Any)
+                {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
@@ -979,7 +984,7 @@ impl<'db> Resolver<'db> {
                     }
                 }
 
-                if !other.flags.intersects(TypeFlags::ANY) {
+                if *doc != Primitive::Any && !other.flags.intersects(TypeFlags::ANY) {
                     self.diagnostics.push(Diagnostic {
                         message: message(self),
                         range: error_range,
@@ -994,7 +999,8 @@ impl<'db> Resolver<'db> {
                 if let Some(merged) = self.check_primitive(*doc, *other, error_range) {
                     Type::Primitive(merged)
                 } else {
-                    if !matches!(other, Primitive::Null | Primitive::Any) {
+                    if *doc != Primitive::Any && !matches!(other, Primitive::Null | Primitive::Any)
+                    {
                         self.diagnostics.push(Diagnostic {
                             message: message(self),
                             range: error_range,
