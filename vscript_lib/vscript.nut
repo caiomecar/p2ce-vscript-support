@@ -1,6 +1,6 @@
 /**
  * TF2 VScript Signatures
- * Generated from https://wiki.teamfortress.com/wiki/Team_Fortress_2/Scripting/Script_Functions
+ * Generated from https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions
  * Only for reference, do not modify
  * @native
  */
@@ -1504,7 +1504,7 @@ class CBaseCombatWeapon extends CBaseAnimating {
  * and copies `CEconEntity` methods to achieve the same result. (Why C++
  * developers are spreading their broken OOP curse on everyone else?)
  * @type {class}
- * @extends {CBaseAnimating|CEconEntity}
+ * @extends {CBaseCombatWeapon|CEconEntity}
  */
 class CTFWeaponBase extends CBaseCombatWeapon {
     /**
