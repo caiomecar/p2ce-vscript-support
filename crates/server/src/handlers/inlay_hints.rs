@@ -5,7 +5,7 @@ use lsp_types::{
 };
 use resolver::{
     ExpressionKind, FinishedFile, FunctionIdResolution, LocalKind, Primitive, Source, SymbolKind,
-    Type, VScriptDatabase, parse,
+    Type, TypeFlags, VScriptDatabase, parse,
 };
 use sq_3_parser::{
     AstNode as _, SyntaxNode,
@@ -244,8 +244,6 @@ fn parameter_hints(
 
             let func = finished_file.get(func_id);
 
-            let function_name = func.symbol.map(|s| finished_file.get(s).name.as_ref());
-
             Some(
                 call.arguments()
                     .zip(func.params.iter().copied())
@@ -260,21 +258,22 @@ fn parameter_hints(
                             return None;
                         }
 
-                        // E.g. a single argument and either param name is 1 char long (like 'x')
-                        // or function name matches the param name
-                        if func.params.len() == 1
-                            && (param.name.len() == 1
-                                || function_name.is_some_and(|n| {
-                                    param.name.to_lowercase().contains(&n.to_lowercase())
-                                }))
-                        {
-                            return None;
+                        // E.g. a single argument and param name is not a bool or possibly null
+                        // since otherwise in most cases it's clear without the hint regardless
+                        if func.params.len() == 1 {
+                            let flags = finished_file.get(func.params[0]).typ.type_flags();
+
+                            if !flags.intersects(TypeFlags::BOOL)
+                                && !flags.intersects(TypeFlags::NULL)
+                            {
+                                return None;
+                            }
                         }
 
                         // e.g. passing a variable that has the similar name as the param
                         if let ast::Expr::Name(n) = &arg
                             && n.identifier().is_some_and(|t| {
-                                param.name.to_lowercase().contains(&t.text().to_lowercase())
+                                t.text().to_lowercase().contains(&param.name.to_lowercase())
                             })
                         {
                             return None;
