@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.2.1]
+- Replace every 'unknown' type with 'any' since they're used similarly
+- Don't show single argument function parameter hints (unless they're bool or nullable)
+
 ## [3.2.0]
 - Move to pull-based diagnostics (sadly losing syntax and semantic separation)
 - Add some more configuration options
