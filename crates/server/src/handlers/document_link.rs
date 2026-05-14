@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use lsp_types::{DocumentLink, DocumentLinkParams};
 use resolver::{
-    ExpressionKind, FinishedFile, Primitive, Source, StringKind, Type, VScriptDatabase,
+    ExpressionKind, SourceCtx, Primitive, Source, StringKind, Type, VScriptDatabase,
 };
 
 use crate::positions;
@@ -15,11 +15,11 @@ pub fn handle_document_link<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
 
-    let links: Vec<_> = finished_file
+    let links: Vec<_> = ctx
         .range_to_expr()
         .values()
         .filter_map(|expr| {
@@ -35,9 +35,9 @@ pub fn handle_document_link<Db: VScriptDatabase>(
                 return None;
             }
 
-            let literal = finished_file.get(*literal);
+            let literal = ctx.get(*literal);
             let rel_path = PathBuf::from(literal.text.to_string());
-            let script = finished_file.db().get_script(rel_path).ok()?;
+            let script = ctx.db().get_script(rel_path).ok()?;
             let url = db.get_url(&script)?;
 
             Some(DocumentLink {

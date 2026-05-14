@@ -1,5 +1,5 @@
 use lsp_types::{Location, ReferenceParams};
-use resolver::{FinishedFile, Source, SymbolKind, VScriptDatabase, parse, token_name_range};
+use resolver::{SourceCtx, Source, SymbolKind, VScriptDatabase, parse, token_name_range};
 
 use crate::positions;
 
@@ -11,7 +11,7 @@ pub fn handle_references<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position.position)
@@ -25,12 +25,12 @@ pub fn handle_references<Db: VScriptDatabase>(
 
     let range = token_name_range(&token);
 
-    let Some(reference_id) = finished_file.symbol_at(range) else {
+    let Some(reference_id) = ctx.symbol_at(range) else {
         return Ok(None);
     };
 
     // can't do token.text() if the token is a string that got unquoted
-    let reference_file = FinishedFile::new(db, finished_file.file());
+    let reference_file = SourceCtx::new(db, ctx.file());
     let reference = reference_file.get(reference_id);
     let name = reference.name.as_ref();
     let name_range = reference.name_range;
@@ -73,7 +73,7 @@ pub fn handle_references<Db: VScriptDatabase>(
             continue;
         }
 
-        let candidate = FinishedFile::new(db, candidate_file);
+        let candidate = SourceCtx::new(db, candidate_file);
 
         let Some(ranges) = candidate.symbol_to_ranges().get(&reference_id) else {
             continue;

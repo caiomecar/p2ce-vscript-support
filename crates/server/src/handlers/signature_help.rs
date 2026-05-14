@@ -3,7 +3,7 @@ use lsp_types::{
     SignatureHelpParams, SignatureInformation,
 };
 use resolver::{
-    ExpressionKind, FinishedFile, FunctionIdResolution, FunctionMarkdown, Source, VScriptDatabase,
+    ExpressionKind, SourceCtx, FunctionIdResolution, FunctionMarkdown, Source, VScriptDatabase,
     parse,
 };
 use sq_3_parser::{AstNode, ast};
@@ -18,7 +18,7 @@ pub fn handle_signature_help<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position_params.position)
@@ -39,17 +39,17 @@ pub fn handle_signature_help<Db: VScriptDatabase>(
         return Ok(None);
     };
 
-    let kind = finished_file.expr_kind_at(callee.syntax().text_range());
+    let kind = ctx.expr_kind_at(callee.syntax().text_range());
     let (name, typ) = match kind {
         Some(ExpressionKind::Literal(typ)) => (String::new(), typ),
         Some(ExpressionKind::Symbol(id)) => {
-            let symbol = finished_file.get(*id);
+            let symbol = ctx.get(*id);
             (symbol.name.to_string(), &symbol.typ)
         }
         None => return Ok(None),
     };
 
-    let id = match finished_file.to_function_id(typ, offset) {
+    let id = match ctx.to_function_id(typ, offset) {
         Some(FunctionIdResolution::Function(id)) => id,
         Some(FunctionIdResolution::DefaultConstructor) => {
             return Ok(Some(SignatureHelp {
@@ -80,15 +80,15 @@ pub fn handle_signature_help<Db: VScriptDatabase>(
         }
     }
 
-    let (label, param_ranges) = finished_file.function_markdown(FunctionMarkdown::Full(&name), id);
-    let func = finished_file.get(id);
+    let (label, param_ranges) = ctx.function_markdown(FunctionMarkdown::Full(&name), id);
+    let func = ctx.get(id);
 
     let param_infos = func
         .params
         .iter()
         .zip(&param_ranges)
         .map(|(param_id, range)| {
-            let param = finished_file.get(*param_id);
+            let param = ctx.get(*param_id);
             ParameterInformation {
                 label: ParameterLabel::LabelOffsets(*range),
                 documentation: param.description.clone().map(|d| {
@@ -107,7 +107,7 @@ pub fn handle_signature_help<Db: VScriptDatabase>(
             parameters: Some(param_infos),
             documentation: func
                 .symbol
-                .and_then(|s| finished_file.get(s).description.clone())
+                .and_then(|s| ctx.get(s).description.clone())
                 .map(|d| {
                     Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,

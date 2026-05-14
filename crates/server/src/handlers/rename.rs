@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use lsp_types::{RenameParams, TextEdit, Url, WorkspaceEdit};
 use resolver::{
-    FinishedFile, LocalKind, Source, SymbolKind, VScriptDatabase, parse, token_name_range,
+    SourceCtx, LocalKind, Source, SymbolKind, VScriptDatabase, parse, token_name_range,
 };
 
 use crate::positions;
@@ -15,7 +15,7 @@ pub fn handle_rename<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position.position)
@@ -29,11 +29,11 @@ pub fn handle_rename<Db: VScriptDatabase>(
 
     let range = token_name_range(&token);
 
-    let Some(symbol_id) = finished_file.symbol_at(range) else {
+    let Some(symbol_id) = ctx.symbol_at(range) else {
         return Ok(None);
     };
 
-    if finished_file.get(symbol_id).kind == SymbolKind::Local(LocalKind::VariedArgs) {
+    if ctx.get(symbol_id).kind == SymbolKind::Local(LocalKind::VariedArgs) {
         return Ok(None);
     }
 
@@ -42,8 +42,8 @@ pub fn handle_rename<Db: VScriptDatabase>(
 
     let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
 
-    if matches!(finished_file.get(symbol_id).kind, SymbolKind::Local(_)) {
-        if let Some(ranges) = finished_file.symbol_to_ranges().get(&symbol_id) {
+    if matches!(ctx.get(symbol_id).kind, SymbolKind::Local(_)) {
+        if let Some(ranges) = ctx.symbol_to_ranges().get(&symbol_id) {
             for &text_range in ranges {
                 let range = positions::range(line_idx, text_range).ok_or_else(|| {
                     anyhow::format_err!("Couldn't convert text range to lsp range")
@@ -74,7 +74,7 @@ pub fn handle_rename<Db: VScriptDatabase>(
             continue;
         }
 
-        let candidate = FinishedFile::new(db, candidate_file);
+        let candidate = SourceCtx::new(db, candidate_file);
 
         let Some(ranges) = candidate.symbol_to_ranges().get(&symbol_id) else {
             continue;

@@ -1135,9 +1135,9 @@ pub fn token_name_range(token: &SyntaxToken) -> TextRange {
     }
 }
 
-pub struct FinishedFile<'db>(&'db dyn VScriptDatabase, File);
+pub struct SourceCtx<'db>(&'db dyn VScriptDatabase, File);
 
-impl<'db> FinishedFile<'db> {
+impl<'db> SourceCtx<'db> {
     pub fn new(db: &'db dyn VScriptDatabase, file: File) -> Self {
         // Wait until ready: source symbol has been computed
         source_symbol(db, file);
@@ -1149,7 +1149,7 @@ impl<'db> FinishedFile<'db> {
     }
 }
 
-impl Source for FinishedFile<'_> {
+impl Source for SourceCtx<'_> {
     fn arena(&self) -> &SourceArena {
         &self.source().arena
     }

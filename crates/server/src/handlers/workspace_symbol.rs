@@ -3,7 +3,7 @@ use lsp_types::{
     Location, SymbolInformation, SymbolKind as LspSymbolKind, SymbolTag, WorkspaceSymbolParams,
     WorkspaceSymbolResponse,
 };
-use resolver::{DisplayType, FinishedFile, Source, SymbolFlags, SymbolKind, VScriptDatabase};
+use resolver::{DisplayType, Source, SourceCtx, SymbolFlags, SymbolKind, VScriptDatabase};
 
 #[allow(clippy::unnecessary_wraps, clippy::needless_pass_by_value)]
 pub fn handle_workspace_symbol<Db: VScriptDatabase>(
@@ -22,10 +22,10 @@ pub fn handle_workspace_symbol<Db: VScriptDatabase>(
             continue;
         }
 
-        let finished_file = FinishedFile::new(db, file);
+        let ctx = SourceCtx::new(db, file);
         let line_idx = positions::line_index(db, file);
 
-        for (_, symbol) in finished_file.all_symbols() {
+        for (_, symbol) in ctx.all_symbols() {
             // Only top-level symbols worth showing
             if let SymbolKind::Local(_) = symbol.kind {
                 continue;

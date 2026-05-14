@@ -10,7 +10,7 @@ use salsa::Setter;
 use sq_3_parser::Parse;
 
 use crate::{
-    FinishedFile, Primitive, Source, SourceSymbol, SymbolId, Type,
+    SourceCtx, Primitive, Source, SourceSymbol, SymbolId, Type,
     arena::{ArenaId, FunctionId},
     resolver::Resolver,
     symbol::{FlatSymbolTable, to_flat_symbol_table},
@@ -575,20 +575,20 @@ pub fn source_symbol(db: &dyn VScriptDatabase, file: File) -> SourceSymbol {
 
 #[salsa::tracked]
 pub fn top_root_members(db: &dyn VScriptDatabase, file: File) -> FlatSymbolTable {
-    let finished_file = FinishedFile::new(db, file);
-    to_flat_symbol_table(finished_file.additional_table_members(finished_file.root_table()))
+    let ctx = SourceCtx::new(db, file);
+    to_flat_symbol_table(ctx.additional_table_members(ctx.root_table()))
 }
 
 #[salsa::tracked]
 pub fn top_source_members(db: &dyn VScriptDatabase, file: File) -> FlatSymbolTable {
-    let finished_file = FinishedFile::new(db, file);
-    to_flat_symbol_table(finished_file.additional_table_members(finished_file.source_table()))
+    let ctx = SourceCtx::new(db, file);
+    to_flat_symbol_table(ctx.additional_table_members(ctx.source_table()))
 }
 
 #[salsa::tracked]
 pub fn top_const_members(db: &dyn VScriptDatabase, file: File) -> FlatSymbolTable {
-    let finished_file = FinishedFile::new(db, file);
-    to_flat_symbol_table(finished_file.additional_table_members(finished_file.const_table()))
+    let ctx = SourceCtx::new(db, file);
+    to_flat_symbol_table(ctx.additional_table_members(ctx.const_table()))
 }
 
 #[salsa::tracked]

@@ -2,7 +2,7 @@ use lsp_types::{
     Location,
     request::{GotoTypeDefinitionParams, GotoTypeDefinitionResponse},
 };
-use resolver::{ArenaId, FinishedFile, Source, VScriptDatabase, parse, token_name_range};
+use resolver::{ArenaId, Source, SourceCtx, VScriptDatabase, parse, token_name_range};
 
 use crate::positions;
 
@@ -14,7 +14,7 @@ pub fn handle_go_to_type_definition<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position_params.position)
@@ -29,18 +29,18 @@ pub fn handle_go_to_type_definition<Db: VScriptDatabase>(
 
     let range = token_name_range(&token);
 
-    let Some(symbol_id) = finished_file.symbol_at(range) else {
+    let Some(symbol_id) = ctx.symbol_at(range) else {
         return Ok(None);
     };
 
-    let symbol = finished_file.get(symbol_id);
-    let Some(type_id) = finished_file.type_to_symbol(&symbol.typ) else {
+    let symbol = ctx.get(symbol_id);
+    let Some(type_id) = ctx.type_to_symbol(&symbol.typ) else {
         return Ok(None);
     };
 
     let file = type_id.file();
     let line_idx = positions::line_index(db, file);
-    let name_range = finished_file.get(type_id).name_range;
+    let name_range = ctx.get(type_id).name_range;
 
     let uri = db
         .get_url(&file)

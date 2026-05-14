@@ -1,5 +1,5 @@
 use lsp_types::{PrepareRenameResponse, TextDocumentPositionParams};
-use resolver::{FinishedFile, Source, VScriptDatabase, parse, token_name_range};
+use resolver::{SourceCtx, Source, VScriptDatabase, parse, token_name_range};
 
 use crate::positions;
 
@@ -11,7 +11,7 @@ pub fn handle_prepare_rename<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.position)
@@ -25,7 +25,7 @@ pub fn handle_prepare_rename<Db: VScriptDatabase>(
 
     let text_range = token_name_range(&token);
 
-    if finished_file.symbol_at(text_range).is_none() {
+    if ctx.symbol_at(text_range).is_none() {
         return Ok(None);
     }
 

@@ -4,7 +4,7 @@ use lsp_types::{
     SemanticTokensRangeResult, SemanticTokensResult,
 };
 use resolver::{
-    DisplayType, FinishedFile, LocalKind, Source, Symbol, SymbolFlags, SymbolKind, Type,
+    DisplayType, SourceCtx, LocalKind, Source, Symbol, SymbolFlags, SymbolKind, Type,
     VScriptDatabase,
 };
 
@@ -36,11 +36,11 @@ pub fn handle_semantic_tokens_full<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
 
-    let mut entries: Vec<_> = finished_file
+    let mut entries: Vec<_> = ctx
         .range_to_symbol()
         .clone()
         .into_iter()
@@ -53,7 +53,7 @@ pub fn handle_semantic_tokens_full<Db: VScriptDatabase>(
     let tokens = entries
         .into_iter()
         .map(|(text_range, id)| {
-            let symbol = finished_file.get(id);
+            let symbol = ctx.get(id);
             symbol_to_semantic_token(
                 symbol,
                 line_idx,
@@ -82,13 +82,13 @@ pub fn handle_semantic_tokens_range<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let highlight_range = positions::text_range(line_idx, params.range)
         .ok_or_else(|| anyhow::format_err!("Range is out of bounds"))?;
 
-    let mut entries: Vec<_> = finished_file
+    let mut entries: Vec<_> = ctx
         .range_to_symbol()
         .clone()
         .into_iter()
@@ -105,7 +105,7 @@ pub fn handle_semantic_tokens_range<Db: VScriptDatabase>(
                 return None;
             }
 
-            let symbol = finished_file.get(id);
+            let symbol = ctx.get(id);
             Some(symbol_to_semantic_token(
                 symbol,
                 line_idx,

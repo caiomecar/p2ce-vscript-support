@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Range};
 use resolver::{
-    ArenaId, ExpressionKind, FinishedFile, Primitive, Source, StringKind, Type, VScriptDatabase,
+    ArenaId, ExpressionKind, SourceCtx, Primitive, Source, StringKind, Type, VScriptDatabase,
     parse, token_name_range,
 };
 
@@ -16,7 +16,7 @@ pub fn handle_go_to_definition<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position_params.position)
@@ -31,11 +31,11 @@ pub fn handle_go_to_definition<Db: VScriptDatabase>(
     if let Some(ExpressionKind::Literal(Type::Primitive(Primitive::String {
         kind,
         literal: Some(literal),
-    }))) = finished_file.expr_kind_at(token.text_range())
+    }))) = ctx.expr_kind_at(token.text_range())
         && *kind == StringKind::Script
     {
-        let path = PathBuf::from(finished_file.get(*literal).text.to_string());
-        if let Ok(script) = finished_file.db().get_script(path) {
+        let path = PathBuf::from(ctx.get(*literal).text.to_string());
+        if let Ok(script) = ctx.db().get_script(path) {
             let uri = db
                 .get_url(&script)
                 .ok_or_else(|| anyhow::format_err!("Definition file wasn't found in workspace"))?;
@@ -48,13 +48,13 @@ pub fn handle_go_to_definition<Db: VScriptDatabase>(
     }
 
     let range = token_name_range(&token);
-    let Some(id) = finished_file.symbol_at(range) else {
+    let Some(id) = ctx.symbol_at(range) else {
         return Ok(None);
     };
 
     let file = id.file();
     let line_idx = positions::line_index(db, file);
-    let symbol = finished_file.get(id);
+    let symbol = ctx.get(id);
 
     let uri = db
         .get_url(&file)

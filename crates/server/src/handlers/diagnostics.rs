@@ -6,7 +6,7 @@ use lsp_types::{
     WorkspaceDiagnosticReportResult, WorkspaceDocumentDiagnosticReport,
     WorkspaceFullDocumentDiagnosticReport,
 };
-use resolver::{FinishedFile, Source as _, VScriptDatabase, parse};
+use resolver::{Source as _, SourceCtx, VScriptDatabase, parse};
 
 use crate::positions;
 
@@ -112,11 +112,11 @@ fn compute_semantic_diagnostics<Db: VScriptDatabase>(
     let file = db
         .get_file(url)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
 
-    Ok(finished_file
+    Ok(ctx
         .diagnostics()
         .iter()
         .filter_map(|diagnostic| {

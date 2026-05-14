@@ -2,7 +2,7 @@ use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind as LspSymbolKind,
     SymbolTag,
 };
-use resolver::{DisplayType, FinishedFile, Source, Symbol, SymbolFlags, VScriptDatabase};
+use resolver::{DisplayType, SourceCtx, Source, Symbol, SymbolFlags, VScriptDatabase};
 
 use crate::positions;
 
@@ -14,11 +14,11 @@ pub fn handle_document_symbol<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
 
-    let mut symbols: Vec<_> = finished_file
+    let mut symbols: Vec<_> = ctx
         .all_symbols()
         .map(|(_, symbol)| symbol)
         .collect();
@@ -72,7 +72,7 @@ pub fn handle_document_symbol<Db: VScriptDatabase>(
         #[allow(deprecated)]
         let doc_symbol = DocumentSymbol {
             name,
-            detail: Some(finished_file.type_to_str(&symbol.typ).into_string()),
+            detail: Some(ctx.type_to_str(&symbol.typ).into_string()),
             kind,
             range,
             selection_range: name_range,

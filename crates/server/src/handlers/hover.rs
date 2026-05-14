@@ -1,5 +1,5 @@
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
-use resolver::{FinishedFile, Source, VScriptDatabase, parse, token_name_range};
+use resolver::{SourceCtx, Source, VScriptDatabase, parse, token_name_range};
 use sq_3_parser::SyntaxKind;
 
 use crate::positions;
@@ -12,7 +12,7 @@ pub fn handle_hover<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let ctx = SourceCtx::new(db, file);
 
     let line_idx = positions::line_index(db, file);
     let offset = positions::test_size(line_idx, params.text_document_position_params.position)
@@ -26,8 +26,8 @@ pub fn handle_hover<Db: VScriptDatabase>(
 
     let range = token_name_range(&token);
 
-    let content = if let Some(id) = finished_file.symbol_at(range) {
-        finished_file.symbol_markdown(id)
+    let content = if let Some(id) = ctx.symbol_at(range) {
+        ctx.symbol_markdown(id)
     } else if token.kind() == SyntaxKind::Identifier {
         format!("```sqDoc\n{}: any\n```", token.text())
     } else {
