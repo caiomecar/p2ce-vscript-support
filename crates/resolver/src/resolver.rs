@@ -379,13 +379,14 @@ impl<'db> Resolver<'db> {
         assert_eq!(this.arena[this.scope].parent, None);
 
         // Resolve remaining functions
+        let offset = node.syntax().text_range().end() + TextSize::new(1);
         while let Some(idx) = this.deferred_functions.keys().next().copied() {
             let trace = this
                 .deferred_functions
                 .remove(&idx)
                 .expect("We just got this index");
             let entry = DeferredFunctionEntry { idx, trace };
-            this.resolve_function_doc(&entry, node.syntax().text_range().end());
+            this.resolve_function_doc(&entry, offset);
             this.resolve_deferred_function_entry(&entry);
         }
 
