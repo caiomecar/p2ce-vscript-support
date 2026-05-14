@@ -4,7 +4,7 @@ use lsp_types::{
     MarkupKind,
 };
 use resolver::{
-    ExpressionKind, FinishedFile, FunctionIdResolution, LocalKind, Primitive, Source, SymbolKind,
+    ExpressionKind, FileQuery, FunctionIdResolution, LocalKind, Primitive, Source, SymbolKind,
     Type, TypeFlags, VScriptDatabase, parse,
 };
 use sq_3_parser::{
@@ -26,7 +26,7 @@ pub fn handle_inlay_hint<Db: VScriptDatabase>(
     let file = db
         .get_file(&uri)
         .ok_or_else(|| anyhow::format_err!("File not found in workspace"))?;
-    let finished_file = FinishedFile::new(db, file);
+    let query = FileQuery::new(db, file);
 
     let syntax = parse(db, file).syntax();
     let line_idx = positions::line_index(db, file);
@@ -37,7 +37,7 @@ pub fn handle_inlay_hint<Db: VScriptDatabase>(
     if db.config().type_hints {
         hints.extend(type_hints(
             line_idx,
-            &finished_file,
+            &query,
             &range,
             &syntax,
             db.config().enum_member_value,
@@ -45,7 +45,7 @@ pub fn handle_inlay_hint<Db: VScriptDatabase>(
     }
 
     if db.config().parameter_hints {
-        hints.extend(parameter_hints(line_idx, &finished_file, &range, &syntax));
+        hints.extend(parameter_hints(line_idx, &query, &range, &syntax));
     }
 
     if hints.is_empty() {
@@ -57,12 +57,12 @@ pub fn handle_inlay_hint<Db: VScriptDatabase>(
 
 fn type_hints(
     line_idx: &LineIndex,
-    finished_file: &FinishedFile,
+    query: &FileQuery,
     range: &TextRange,
     syntax: &SyntaxNode,
     enum_member_value_allowed: bool,
 ) -> impl Iterator<Item = InlayHint> {
-    finished_file.all_symbols().filter_map(move |(_, symbol)| {
+    query.all_symbols().filter_map(move |(_, symbol)| {
         if !range.contains_range(symbol.name_range) {
             return None;
         }
@@ -114,7 +114,7 @@ fn type_hints(
             && var
                 .initialiser()
                 .and_then(|i| i.expression())
-                .is_some_and(|e| expr_obviously_has_type(&e, &symbol.typ))
+                .is_some_and(|e| expr_obviously_has_type(query, &e, &symbol.typ))
         {
             return None;
         }
@@ -122,7 +122,7 @@ fn type_hints(
         if let Some(var) = ast::Property::cast(node.clone())
             && var
                 .value()
-                .is_some_and(|e| expr_obviously_has_type(&e, &symbol.typ))
+                .is_some_and(|e| expr_obviously_has_type(query, &e, &symbol.typ))
         {
             return None;
         }
@@ -130,16 +130,16 @@ fn type_hints(
         if let Some(var) = ast::BinaryExpression::cast(node)
             && var
                 .rhs()
-                .is_some_and(|e| expr_obviously_has_type(&e, &symbol.typ))
+                .is_some_and(|e| expr_obviously_has_type(query, &e, &symbol.typ))
         {
             return None;
         }
 
-        let label = format!(": {}", finished_file.type_to_str(&symbol.typ));
+        let label = format!(": {}", query.type_to_str(&symbol.typ));
         let tooltip = if let Ok(id) = symbol.typ.to_instance()
-            && let Some(class_symbol_id) = finished_file.get(id).symbol
+            && let Some(class_symbol_id) = query.get(id).symbol
         {
-            let content = finished_file.symbol_markdown(class_symbol_id);
+            let content = query.symbol_markdown(class_symbol_id);
 
             Some(InlayHintTooltip::MarkupContent(MarkupContent {
                 kind: MarkupKind::Markdown,
@@ -164,7 +164,7 @@ fn type_hints(
     })
 }
 
-fn expr_obviously_has_type(expr: &Expr, typ: &Type) -> bool {
+fn expr_obviously_has_type(query: &FileQuery, expr: &Expr, typ: &Type) -> bool {
     let Ok(primitive) = Primitive::try_from(typ) else {
         return false;
     };
@@ -206,13 +206,33 @@ fn expr_obviously_has_type(expr: &Expr, typ: &Type) -> bool {
         Expr::ArrayLiteral(_) => {
             matches!(primitive, Primitive::Array(None))
         }
+        Expr::Call(call) => {
+            // Constructor call
+            let Primitive::Instance(Some(id)) = primitive else {
+                return false;
+            };
+
+            let Some(callee) = call.callee().and_then(|c| c.expression()) else {
+                return false;
+            };
+
+            query
+                .symbol_at(callee.syntax().text_range())
+                .is_some_and(|symbol_id| {
+                    let Ok(class) = query.get(symbol_id).typ.to_class() else {
+                        return false;
+                    };
+
+                    class == id
+                })
+        }
         _ => false,
     }
 }
 
 fn parameter_hints(
     line_idx: &LineIndex,
-    finished_file: &FinishedFile,
+    query: &FileQuery,
     range: &TextRange,
     syntax: &SyntaxNode,
 ) -> impl Iterator<Item = InlayHint> {
@@ -229,20 +249,20 @@ fn parameter_hints(
                 return None;
             }
 
-            let kind = finished_file.expr_kind_at(callee.syntax().text_range());
+            let kind = query.expr_kind_at(callee.syntax().text_range());
             let typ = match kind {
                 Some(ExpressionKind::Literal(typ)) => typ,
-                Some(ExpressionKind::Symbol(id)) => &finished_file.get(*id).typ,
+                Some(ExpressionKind::Symbol(id)) => &query.get(*id).typ,
                 None => return None,
             };
 
             let Some(FunctionIdResolution::Function(func_id)) =
-                finished_file.to_function_id(typ, callee.syntax().text_range().end())
+                query.to_function_id(typ, callee.syntax().text_range().end())
             else {
                 return None;
             };
 
-            let func = finished_file.get(func_id);
+            let func = query.get(func_id);
 
             Some(
                 call.arguments()
@@ -252,7 +272,7 @@ fn parameter_hints(
                             return None;
                         }
 
-                        let param = finished_file.get(param_id);
+                        let param = query.get(param_id);
 
                         if param.name.starts_with('_') {
                             return None;
@@ -261,7 +281,7 @@ fn parameter_hints(
                         // E.g. a single argument and param name is not a bool or possibly null
                         // since otherwise in most cases it's clear without the hint regardless
                         if func.params.len() == 1 {
-                            let flags = finished_file.get(func.params[0]).typ.type_flags();
+                            let flags = query.get(func.params[0]).typ.type_flags();
 
                             if !flags.intersects(TypeFlags::BOOL)
                                 && !flags.intersects(TypeFlags::NULL)
