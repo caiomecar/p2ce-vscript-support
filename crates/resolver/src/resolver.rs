@@ -691,7 +691,7 @@ impl<'db> Resolver<'db> {
                             let Some(id) = self.resolve_name(text, offset) else {
                                 self.diagnostics.push(Diagnostic {
                                     message: format!(
-                                        "Couldn't find type '{identifier}', defaulting to using 'unknown'"
+                                        "Couldn't find type '{identifier}', defaulting to using 'any'"
                                     ),
                                     range: name.syntax().text_range(),
                                     severity: DiagnosticSeverity::Information,
