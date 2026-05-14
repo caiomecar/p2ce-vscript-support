@@ -109,7 +109,18 @@ function getroottable();
  * @param {integer} level
  * @returns {table|null} `null` if the stack level doesn't exist.
  */
-function getstackinfos(level);
+function getstackinfos(level) {
+    return {
+        /** @type {string} */
+        func = null
+        /** @type {string} */
+        src = null
+        /** @type {integer} */
+        line = null
+        /** @type {table} */
+        locals = null
+    }
+}
 
 /**
  * Prints the given parameter with no newline.
@@ -439,9 +450,18 @@ class regexp {
      * @type {function}
      * @param {string} str
      * @param {integer} start Defaults to `0`
-     * @returns {table|null} `null` if no match occurs.
+     * @returns {[table]|null} `null` if no match occurs.
      */
-    function capture(str, start = 0);
+    function capture(str, start = 0) {
+        return [
+            {
+                /** @type {integer} */
+                begin = null
+                /** @type {integer} */
+                end = null
+            }
+        ]
+    }
 
     /**
      * Returns `true` if the regular expression matches the entire string.
@@ -458,7 +478,14 @@ class regexp {
      * @param {integer} start
      * @returns {table|null}
      */
-    function search(str, start = 0);
+    function search(str, start = 0) {
+        return {
+            /** @type {integer} */
+            begin = null
+            /** @type {integer} */
+            end = null
+        }
+    }
 
     /**
      * Returns the number of sub-expression groups in the regular expression. Always `>= 1` since the whole regex counts as a group.

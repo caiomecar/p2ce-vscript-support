@@ -537,7 +537,37 @@ class function_ {
      * @type {function}
      * @returns {table}
      */
-    function getinfos();
+    function getinfos() {
+        return {
+            /** @type {bool} */
+            native = null
+            /** @type {string|null} */
+            name = null
+            /** @type {string} */
+            src = null
+            /** @type {[string]} */
+            parameters = null
+            /** @type {integer} */
+            varargs = null
+            /**
+             * Seems to be a cummulative sum of all default parameters?
+             * Breaks if you cannot add adjacent parameters together
+             * This language is so weird
+             * @type {array}
+             */
+            defparams = null
+            /**
+             * Only present for native functions
+             * @type {integer}
+             */
+            paramscheck = null
+            /**
+             * Only present for native functions
+             * @type {[integer]}
+             */
+            typecheck = null
+        }
+    }
 
     /**
      * Returns the root table of the closure.
@@ -775,7 +805,18 @@ class thread {
      * @param {integer} level
      * @returns {table|null}
      */
-    function getstackinfos(level);
+    function getstackinfos(level) {
+        return {
+            /** @type {string} */
+            func = null
+            /** @type {string} */
+            src = null
+            /** @type {integer} */
+            line = null
+            /** @type {table} */
+            locals = null
+        }
+    }
 
     /**
      * Returns the status of the thread as a string: `"idle"`, `"running"` or `"suspended"`.

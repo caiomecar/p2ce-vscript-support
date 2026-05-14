@@ -467,7 +467,16 @@ class CBaseEntity {
      * @type {function}
      * @returns {table|null}
      */
-    function GetScriptScope();
+    function GetScriptScope() {
+        return {
+            /** @type {this} */
+            self = null
+            /** @type {string} */
+            __vname = null
+            /** @type {integer} */
+            __vrefs = null
+        }
+    }
 
     /**
      * Retrieve the name of the current script think func.
