@@ -223,16 +223,18 @@ fn on_notifications<Db: VScriptDatabase + Clone + RefUnwindSafe>(
                 let uri = &change.uri;
                 match change.typ {
                     FileChangeType::CHANGED | FileChangeType::CREATED => {
-                        let Some(file) = session.db.get_file(uri) else {
-                            continue;
-                        };
                         let Ok(path) = uri.to_file_path() else {
                             continue;
                         };
                         let Ok(text) = std::fs::read_to_string(&path) else {
                             continue;
                         };
-                        file.set_text(&mut session.db).to(text);
+
+                        if let Some(file) = session.db.get_file(uri) {
+                            file.set_text(&mut session.db).to(text);
+                        } else {
+                            session.db.open_file(uri, text);
+                        }
                     }
                     FileChangeType::DELETED => {
                         let Some(file) = session.db.get_files().remove(uri).map(|e| e.1) else {
