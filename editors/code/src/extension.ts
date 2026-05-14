@@ -125,7 +125,9 @@ export function activate(context: vscode.ExtensionContext) {
                 });
             }
 
-            if (e.affectsConfiguration('tf2vscript.tf2RootPath') || e.affectsConfiguration('tf2vscript.unusedVariables') || e.affectsConfiguration('tf2vscript.unusedVariables')) {
+            if (e.affectsConfiguration('tf2vscript.tf2RootPath')
+                || e.affectsConfiguration('tf2vscript.unusedVariables')
+                || e.affectsConfiguration('tf2vscript.unreachableCode')) {
                 vscode.window.showInformationMessage(
                     'TF2 VScript: Edit a file to refresh diagnostics with the new settings.'
                 );
