@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.2.3]
+- Improve stdlib documentation
+- Don't show inlay hints for obvious constructor call
+- Fix classes declared at the end of the file not being found in their method doc comment
+
 ## [3.2.2]
 - Fix explicit type of 'any' not allowing setting the value to anything
 - Fix wrong omitting condition for static class members
