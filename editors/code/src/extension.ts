@@ -11,15 +11,15 @@ import { workspace } from 'vscode';
 let client: LanguageClient;
 
 function inDebug(): boolean {
-    return process.env["TF2_VSCRIPT_LS_DEV"] === "1";
+    return process.env["P2CE_VSCRIPT_LS_DEV"] === "1";
 }
 
 function getLocalServerPath(): string {
     const isWindows = process.platform == "win32";
     if (inDebug()) {
-        return path.join("..", "..", "target", "debug", isWindows ? "tf2-vscript-ls.exe" : "tf2-vscript-ls");
+        return path.join("..", "..", "target", "debug", isWindows ? "p2ce-vscript-ls.exe" : "p2ce-vscript-ls");
     }
-    return path.join("server", isWindows ? "tf2-vscript-ls.exe" : "tf2-vscript-ls");
+    return path.join("server", isWindows ? "p2ce-vscript-ls.exe" : "p2ce-vscript-ls");
 }
 
 async function selectTF2Root() {
@@ -36,7 +36,7 @@ async function selectTF2Root() {
     }
 
     const selectedPath = result[0].fsPath;
-    const config = vscode.workspace.getConfiguration('tf2vscript');
+    const config = vscode.workspace.getConfiguration('p2ce_vscript');
     await config.update('tf2RootPath', selectedPath, vscode.ConfigurationTarget.Global);
     vscode.window.showInformationMessage(`TF2 VScript: TF2Root set to "${selectedPath}"`);
 }
@@ -53,7 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
         options: { env },
     };
 
-    const config = vscode.workspace.getConfiguration('tf2vscript');
+    const config = vscode.workspace.getConfiguration('p2ce_vscript');
     const tf2RootPath = config.get<string>('tf2RootPath') ?? '';
 
     if (!tf2RootPath) {
@@ -65,7 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (selection === 'Select Directory') {
                 selectTF2Root();
             } else if (selection === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'tf2vscript.tf2RootPath');
+                vscode.commands.executeCommand('workbench.action.openSettings', 'p2ce_vscript.tf2RootPath');
             }
         });
     }
@@ -84,7 +84,7 @@ export function activate(context: vscode.ExtensionContext) {
     const serverOptions: ServerOptions = { run, debug: run };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ language: 'tf2vscript' }],
+        documentSelector: [{ language: 'p2ce_vscript' }],
         synchronize: {
             fileEvents: workspace.createFileSystemWatcher('**/*.nut')
         },
@@ -105,8 +105,8 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     client = new LanguageClient(
-        'tf2-vscript-language-server',
-        'TF2 VScript Language Server',
+        'p2ce-vscript-language-server',
+        'P2CE VScript Language Server',
         serverOptions,
         clientOptions
     );
@@ -114,20 +114,20 @@ export function activate(context: vscode.ExtensionContext) {
     client.start();
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('tf2vscript.selectTF2Root', selectTF2Root)
+        vscode.commands.registerCommand('p2ce_vscript.selectTF2Root', selectTF2Root)
     );
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async e => {
-            if (e.affectsConfiguration('tf2vscript')) {
+            if (e.affectsConfiguration('p2ce_vscript')) {
                 client.sendNotification('workspace/didChangeConfiguration', {
-                    settings: vscode.workspace.getConfiguration('tf2vscript')
+                    settings: vscode.workspace.getConfiguration('p2ce_vscript')
                 });
             }
 
-            if (e.affectsConfiguration('tf2vscript.tf2RootPath')
-                || e.affectsConfiguration('tf2vscript.unusedVariables')
-                || e.affectsConfiguration('tf2vscript.unreachableCode')) {
+            if (e.affectsConfiguration('p2ce_vscript.tf2RootPath')
+                || e.affectsConfiguration('p2ce_vscript.unusedVariables')
+                || e.affectsConfiguration('p2ce_vscript.unreachableCode')) {
                 vscode.window.showInformationMessage(
                     'TF2 VScript: Edit a file to refresh diagnostics with the new settings.'
                 );

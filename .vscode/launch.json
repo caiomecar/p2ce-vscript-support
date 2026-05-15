@@ -14,7 +14,7 @@
       ],
       "autoAttachChildProcesses": true,
       "env": {
-        "TF2_VSCRIPT_LS_DEV": "1",
+        "P2CE_VSCRIPT_LS_DEV": "1",
         "RUST_BACKTRACE": "1"
       },
       "preLaunchTask": "cargo build",
@@ -23,7 +23,7 @@
       "name": "Attach to Rust Server",
       "type": "lldb",
       "request": "attach",
-      "program": "${workspaceFolder}/target/debug/tf2-vscript-ls",
+      "program": "${workspaceFolder}/target/debug/p2ce-vscript-ls",
       "stopOnEntry": false
     }
   ]

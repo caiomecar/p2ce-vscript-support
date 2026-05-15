@@ -578,6 +578,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
+name = "p2ce-vscript-ls"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitflags 2.11.0",
+ "crossbeam-channel",
+ "crossbeam-utils",
+ "db",
+ "jod-thread",
+ "libc",
+ "line-index",
+ "log",
+ "lsp-server",
+ "lsp-types",
+ "resolver",
+ "rustc-hash 2.1.1",
+ "salsa",
+ "serde",
+ "serde_json",
+ "sq-3-parser",
+ "stderrlog",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -992,30 +1016,6 @@ name = "text-size"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f18aa187839b2bdb1ad2fa35ead8c4c2976b64e4363c386d45ac0f7ee85c9233"
-
-[[package]]
-name = "tf2-vscript-ls"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitflags 2.11.0",
- "crossbeam-channel",
- "crossbeam-utils",
- "db",
- "jod-thread",
- "libc",
- "line-index",
- "log",
- "lsp-server",
- "lsp-types",
- "resolver",
- "rustc-hash 2.1.1",
- "salsa",
- "serde",
- "serde_json",
- "sq-3-parser",
- "stderrlog",
-]
 
 [[package]]
 name = "thin-vec"

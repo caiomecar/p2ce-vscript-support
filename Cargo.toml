@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-authors = ["ocet247"]
+authors = ["caiomc"]
 license = "GPL-3.0-only"
 
 [workspace.dependencies]

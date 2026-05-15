@@ -1,8 +1,8 @@
 {
-  "name": "tf2-vscript-support",
-  "displayName": "TF2 VScript Support",
-  "description": "Language Server for TF2 VScript",
-  "publisher": "ocet247",
+  "name": "p2ce-vscript-support",
+  "displayName": "P2CE VScript Support",
+  "description": "Language Server for P2CE VScript",
+  "publisher": "caiomc",
   "license": "GPL-3.0-only",
   "icon": "logo.png",
   "repository": {
@@ -17,7 +17,9 @@
     "Programming Languages"
   ],
   "keywords": [
-    "tf2",
+    "p2",
+    "p2ce",
+    "strata",
     "squirrel",
     "VScript"
   ],
@@ -52,17 +54,17 @@
   "contributes": {
     "languages": [
       {
-        "id": "tf2vscript",
+        "id": "p2ce_vscript",
         "aliases": [
-          "TF2VScript"
+          "VScript"
         ],
         "extensions": [
           ".nut"
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./logo.png",
-          "dark": "./logo.png"
+          "light": "./fileicon.png",
+          "dark": "./fileicon.png"
         }
       },
       {
@@ -71,7 +73,7 @@
     ],
     "grammars": [
       {
-        "language": "tf2vscript",
+        "language": "p2ce_vscript",
         "scopeName": "source.squirrel",
         "path": "./syntaxes/squirrel.tmLanguage.json"
       },
@@ -83,21 +85,21 @@
     ],
     "commands": [
       {
-        "command": "tf2vscript.selectTF2Root",
+        "command": "p2ce_vscript.selectTF2Root",
         "title": "Select TF2 Root Directory",
-        "category": "TF2 VScript"
+        "category": "P2CE VScript"
       }
     ],
     "configuration": [
       {
-        "title": "TF2 VScript",
+        "title": "P2CE VScript",
         "properties": {
-          "tf2vscript.tf2RootPath": {
+          "p2ce_vscript.tf2RootPath": {
             "type": "string",
             "default": "",
             "description": "Path to your Team Fortress 2 installation directory."
           },
-          "tf2vscript.unusedVariables": {
+          "p2ce_vscript.unusedVariables": {
             "type": "string",
             "default": "hint",
             "enum": [
@@ -107,7 +109,7 @@
             ],
             "description": "Controls how unused variables are reported."
           },
-          "tf2vscript.unreachableCode": {
+          "p2ce_vscript.unreachableCode": {
             "type": "string",
             "default": "warn",
             "enum": [
@@ -117,22 +119,22 @@
             ],
             "description": "Controls how unreachable code is reported."
           },
-          "tf2vscript.inlayHints.typeHints": {
+          "p2ce_vscript.inlayHints.typeHints": {
             "type": "boolean",
             "default": true,
             "description": "Show type hints for variables and parameters."
           },
-          "tf2vscript.inlayHints.enumMemberValue": {
+          "p2ce_vscript.inlayHints.enumMemberValue": {
             "type": "boolean",
             "default": true,
             "description": "Show value hints for auto-assigned enum member value."
           },
-          "tf2vscript.inlayHints.parameterHints": {
+          "p2ce_vscript.inlayHints.parameterHints": {
             "type": "boolean",
             "default": true,
             "description": "Show parameter name hints on function calls."
           },
-          "tf2vscript.workspaceDiagnostics": {
+          "p2ce_vscript.workspaceDiagnostics": {
             "type": "boolean",
             "default": false,
             "description": "Enable workspace-wide diagnostics. May be slow for large workspaces."

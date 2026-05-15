@@ -1,5 +1,5 @@
 [package]
-name = "tf2-vscript-ls"
+name = "p2ce-vscript-ls"
 version = "0.1.0"
 edition = "2024"
 authors.workspace = true
