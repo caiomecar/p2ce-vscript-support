@@ -1,5 +1,7 @@
-# Team Fortress 2 VScript Support
+# Portal 2: Community Edition VScript Support
+An VSCode extension made for P2CE VScript support, using the https://github.com/ocet247/tf2-vscript-support (TF2 VScript Support) extension as a base for the language server and logic of the extension itself.
 
+(THIS EXTENSION IS IN A VERY VERY VERY EXPERIMENTAL STATE, SO DON'T EXPECT NO BUGS OR NO CRASHES)
 ## Features
 - Completions
   - Keywords
@@ -29,7 +31,6 @@
 - Type checking for operations and function call arguments
 - Unused local variables
 - Unreachable code
-- Workspace diagnostics (disabled by default)
 
 ## Additional
 - String literal name resolution
@@ -38,24 +39,14 @@
 - Import resolution from `IncludeScript`
 - Standard library symbols included from both Squirrel and VScript
 
-## Possible future development (in order)
-- Handle events (like `OnScriptHook_OnTakeDamage` by using a preset signature for certain keys)
-- Complex type system (mostly for tables)
+## TODO
+- Implement custom entities (AngelScript) in the string literals
+- Custom ConVars & ConCommands in string literal
+- Game Events signatures (like 'OnPlayerUse')
 - Formatting
-- Completions and validation for assets like models / sounds
-- Improving reuse with salsa for individual files (meaning more speed)
-
-
-## Sidenode
-Functionality is mostly checked using a comprehensive set of scripts, there might be unknown bugs.
-Please report at https://github.com/ocet247/tf2-vscript-support/issues.
-
-Even though the language server implements type inference, the type might not always be predictable.
-This may lead to incorrect hover, completions and overall state of the variable. By specifying the type
-with a doc comment you make the server's job a lot easier, in addition to knowing the exact type you
-would also get diagnostics for doing incorrect operations on the variable
-
+- Completions and validation for models/sounds/assets
 
 # Credits
+- TF2 VScript Support Language Server Extension https://github.com/ocet247/tf2-vscript-support ([VisualStudio Marketplace](https://marketplace.visualstudio.com/items?itemName=ocet247.tf2-vscript-support))
 - Valve Development Community for VScript function signatures and documentation https://developer.valvesoftware.com/wiki/VScript
 - Parts of LSP handling from [rust-analyzer](https://github.com/rust-lang/rust-analyzer) and [auto-lsp](https://github.com/adclz/auto-lsp)
