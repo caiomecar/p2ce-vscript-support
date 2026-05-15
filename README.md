@@ -47,6 +47,6 @@ An VSCode extension made for P2CE VScript support, using the https://github.com/
 - Completions and validation for models/sounds/assets
 
 # Credits
-- TF2 VScript Support Language Server Extension https://marketplace.visualstudio.com/items?itemName=ocet247.tf2-vscript-support
+- TF2 VScript Support Language Server Extension https://github.com/ocet247/tf2-vscript-support ([VisualStudio Marketplace](https://marketplace.visualstudio.com/items?itemName=ocet247.tf2-vscript-support))
 - Valve Development Community for VScript function signatures and documentation https://developer.valvesoftware.com/wiki/VScript
 - Parts of LSP handling from [rust-analyzer](https://github.com/rust-lang/rust-analyzer) and [auto-lsp](https://github.com/adclz/auto-lsp)
