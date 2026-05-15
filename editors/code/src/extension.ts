@@ -22,13 +22,13 @@ function getLocalServerPath(): string {
     return path.join("server", isWindows ? "p2ce-vscript-ls.exe" : "p2ce-vscript-ls");
 }
 
-async function selectTF2Root() {
+async function selectGameRoot() {
     const result = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
         canSelectMany: false,
-        openLabel: 'Select TF2 Root Directory',
-        title: 'TF2 VScript: Select TF2 Root',
+        openLabel: 'Select Game Directory (containing gameinfo.txt)',
+        title: 'P2CE VScript: Select Game Path',
     });
 
     if (!result || result.length === 0) {
@@ -37,8 +37,8 @@ async function selectTF2Root() {
 
     const selectedPath = result[0].fsPath;
     const config = vscode.workspace.getConfiguration('p2ce_vscript');
-    await config.update('tf2RootPath', selectedPath, vscode.ConfigurationTarget.Global);
-    vscode.window.showInformationMessage(`TF2 VScript: TF2Root set to "${selectedPath}"`);
+    await config.update('gameRootPath', selectedPath, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(`P2CE VScript: Game path set to "${selectedPath}"`);
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -54,18 +54,18 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const config = vscode.workspace.getConfiguration('p2ce_vscript');
-    const tf2RootPath = config.get<string>('tf2RootPath') ?? '';
+    const gameRootPath = config.get<string>('gameRootPath') ?? '';
 
-    if (!tf2RootPath) {
+    if (!gameRootPath) {
         vscode.window.showWarningMessage(
-            'TF2 VScript: TF2Root is not set. Imports will not work.',
+            'P2CE VScript: Game path is not set. Imports will not work.',
             'Select Directory',
             'Open Settings'
         ).then(selection => {
             if (selection === 'Select Directory') {
-                selectTF2Root();
+                selectGameRoot();
             } else if (selection === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'p2ce_vscript.tf2RootPath');
+                vscode.commands.executeCommand('workbench.action.openSettings', 'p2ce_vscript.gameRootPath');
             }
         });
     }
@@ -92,7 +92,7 @@ export function activate(context: vscode.ExtensionContext) {
             builtinsPath: path.join(stdlibPath, "builtins.nut"),
             squirrelLibPath: path.join(stdlibPath, "squirrel.nut"),
             vscriptLibPath: path.join(stdlibPath, "vscript.nut"),
-            tf2RootPath,
+            gameRootPath,
             unusedVariables,
             unreachableCode,
             inlayHints: {
@@ -114,7 +114,7 @@ export function activate(context: vscode.ExtensionContext) {
     client.start();
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('p2ce_vscript.selectTF2Root', selectTF2Root)
+        vscode.commands.registerCommand('p2ce_vscript.selectGameRoot', selectGameRoot)
     );
 
     context.subscriptions.push(
@@ -125,11 +125,11 @@ export function activate(context: vscode.ExtensionContext) {
                 });
             }
 
-            if (e.affectsConfiguration('p2ce_vscript.tf2RootPath')
+            if (e.affectsConfiguration('p2ce_vscript.gameRootPath')
                 || e.affectsConfiguration('p2ce_vscript.unusedVariables')
                 || e.affectsConfiguration('p2ce_vscript.unreachableCode')) {
                 vscode.window.showInformationMessage(
-                    'TF2 VScript: Edit a file to refresh diagnostics with the new settings.'
+                    'P2CE VScript: Edit a file to refresh diagnostics with the new settings.'
                 );
             }
         })

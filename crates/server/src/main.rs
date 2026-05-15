@@ -285,8 +285,8 @@ fn extract_init_config(params: &InitializeParams) -> VScriptDbInitConfig {
 
 fn extract_config(options: Option<&Value>) -> VScriptDbConfig {
     VScriptDbConfig {
-        tf2_root_path: options
-            .and_then(|o| o.get("tf2RootPath"))
+        game_root_path: options
+            .and_then(|o| o.get("gameRootPath"))
             .and_then(|v| v.as_str())
             .map(PathBuf::from),
         unused_variables: match options

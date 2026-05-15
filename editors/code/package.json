@@ -85,8 +85,8 @@
     ],
     "commands": [
       {
-        "command": "p2ce_vscript.selectTF2Root",
-        "title": "Select TF2 Root Directory",
+        "command": "p2ce_vscript.selectGameRoot",
+        "title": "Select Game Path Directory",
         "category": "P2CE VScript"
       }
     ],
@@ -94,10 +94,10 @@
       {
         "title": "P2CE VScript",
         "properties": {
-          "p2ce_vscript.tf2RootPath": {
+          "p2ce_vscript.gameRootPath": {
             "type": "string",
             "default": "",
-            "description": "Path to your Team Fortress 2 installation directory."
+            "description": "Path to your game main directory. (containg gameinfo.txt)"
           },
           "p2ce_vscript.unusedVariables": {
             "type": "string",

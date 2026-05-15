@@ -1,5 +1,5 @@
 /**
- * TF2 VScript Signatures
+ * P2CE VScript Definitions
  * Generated from https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions
  * Only for reference, do not modify
  * @native
@@ -10,7 +10,6 @@
  *
  * @type {function}
  * @param {integer} paintType
- * @returns {void}
  */
 function ActivatePaint(paintType);
 
@@ -20,7 +19,6 @@ function ActivatePaint(paintType);
  * @type {function}
  * @param {integer} branch
  * @param {string} levelName
- * @returns {void}
  */
 function AddBranchLevelName(branch, levelName);
 
@@ -29,7 +27,6 @@ function AddBranchLevelName(branch, levelName);
  *
  * @type {function}
  * @param {string} name
- * @returns {void}
  */
 function AddCoopCreditsName(name);
 
@@ -68,7 +65,6 @@ function CreateSceneEntity(filename);
  * Deactivates all the paints on all players.
  *
  * @type {function}
- * @returns {void}
  */
 function DeactivateAllPaints();
 
@@ -77,7 +73,6 @@ function DeactivateAllPaints();
  *
  * @type {function}
  * @param {integer} paintType
- * @returns {void}
  */
 function DeactivatePaint(paintType);
 
@@ -93,7 +88,6 @@ function DeactivatePaint(paintType);
  * @param {integer} b
  * @param {integer} a
  * @param {float} duration
- * @returns {void}
  */
 function DebugDrawBox(origin, mins, maxes, r, g, b, a, duration);
 
@@ -110,7 +104,6 @@ function DebugDrawBox(origin, mins, maxes, r, g, b, a, duration);
  * @param {integer} b
  * @param {integer} a
  * @param {float} duration
- * @returns {void}
  */
 function DebugDrawBoxAngles(origin, mins, maxes, angles, r, g, b, a, duration);
 
@@ -126,7 +119,6 @@ function DebugDrawBoxAngles(origin, mins, maxes, angles, r, g, b, a, duration);
  * @param {integer} g
  * @param {integer} b
  * @param {integer} a
- * @returns {void}
  */
 function DebugDrawEntityText(entityID, textOffset, text, duration, r, g, b, a);
 
@@ -142,7 +134,6 @@ function DebugDrawEntityText(entityID, textOffset, text, duration, r, g, b, a);
  * @param {integer} g
  * @param {integer} b
  * @param {integer} a
- * @returns {void}
  */
 function DebugDrawEntityTextAtPosition(origin, textOffset, text, duration, r, g, b, a);
 
@@ -151,7 +142,6 @@ function DebugDrawEntityTextAtPosition(origin, textOffset, text, duration, r, g,
  *
  * @type {function}
  * @param {Vector} origin
- * @returns {void}
  */
 function DebugDrawGrid(origin);
 
@@ -166,7 +156,6 @@ function DebugDrawGrid(origin);
  * @param {integer} b
  * @param {bool} noDepthTest
  * @param {float} duration
- * @returns {void}
  */
 function DebugDrawLine(p1, p2, r, g, b, noDepthTest, duration);
 
@@ -182,7 +171,6 @@ function DebugDrawLine(p1, p2, r, g, b, noDepthTest, duration);
  * @param {integer} b
  * @param {integer} a
  * @param {float} duration
- * @returns {void}
  */
 function DebugDrawScreenText(x, y, text, r, g, b, a, duration);
 
@@ -194,7 +182,6 @@ function DebugDrawScreenText(x, y, text, r, g, b, a, duration);
  * @param {string} text
  * @param {bool} viewCheck
  * @param {float} duration
- * @returns {void}
  */
 function DebugDrawText(origin, text, viewCheck, duration);
 
@@ -211,7 +198,6 @@ function DebugDrawText(origin, text, viewCheck, duration);
  * @param {integer} a
  * @param {bool} noDepthTest
  * @param {float} duration
- * @returns {void}
  */
 function DebugDrawTri(p1, p2, p3, r, g, b, a, noDepthTest, duration);
 
@@ -222,7 +208,6 @@ function DebugDrawTri(p1, p2, p3, r, g, b, a, noDepthTest, duration);
  * @param {string} particleName
  * @param {Vector} origin
  * @param {Vector} angles
- * @returns {void}
  */
 function DispatchParticleEffect(particleName, origin, angles);
 
@@ -253,13 +238,12 @@ function EntFire(target, action, value, delay, activator);
  * Generate an entity i/o event, directly targeting an entity by reference.
  *
  * @type {function}
- * @param {entity} target
+ * @param {CBaseEntity|null} target
  * @param {string} input
  * @param {string} parameter
  * @param {float} delay
- * @param {entity} activator
- * @param {entity} caller
- * @returns {void}
+ * @param {CBaseEntity|null} activator
+ * @param {CBaseEntity|null} caller
  */
 function EntFireByHandle(target, input, parameter, delay, activator, caller);
 
@@ -269,7 +253,7 @@ function EntFireByHandle(target, input, parameter, delay, activator, caller);
  * @type {function}
  * @param {integer} linkageID
  * @param {integer} portalNum
- * @returns {handle}
+ * @returns {CBasePortal|null}
  */
 function FindPortalByID(linkageID, portalNum);
 
@@ -358,7 +342,7 @@ function GetOrangePlayerIndex();
  * Returns the player (SP Only).
  *
  * @type {function}
- * @returns {handle}
+ * @returns {CBasePlayer|null}
  */
 function GetPlayer();
 
@@ -367,7 +351,7 @@ function GetPlayer();
  *
  * @type {function}
  * @param {integer} playerIndex
- * @returns {handle}
+ * @returns {CBasePlayer|null}
  */
 function GetPlayerByIndex(playerIndex);
 
@@ -392,7 +376,6 @@ function GetPlayerSilenceDuration(player);
  * Gives all portal players the paint gun with no active paints.
  *
  * @type {function}
- * @returns {void}
  */
 function GivePlayerPaintgun();
 
@@ -400,7 +383,6 @@ function GivePlayerPaintgun();
  * Give player a monoportal portal gun.
  *
  * @type {function}
- * @returns {void}
  */
 function GivePlayerPortalgun();
 
@@ -454,7 +436,6 @@ function LoopSinglePlayerMaps();
  *
  * @type {function}
  * @param {string} mapName
- * @returns {void}
  */
 function MarkMapComplete(mapName);
 
@@ -463,7 +444,6 @@ function MarkMapComplete(mapName);
  *
  * @type {function}
  * @param {string} movieName
- * @returns {void}
  */
 function PrecacheMovie(movieName);
 
@@ -493,7 +473,6 @@ function RandomInt(min, max);
  * @type {function}
  * @param {string} achievement
  * @param {integer} playerIndex
- * @returns {void}
  */
 function RecordAchievementEvent(achievement, playerIndex);
 
@@ -501,7 +480,6 @@ function RecordAchievementEvent(achievement, playerIndex);
  * Pops up the map rating dialog for user input
  *
  * @type {function}
- * @returns {void}
  */
 function RequestMapRating();
 
@@ -518,7 +496,6 @@ function ScriptIsLocalPlayerUsingController();
  *
  * @type {function}
  * @param {string} message
- * @returns {void}
  */
 function ScriptPrintMessageCenterAll(message);
 
@@ -530,7 +507,6 @@ function ScriptPrintMessageCenterAll(message);
  * @param {string} param1
  * @param {string} param2
  * @param {string} param3
- * @returns {void}
  */
 function ScriptPrintMessageCenterAllWithParams(message, param1, param2, param3);
 
@@ -540,7 +516,6 @@ function ScriptPrintMessageCenterAllWithParams(message, param1, param2, param3);
  * @type {function}
  * @param {integer} team
  * @param {string} message
- * @returns {void}
  */
 function ScriptPrintMessageCenterTeam(team, message);
 
@@ -549,7 +524,6 @@ function ScriptPrintMessageCenterTeam(team, message);
  *
  * @type {function}
  * @param {string} message
- * @returns {void}
  */
 function ScriptPrintMessageChatAll(message);
 
@@ -559,7 +533,6 @@ function ScriptPrintMessageChatAll(message);
  * @type {function}
  * @param {integer} team
  * @param {string} message
- * @returns {void}
  */
 function ScriptPrintMessageChatTeam(team, message);
 
@@ -569,7 +542,6 @@ function ScriptPrintMessageChatTeam(team, message);
  * @type {function}
  * @param {string} message
  * @param {float} holdTime
- * @returns {void}
  */
 function ScriptShowHudMessageAll(message, holdTime);
 
@@ -587,7 +559,6 @@ function ScriptSteamShowURL(url);
  *
  * @type {function}
  * @param {string} command
- * @returns {void}
  */
 function SendToConsole(command);
 
@@ -596,7 +567,6 @@ function SendToConsole(command);
  *
  * @type {function}
  * @param {string} command
- * @returns {void}
  */
 function SendToConsoleServer(command);
 
@@ -606,7 +576,6 @@ function SendToConsoleServer(command);
  * @type {function}
  * @param {string} eventName
  * @param {string} payload
- * @returns {void}
  */
 function SendToPanorama(eventName, payload);
 
@@ -617,7 +586,6 @@ function SendToPanorama(eventName, payload);
  * @param {string} layer
  * @param {string} mixGroup
  * @param {float} factor
- * @returns {void}
  */
 function SetDucking(layer, mixGroup, factor);
 
@@ -634,7 +602,6 @@ function SetMapAsPlayed();
  *
  * @type {function}
  * @param {string} message
- * @returns {void}
  */
 function ShowMessage(message);
 
@@ -657,7 +624,7 @@ function Time();
  * @param {integer} mask
  * @param {entity} entToIgnore
  * @param {integer} collisionGroup
- * @returns {handle}
+ * @returns {CGameTrace|null}
  */
 function TraceHull(start, end, hullMin, hullMax, mask, entToIgnore, collisionGroup);
 
@@ -681,7 +648,7 @@ function TraceLine(start, end, entToIgnore);
  * @param {integer} mask
  * @param {object} ignore
  * @param {integer} collisionGroup
- * @returns {handle}
+ * @returns {CGameTrace|null}
  */
 function TraceLineEx(start, end, mask, ignore, collisionGroup);
 
@@ -706,7 +673,7 @@ function TraceLinePlayersIncluded(start, end, entToIgnore);
  * @param {object} ignore
  * @param {integer} collisionGroup
  * @param {bool} transformTrace
- * @returns {handle}
+ * @returns {CGameTrace|null}
  */
 function TracePortalLine(start, end, mask, ignore, collisionGroup, transformTrace);
 
@@ -731,7 +698,6 @@ function UniqueString(string);
  * Upgrades the paint gun of all players, if they are not holding one it will give them one.
  *
  * @type {function}
- * @returns {void}
  */
 function UpgradePlayerPaintgun();
 
@@ -739,7 +705,6 @@ function UpgradePlayerPaintgun();
  * Upgrade the player's held gun to shoot both portals.
  *
  * @type {function}
- * @returns {void}
  */
 function UpgradePlayerPortalgun();
 
@@ -747,7 +712,6 @@ function UpgradePlayerPortalgun();
  * Add Potatos to the player's held portal gun, and force it to be a dual device.
  *
  * @type {function}
- * @returns {void}
  */
 function UpgradePlayerPotatogun();
 
@@ -764,7 +728,7 @@ class StorageScope
      *
      * @type {function}
      * @param {string} key
-     * @returns {void}
+
      */
     function Clear(key);
 
@@ -772,7 +736,7 @@ class StorageScope
      * Clear all values in this scope.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function ClearAll();
 
@@ -818,7 +782,7 @@ class StorageScope
      * @type {function}
      * @param {string} key
      * @param {float} value
-     * @returns {void}
+
      */
     function SetFloat(key, value);
 
@@ -828,7 +792,7 @@ class StorageScope
      * @type {function}
      * @param {string} key
      * @param {integer} value
-     * @returns {void}
+
      */
     function SetInt(key, value);
 
@@ -838,7 +802,7 @@ class StorageScope
      * @type {function}
      * @param {string} key
      * @param {string} value
-     * @returns {void}
+
      */
     function SetString(key, value);
 
@@ -848,7 +812,7 @@ class StorageScope
      * @type {function}
      * @param {string} key
      * @param {Vector} value
-     * @returns {void}
+
      */
     function SetVector(key, value);
 }
@@ -862,7 +826,7 @@ class CLinkedPortalDoor extends CBaseAnimating
      * Get the instance handle of the door's linked partner.
      *
      * @type {function}
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function GetPartnerInstance();
 
@@ -947,7 +911,7 @@ class CEntities
      *
      * @type {function}
      * @param {classname} className
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function CreateByClassname(className);
 
@@ -956,7 +920,7 @@ class CEntities
      *
      * @type {function}
      * @param {entity} ent
-     * @returns {void}
+
      */
     function DispatchSpawn(ent);
 
@@ -964,9 +928,9 @@ class CEntities
      * Find entities by class name. Pass `null` to start an iteration, or reference to a previously found entity to continue a search.
      *
      * @type {function}
-     * @param {entity} previous
+     * @param {CBaseEntity|null} previous
      * @param {classname} className
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByClassname(previous, className);
 
@@ -977,7 +941,7 @@ class CEntities
      * @param {classname} className
      * @param {Vector} position
      * @param {float} radius
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByClassnameNearest(className, position, radius);
 
@@ -985,11 +949,11 @@ class CEntities
      * Find entities by class name within a radius. Pass `null` to start an iteration, or reference to a previously found entity to continue a search.
      *
      * @type {function}
-     * @param {entity} previous
+     * @param {CBaseEntity|null} previous
      * @param {classname} className
      * @param {Vector} position
      * @param {float} radius
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByClassnameWithin(previous, className, position, radius);
 
@@ -997,9 +961,9 @@ class CEntities
      * Find entities by model name. Pass `null` to start an iteration, or reference to a previously found entity to continue a search.
      *
      * @type {function}
-     * @param {entity} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} modelName
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByModel(previous, modelName);
 
@@ -1007,9 +971,9 @@ class CEntities
      * Find entities by name. Pass `null` to start an iteration, or reference to a previously found entity to continue a search.
      *
      * @type {function}
-     * @param {entity} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} targetName
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByName(previous, targetName);
 
@@ -1020,7 +984,7 @@ class CEntities
      * @param {string} targetName
      * @param {Vector} position
      * @param {float} radius
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByNameNearest(targetName, position, radius);
 
@@ -1028,11 +992,11 @@ class CEntities
      * Find entities by name within a radius. Pass `null` to start an iteration, or reference to a previously found entity to continue a search.
      *
      * @type {function}
-     * @param {entity} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} targetName
      * @param {Vector} position
      * @param {float} radius
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByNameWithin(previous, targetName, position, radius);
 
@@ -1040,9 +1004,9 @@ class CEntities
      * Find entities by which target the specified name. Pass `null` to start an iteration, or reference to a previously found entity to continue a search.
      *
      * @type {function}
-     * @param {entity} previous
+     * @param {CBaseEntity|null} previous
      * @param {string} target
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindByTarget(previous, target);
 
@@ -1050,10 +1014,10 @@ class CEntities
      * Find entities within a radius. Pass `null` to start an iteration, or reference to a previously found entity to continue a search.
      *
      * @type {function}
-     * @param {entity} previous
+     * @param {CBaseEntity|null} previous
      * @param {Vector} center
      * @param {float} radius
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function FindInSphere(previous, center, radius);
 
@@ -1061,7 +1025,7 @@ class CEntities
      * Begin an iteration over the list of entities.
      *
      * @type {function}
-     * @returns {handle}
+     * @returns {CBaseEntity}
      */
     function First();
 
@@ -1070,7 +1034,7 @@ class CEntities
      *
      * @type {function}
      * @param {integer} index
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function GetByIndex(index);
 
@@ -1078,8 +1042,8 @@ class CEntities
      * Continue an iteration over the list of entities, providing reference to a previously found entity.
      *
      * @type {function}
-     * @param {entity} previous
-     * @returns {handle}
+     * @param {CBaseEntity} previous
+     * @returns {CBaseEntity|null}
      */
     function Next(previous);
 }
@@ -1116,7 +1080,7 @@ class CBasePlayer extends CBaseFlex
      * Clears the active weapon
      *
      * @type {function}
-     * @returns {void}
+
      */
     function ClearActiveWeapon();
 
@@ -1124,7 +1088,7 @@ class CBasePlayer extends CBaseFlex
      * Gets the active weapon for the player.
      *
      * @type {function}
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function GetActiveWeapon();
 
@@ -1157,7 +1121,7 @@ class CBasePlayer extends CBaseFlex
      * Get the vehicle the player is in, or null if the player is not in one
      *
      * @type {function}
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function GetVehicle();
 
@@ -1166,7 +1130,7 @@ class CBasePlayer extends CBaseFlex
      *
      * @type {function}
      * @param {integer} index
-     * @returns {handle}
+     * @returns {CBaseEntity|null}
      */
     function GetWeapon(index);
 
@@ -1215,7 +1179,7 @@ class CBasePlayer extends CBaseFlex
      *
      * @type {function}
      * @param {entity} weapon
-     * @returns {void}
+
      */
     function SetActiveWeapon(weapon);
 
@@ -1225,7 +1189,7 @@ class CBasePlayer extends CBaseFlex
      * @type {function}
      * @param {integer} type
      * @param {integer} count
-     * @returns {void}
+
      */
     function SetAmmoCount(type, count);
 }
@@ -1240,7 +1204,7 @@ class CPanoramaScreen extends CBaseEntity
      *
      * @type {function}
      * @param {classname} className
-     * @returns {void}
+
      */
     function AddCSSClass(className);
 
@@ -1249,7 +1213,7 @@ class CPanoramaScreen extends CBaseEntity
      *
      * @type {function}
      * @param {classname} className
-     * @returns {void}
+
      */
     function RemoveCSSClass(className);
 
@@ -1258,7 +1222,7 @@ class CPanoramaScreen extends CBaseEntity
      *
      * @type {function}
      * @param {string} script
-     * @returns {void}
+
      */
     function RunJSScript(script);
 
@@ -1267,7 +1231,7 @@ class CPanoramaScreen extends CBaseEntity
      *
      * @type {function}
      * @param {bool} active
-     * @returns {void}
+
      */
     function SetActive(active);
 }
@@ -1282,7 +1246,7 @@ class CBaseCombatWeapon extends CBaseAnimating
      *
      * @type {function}
      * @param {Vector} velocity
-     * @returns {void}
+
      */
     function Drop(velocity);
 
@@ -1455,7 +1419,7 @@ class CPortal_Player extends CBaseMultiplayerPlayer
      * Set number of wheatley monitors destroyed by the player.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function IncWheatleyMonitorDestructionCount();
 
@@ -1463,7 +1427,7 @@ class CPortal_Player extends CBaseMultiplayerPlayer
      * Turns Off the Potatos material light
      *
      * @type {function}
-     * @returns {void}
+
      */
     function TurnOffPotatos();
 
@@ -1471,7 +1435,7 @@ class CPortal_Player extends CBaseMultiplayerPlayer
      * Turns On the Potatos material light
      *
      * @type {function}
-     * @returns {void}
+
      */
     function TurnOnPotatos();
 }
@@ -1495,7 +1459,7 @@ class CPointViewControl extends CBaseEntity
      * @type {function}
      * @param {integer} fov
      * @param {float} rate
-     * @returns {void}
+
      */
     function SetFov(fov, rate);
 }
@@ -1510,7 +1474,7 @@ class CWeaponPaintGun extends CBaseCombatWeapon
      *
      * @type {function}
      * @param {integer} paintType
-     * @returns {void}
+
      */
     function ActivatePaint(paintType);
 
@@ -1519,7 +1483,7 @@ class CWeaponPaintGun extends CBaseCombatWeapon
      *
      * @type {function}
      * @param {bool} forward
-     * @returns {void}
+
      */
     function CyclePaintPower(forward);
 
@@ -1527,7 +1491,7 @@ class CWeaponPaintGun extends CBaseCombatWeapon
      * Deactivates all paint powers on the gun.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function DeactivateAllPaints();
 
@@ -1536,7 +1500,7 @@ class CWeaponPaintGun extends CBaseCombatWeapon
      *
      * @type {function}
      * @param {integer} paintType
-     * @returns {void}
+
      */
     function DeactivatePaint(paintType);
 
@@ -1578,7 +1542,7 @@ class CWeaponPaintGun extends CBaseCombatWeapon
      *
      * @type {function}
      * @param {integer} paintType
-     * @returns {void}
+
      */
     function SetCurrentPaint(paintType);
 }
@@ -1638,7 +1602,7 @@ class CSceneEntity extends CBaseEntity
      *
      * @type {function}
      * @param {integer} team
-     * @returns {void}
+
      */
     function AddBroadcastTeamTarget(team);
 
@@ -1690,7 +1654,7 @@ class CSceneEntity extends CBaseEntity
      *
      * @type {function}
      * @param {integer} team
-     * @returns {void}
+
      */
     function RemoveBroadcastTeamTarget(team);
 }
@@ -1968,7 +1932,7 @@ class CBaseAnimating extends CBaseEntity
      * @type {function}
      * @param {integer} group
      * @param {integer} value
-     * @returns {void}
+
      */
     function SetBodygroup(group, value);
 
@@ -1977,7 +1941,7 @@ class CBaseAnimating extends CBaseEntity
      *
      * @type {function}
      * @param {float} playbackRate
-     * @returns {void}
+
      */
     function SetPlaybackRate(playbackRate);
 
@@ -1996,7 +1960,7 @@ class CBaseAnimating extends CBaseEntity
      *
      * @type {function}
      * @param {integer} sequence
-     * @returns {void}
+
      */
     function SetSequence(sequence);
 
@@ -2005,7 +1969,7 @@ class CBaseAnimating extends CBaseEntity
      *
      * @type {function}
      * @param {integer} skin
-     * @returns {void}
+
      */
     function SetSkin(skin);
 
@@ -2114,7 +2078,7 @@ class CBaseEntity
      * @type {function}
      * @param {string} output
      * @param {string} funcName
-     * @returns {void}
+
      */
     function ConnectOutput(output, funcName);
 
@@ -2122,7 +2086,7 @@ class CBaseEntity
      * Kill this entity.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function Destroy();
 
@@ -2132,7 +2096,7 @@ class CBaseEntity
      * @type {function}
      * @param {string} output
      * @param {string} funcName
-     * @returns {void}
+
      */
     function DisconnectOutput(output, funcName);
 
@@ -2141,7 +2105,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {string} soundName
-     * @returns {void}
+
      */
     function EmitSound(soundName);
 
@@ -2508,7 +2472,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {string} modelName
-     * @returns {void}
+
      */
     function PrecacheModel(modelName);
 
@@ -2517,7 +2481,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {string} sound
-     * @returns {void}
+
      */
     function PrecacheScriptSound(sound);
 
@@ -2526,7 +2490,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {string} sound
-     * @returns {void}
+
      */
     function PrecacheSoundScript(sound);
 
@@ -2535,7 +2499,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {Vector} origin
-     * @returns {void}
+
      */
     function SetAbsOrigin(origin);
 
@@ -2546,7 +2510,7 @@ class CBaseEntity
      * @param {float} pitch
      * @param {float} roll
      * @param {float} yaw
-     * @returns {void}
+
      */
     function SetAngles(pitch, roll, yaw);
 
@@ -2557,7 +2521,7 @@ class CBaseEntity
      * @param {float} pitch
      * @param {float} roll
      * @param {float} yaw
-     * @returns {void}
+
      */
     function SetAngularVelocity(pitch, roll, yaw);
 
@@ -2566,7 +2530,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {integer} group
-     * @returns {void}
+
      */
     function SetCollisionGroup(group);
 
@@ -2575,7 +2539,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {float} elasticity
-     * @returns {void}
+
      */
     function SetElasticity(elasticity);
 
@@ -2584,7 +2548,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {Vector} forward
-     * @returns {void}
+
      */
     function SetForwardVector(forward);
 
@@ -2593,7 +2557,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {float} friction
-     * @returns {void}
+
      */
     function SetFriction(friction);
 
@@ -2602,7 +2566,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {float} gravity
-     * @returns {void}
+
      */
     function SetGravity(gravity);
 
@@ -2611,7 +2575,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {integer} health
-     * @returns {void}
+
      */
     function SetHealth(health);
 
@@ -2620,7 +2584,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {integer} health
-     * @returns {void}
+
      */
     function SetMaxHealth(health);
 
@@ -2629,7 +2593,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {string} modelName
-     * @returns {void}
+
      */
     function SetModel(modelName);
 
@@ -2638,7 +2602,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {integer} moveCollide
-     * @returns {void}
+
      */
     function SetMoveCollide(moveCollide);
 
@@ -2647,7 +2611,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {integer} moveType
-     * @returns {void}
+
      */
     function SetMoveType(moveType);
 
@@ -2656,7 +2620,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {Vector} origin
-     * @returns {void}
+
      */
     function SetOrigin(origin);
 
@@ -2665,7 +2629,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {entity} owner
-     * @returns {void}
+
      */
     function SetOwner(owner);
 
@@ -2674,7 +2638,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {entity} parent
-     * @returns {void}
+
      */
     function SetParent(parent);
 
@@ -2684,7 +2648,7 @@ class CBaseEntity
      * @type {function}
      * @param {entity} parent
      * @param {integer} attachmentIndex
-     * @returns {void}
+
      */
     function SetParentWithAttachment(parent, attachmentIndex);
 
@@ -2694,7 +2658,7 @@ class CBaseEntity
      * @type {function}
      * @param {Vector} mins
      * @param {Vector} maxes
-     * @returns {void}
+
      */
     function SetSize(mins, maxes);
 
@@ -2703,7 +2667,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {integer} team
-     * @returns {void}
+
      */
     function SetTeam(team);
 
@@ -2712,7 +2676,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {Vector} velocity
-     * @returns {void}
+
      */
     function SetVelocity(velocity);
 
@@ -2720,7 +2684,7 @@ class CBaseEntity
      * Spawns the entity
      *
      * @type {function}
-     * @returns {void}
+
      */
     function Spawn();
 
@@ -2729,7 +2693,7 @@ class CBaseEntity
      *
      * @type {function}
      * @param {string} soundName
-     * @returns {void}
+
      */
     function StopSound(soundName);
 
@@ -2739,7 +2703,7 @@ class CBaseEntity
      * @type {function}
      * @param {Vector} origin
      * @param {Vector} angles
-     * @returns {void}
+
      */
     function Teleport(origin, angles);
 
@@ -2769,7 +2733,7 @@ class CPropPortal extends CBasePortal
      * Fizzle the portal
      *
      * @type {function}
-     * @returns {void}
+
      */
     function Fizzle();
 
@@ -2795,7 +2759,7 @@ class CPropPortal extends CBasePortal
      * @type {function}
      * @param {Vector} origin
      * @param {Vector} angles
-     * @returns {void}
+
      */
     function NewLocation(origin, angles);
 
@@ -2805,7 +2769,7 @@ class CPropPortal extends CBasePortal
      * @type {function}
      * @param {float} halfWidth
      * @param {float} halfHeight
-     * @returns {void}
+
      */
     function Resize(halfWidth, halfHeight);
 
@@ -2814,7 +2778,7 @@ class CPropPortal extends CBasePortal
      *
      * @type {function}
      * @param {bool} state
-     * @returns {void}
+
      */
     function SetActivatedState(state);
 
@@ -2823,7 +2787,7 @@ class CPropPortal extends CBasePortal
      *
      * @type {function}
      * @param {integer} groupID
-     * @returns {void}
+
      */
     function SetLinkageGroupID(groupID);
 }
@@ -2837,7 +2801,7 @@ class CScriptKeyValues
      * Clears this KeyValues object.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function Clear();
 
@@ -2845,7 +2809,7 @@ class CScriptKeyValues
      * Dump the object to console.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function Dump();
 
@@ -2924,7 +2888,7 @@ class CScriptKeyValues
      * Delete the contents of this KeyValues object.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function ReleaseKeyValues();
 
@@ -2934,7 +2898,7 @@ class CScriptKeyValues
      * @type {function}
      * @param {string} name
      * @param {bool} value
-     * @returns {void}
+
      */
     function SetKeyBool(name, value);
 
@@ -2944,7 +2908,7 @@ class CScriptKeyValues
      * @type {function}
      * @param {string} name
      * @param {float} value
-     * @returns {void}
+
      */
     function SetKeyFloat(name, value);
 
@@ -2954,7 +2918,7 @@ class CScriptKeyValues
      * @type {function}
      * @param {string} name
      * @param {integer} value
-     * @returns {void}
+
      */
     function SetKeyInt(name, value);
 
@@ -2964,7 +2928,7 @@ class CScriptKeyValues
      * @type {function}
      * @param {string} name
      * @param {string} value
-     * @returns {void}
+
      */
     function SetKeyString(name, value);
 }
@@ -2979,7 +2943,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {float} additional
-     * @returns {void}
+
      */
     function AddDamage(additional);
 
@@ -2988,7 +2952,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {integer} extraDamageType
-     * @returns {void}
+
      */
     function AddDamageType(extraDamageType);
 
@@ -3125,7 +3089,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {float} factor
-     * @returns {void}
+
      */
     function ScaleDamage(factor);
 
@@ -3134,7 +3098,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {float} factor
-     * @returns {void}
+
      */
     function ScaleDamageForce(factor);
 
@@ -3143,7 +3107,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {integer} ammoType
-     * @returns {void}
+
      */
     function SetAmmoType(ammoType);
 
@@ -3152,7 +3116,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {entity} attacker
-     * @returns {void}
+
      */
     function SetAttacker(attacker);
 
@@ -3161,7 +3125,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {float} damage
-     * @returns {void}
+
      */
     function SetDamage(damage);
 
@@ -3170,7 +3134,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {integer} custType
-     * @returns {void}
+
      */
     function SetDamageCustom(custType);
 
@@ -3179,7 +3143,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {Vector} force
-     * @returns {void}
+
      */
     function SetDamageForce(force);
 
@@ -3188,7 +3152,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {Vector} position
-     * @returns {void}
+
      */
     function SetDamagePosition(position);
 
@@ -3197,7 +3161,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {integer} stats
-     * @returns {void}
+
      */
     function SetDamageStats(stats);
 
@@ -3206,7 +3170,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {integer} damageType
-     * @returns {void}
+
      */
     function SetDamageType(damageType);
 
@@ -3215,7 +3179,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {integer} count
-     * @returns {void}
+
      */
     function SetDamagedOtherPlayers(count);
 
@@ -3224,7 +3188,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {entity} inflictor
-     * @returns {void}
+
      */
     function SetInflictor(inflictor);
 
@@ -3233,7 +3197,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {float} maxDamage
-     * @returns {void}
+
      */
     function SetMaxDamage(maxDamage);
 
@@ -3242,7 +3206,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {Vector} position
-     * @returns {void}
+
      */
     function SetReportedPosition(position);
 
@@ -3251,7 +3215,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {entity} weapon
-     * @returns {void}
+
      */
     function SetWeapon(weapon);
 
@@ -3260,7 +3224,7 @@ class CTakeDamageInfo
      *
      * @type {function}
      * @param {float} remove
-     * @returns {void}
+
      */
     function SubtractDamage(remove);
 }
@@ -3298,7 +3262,7 @@ class CPlaytestManager
      * Begins recording of playtest info
      *
      * @type {function}
-     * @returns {void}
+
      */
     function BeginPlaytest();
 
@@ -3306,7 +3270,7 @@ class CPlaytestManager
      * Ends recording of playtest info
      *
      * @type {function}
-     * @returns {void}
+
      */
     function EndPlaytest();
 }
@@ -3481,7 +3445,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {string} cookie
-     * @returns {void}
+
      */
     function SetCookieTexture(cookie);
 
@@ -3490,7 +3454,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {integer} frame
-     * @returns {void}
+
      */
     function SetCookieTextureFrame(frame);
 
@@ -3499,7 +3463,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {float} angle
-     * @returns {void}
+
      */
     function SetInnerAngle(angle);
 
@@ -3509,7 +3473,7 @@ class CLight extends CBaseEntity
      * @type {function}
      * @param {Vector} color
      * @param {float} scale
-     * @returns {void}
+
      */
     function SetLightColor(color, scale);
 
@@ -3520,7 +3484,7 @@ class CLight extends CBaseEntity
      * @param {float} constant
      * @param {float} linear
      * @param {float} quadratic
-     * @returns {void}
+
      */
     function SetLightFalloffCLQ(constant, linear, quadratic);
 
@@ -3530,7 +3494,7 @@ class CLight extends CBaseEntity
      * @type {function}
      * @param {float} fiftyPercent
      * @param {float} zeroPercent
-     * @returns {void}
+
      */
     function SetLightFalloffD50D0(fiftyPercent, zeroPercent);
 
@@ -3539,7 +3503,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {float} angle
-     * @returns {void}
+
      */
     function SetOuterAngle(angle);
 
@@ -3548,7 +3512,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {string} pattern
-     * @returns {void}
+
      */
     function SetPattern(pattern);
 
@@ -3557,7 +3521,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {float} radius
-     * @returns {void}
+
      */
     function SetRadiusOverride(radius);
 
@@ -3566,7 +3530,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {integer} size
-     * @returns {void}
+
      */
     function SetShadowSize(size);
 
@@ -3575,7 +3539,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {float} density
-     * @returns {void}
+
      */
     function SetVolumetricDensity(density);
 
@@ -3584,7 +3548,7 @@ class CLight extends CBaseEntity
      *
      * @type {function}
      * @param {float} scale
-     * @returns {void}
+
      */
     function SetVolumetricLightScale(scale);
 
@@ -3592,7 +3556,7 @@ class CLight extends CBaseEntity
      * Toggle the light.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function Toggle();
 
@@ -3600,7 +3564,7 @@ class CLight extends CBaseEntity
      * Turn off the light.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function TurnOff();
 
@@ -3608,7 +3572,7 @@ class CLight extends CBaseEntity
      * Turn on the light.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function TurnOn();
 }
@@ -3663,7 +3627,7 @@ class COBBVolumeFog extends CBaseEntity
      *
      * @type {function}
      * @param {float} density
-     * @returns {void}
+
      */
     function SetDensity(density);
 
@@ -3672,7 +3636,7 @@ class COBBVolumeFog extends CBaseEntity
      *
      * @type {function}
      * @param {Vector} emissiveColor
-     * @returns {void}
+
      */
     function SetEmissiveColor(emissiveColor);
 
@@ -3681,7 +3645,7 @@ class COBBVolumeFog extends CBaseEntity
      *
      * @type {function}
      * @param {Vector} halfSize
-     * @returns {void}
+
      */
     function SetHalfSize(halfSize);
 
@@ -3690,7 +3654,7 @@ class COBBVolumeFog extends CBaseEntity
      *
      * @type {function}
      * @param {float} phase
-     * @returns {void}
+
      */
     function SetPhase(phase);
 
@@ -3699,7 +3663,7 @@ class COBBVolumeFog extends CBaseEntity
      *
      * @type {function}
      * @param {Vector} scatteringColor
-     * @returns {void}
+
      */
     function SetScatteringColor(scatteringColor);
 
@@ -3707,7 +3671,7 @@ class COBBVolumeFog extends CBaseEntity
      * Toggle the fog volume
      *
      * @type {function}
-     * @returns {void}
+
      */
     function Toggle();
 
@@ -3715,7 +3679,7 @@ class COBBVolumeFog extends CBaseEntity
      * Turn off the fog volume
      *
      * @type {function}
-     * @returns {void}
+
      */
     function TurnOff();
 
@@ -3723,7 +3687,7 @@ class COBBVolumeFog extends CBaseEntity
      * Turn on the fog volume
      *
      * @type {function}
-     * @returns {void}
+
      */
     function TurnOn();
 }
@@ -3737,7 +3701,7 @@ class CEnvEntityMaker extends CBaseEntity
      * Create an entity at the location of the maker.
      *
      * @type {function}
-     * @returns {void}
+
      */
     function SpawnEntity();
 
@@ -3746,7 +3710,7 @@ class CEnvEntityMaker extends CBaseEntity
      *
      * @type {function}
      * @param {entity} target
-     * @returns {void}
+
      */
     function SpawnEntityAtEntityOrigin(target);
 
@@ -3756,7 +3720,7 @@ class CEnvEntityMaker extends CBaseEntity
      * @type {function}
      * @param {Vector} origin
      * @param {Vector} angles
-     * @returns {void}
+
      */
     function SpawnEntityAtLocation(origin, angles);
 
@@ -3765,7 +3729,7 @@ class CEnvEntityMaker extends CBaseEntity
      *
      * @type {function}
      * @param {string} name
-     * @returns {void}
+
      */
     function SpawnEntityAtNamedEntityOrigin(name);
 }

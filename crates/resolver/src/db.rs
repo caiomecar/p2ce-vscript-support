@@ -24,7 +24,7 @@ pub struct Database {
     files: Arc<DashMap<Url, File>>,
     urls: Arc<DashMap<File, Url>>,
     builtins: Option<Arc<Builtins>>,
-    tf2_root_url: Option<Url>,
+    game_root_url: Option<Url>,
     scripts_url: Option<Url>,
     squirrel_lib: Option<File>,
     vscript_lib: Option<File>,
@@ -96,7 +96,7 @@ pub trait VScriptDatabase: BaseDatabase {
 
     fn config(&self) -> &VScriptDbConfig;
     fn update_config(&mut self, config: VScriptDbConfig);
-    fn update_tf2_root(&mut self);
+    fn update_game_root(&mut self);
 
     /// # Errors
     /// If the script path is absent, has a bad extension, or can't be opened.
@@ -128,27 +128,27 @@ impl VScriptDatabase for Database {
     }
 
     fn update_config(&mut self, config: VScriptDbConfig) {
-        if config.tf2_root_path == self.config.tf2_root_path {
+        if config.game_root_path == self.config.game_root_path {
             self.config = config;
         } else {
             self.config = config;
-            self.update_tf2_root();
+            self.update_game_root();
         }
     }
 
-    fn update_tf2_root(&mut self) {
+    fn update_game_root(&mut self) {
         let Some(root) = self
             .config
-            .tf2_root_path
+            .game_root_url
             .as_ref()
             .and_then(|r| r.canonicalize().ok())
         else {
-            self.tf2_root_url = None;
+            self.game_root_url = None;
             self.scripts_url = None;
             return;
         };
 
-        let scripts = root.join("tf/scripts/vscripts");
+        let scripts = root.join("/scripts/vscripts");
         if scripts.exists() {
             self.load_all_scripts(&scripts);
             self.scripts_url = Url::from_directory_path(&scripts).ok();
@@ -156,15 +156,15 @@ impl VScriptDatabase for Database {
             self.scripts_url = None;
         }
 
-        self.tf2_root_url = Url::from_directory_path(&root).ok();
+        self.game_root_url = Url::from_directory_path(&root).ok();
     }
 
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
         let scripts = self.scripts_url.as_ref().ok_or_else(|| {
-            if self.tf2_root_url.is_some() {
-                "Specified TF2 root path contains no 'tf/scripts/vscripts' directory".to_owned()
+            if self.game_root_path.is_some() {
+                "Specified game root path contains no '/scripts/vscripts' directory".to_owned()
             } else {
-                "No TF2 root specified".to_owned()
+                "No game root specified".to_owned()
             }
         })?;
 
@@ -264,7 +264,7 @@ pub enum UnreachableCode {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Default, Clone)]
 pub struct VScriptDbConfig {
-    pub tf2_root_path: Option<PathBuf>,
+    pub game_root_path: Option<PathBuf>,
     pub unused_variables: UnusedVariables,
     pub unreachable_code: UnreachableCode,
     pub type_hints: bool,
