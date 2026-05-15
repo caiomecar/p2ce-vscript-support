@@ -1,5 +1,5 @@
 # Portal 2: Community Edition VScript Support
-An VSCode extension made for P2CE VScript support, using the https://github.com/ocet247/tf2-vscript-support (TF2 VScript Support) extension as a base for the language server and logic of the extension itself.
+An VSCode extension made for P2CE VScript support, based on https://github.com/ocet247/tf2-vscript-support (TF2 VScript Support) extension for the language server and logic of the extension itself.
 
 (THIS EXTENSION IS IN A VERY VERY VERY EXPERIMENTAL STATE, SO DON'T EXPECT NO BUGS OR NO CRASHES)
 ## Features
