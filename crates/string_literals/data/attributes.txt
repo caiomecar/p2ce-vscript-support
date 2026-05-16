@@ -1,3 +1,4 @@
+# (THIS STILL NEED TO BE REMADE TO THE P2CE ATTRIBUTES)
 # TF2 item attributes
 # Blank lines and lines starting with # are ignored.
 

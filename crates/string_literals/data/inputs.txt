@@ -1,3 +1,4 @@
+# (THIS STILL NEED TO BE REMADE TO THE P2CE INPUTS)
 # TF2 inputs
 # Blank lines and lines starting with # are ignored.
 

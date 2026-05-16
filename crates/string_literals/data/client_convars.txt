@@ -1,4 +1,4 @@
-# TF2 Client ConVars
+# P2CE Client ConVars
 # Blank lines and lines starting with # are ignored.
 
 _fov

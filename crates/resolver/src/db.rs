@@ -139,7 +139,7 @@ impl VScriptDatabase for Database {
     fn update_game_root(&mut self) {
         let Some(root) = self
             .config
-            .game_root_url
+            .game_root_path
             .as_ref()
             .and_then(|r| r.canonicalize().ok())
         else {
@@ -161,7 +161,7 @@ impl VScriptDatabase for Database {
 
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
         let scripts = self.scripts_url.as_ref().ok_or_else(|| {
-            if self.game_root_path.is_some() {
+            if self.game_root_url.is_some() {
                 "Specified game root path contains no '/scripts/vscripts' directory".to_owned()
             } else {
                 "No game root specified".to_owned()

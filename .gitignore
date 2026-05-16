@@ -3,12 +3,6 @@ editors/code/server/p2ce-vscript-ls.exe
 editors/code/vscript_lib/builtins.nut
 editors/code/vscript_lib/squirrel.nut
 editors/code/vscript_lib/vscript.nut
-gen/classnames.py
-gen/classnames.txt
-gen/entities_p2ce.json
-gen/vscript_docs.server.json
-gen/vscript.nut
-gen/vscript.py
 gen/vscript(edited).nut
 gen/vscript(tf2).nut
 node_modules/.package-lock.json
@@ -25,3 +19,12 @@ node_modules/esbuild/README.md
 node_modules/esbuild/bin/esbuild
 node_modules/esbuild/lib/main.d.ts
 node_modules/esbuild/lib/main.js
+gen/classnames_to_classes.txt
+gen/classnames.txt
+gen/entities_p2ce.json
+gen/vscript_docs.server.json
+gen/vscript.nut
+_old/classnames.py
+_old/vscript.py
+logo.af
+logo.af~lock~

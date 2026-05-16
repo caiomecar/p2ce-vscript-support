@@ -1,4 +1,5 @@
-# TF2 attributes
+# (THIS STILL NEED TO BE REMADE TO THE P2CE OUTPUTS)
+# TF2 outputs
 # Blank lines and lines starting with # are ignored.
 
 AngularVelocity
