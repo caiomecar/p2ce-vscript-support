@@ -148,7 +148,7 @@ impl VScriptDatabase for Database {
             return;
         };
 
-        let scripts = root.join("/scripts/vscripts");
+        let scripts = root.join("scripts/vscripts");
         if scripts.exists() {
             self.load_all_scripts(&scripts);
             self.scripts_url = Url::from_directory_path(&scripts).ok();
@@ -162,7 +162,7 @@ impl VScriptDatabase for Database {
     fn get_script(&self, mut path: PathBuf) -> Result<File, String> {
         let scripts = self.scripts_url.as_ref().ok_or_else(|| {
             if self.game_root_url.is_some() {
-                "Specified game root path contains no '/scripts/vscripts' directory".to_owned()
+                "Specified game root path contains no 'scripts/vscripts' directory".to_owned()
             } else {
                 "No game root specified".to_owned()
             }
